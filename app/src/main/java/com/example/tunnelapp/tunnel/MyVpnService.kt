@@ -189,9 +189,18 @@ class MyVpnService : VpnService() {
 
     private fun registerNetworkWatcher() {
         if (networkCallback != null) return
+        // FIX: sebelumnya request ini cuma minta NOT_VPN + INTERNET --
+        // Android bisa saja masih melaporkan network itu "tersedia" walau
+        // sebenarnya tidak tembus internet beneran (mis. WiFi konek ke
+        // router tapi router-nya sendiri tidak ada koneksi keluar/captive
+        // portal). Tambah VALIDATED di sini supaya onLost()/onAvailable()
+        // memang mengikuti status "device BENERAN online", persis definisi
+        // yang dipakai [hasUsablePhysicalNetwork] di startVpn()/
+        // resumeAfterNetworkReturn() -- dua-duanya sekarang konsisten.
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
@@ -207,6 +216,21 @@ class MyVpnService : VpnService() {
             override fun onAvailable(network: Network) {
                 if (waitingForNetwork) {
                     Log.i(TAG, "Jaringan device kembali tersedia -- mencoba menyambung ulang")
+                    resumeAfterNetworkReturn()
+                }
+            }
+
+            // FIX: onAvailable() bisa terpicu SEBELUM Android selesai
+            // memvalidasi jaringan itu benar-benar tembus internet (mis.
+            // WiFi baru asosiasi, captive portal belum lolos). Kalau
+            // resumeAfterNetworkReturn() di onAvailable() tadi menyerah
+            // karena belum VALIDATED (lihat hasUsablePhysicalNetwork()),
+            // callback ini yang menyusul begitu status validasi jaringan
+            // itu berubah -- tanpa ini, app bisa nyangkut nunggu tanpa ada
+            // pemicu lain sampai user connect manual.
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (waitingForNetwork && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    Log.i(TAG, "Jaringan device tervalidasi tembus internet -- mencoba menyambung ulang")
                     resumeAfterNetworkReturn()
                 }
             }
@@ -226,6 +250,40 @@ class MyVpnService : VpnService() {
             connectivityManager.unregisterNetworkCallback(callback)
         } catch (e: Exception) {
             Log.w(TAG, "Gagal melepas pemantau jaringan (mungkin sudah tidak terdaftar)", e)
+        }
+    }
+
+    /**
+     * FIX (bug "connect manual berhasil padahal internet mati"): sebelumnya
+     * TIDAK ADA pengecekan jaringan SAMA SEKALI sebelum mulai connect --
+     * [startVpn] langsung bikin TUN interface (ini SELALU berhasil, murni
+     * urusan OS, tidak butuh internet beneran) lalu langsung lanjut ke
+     * SSH/Xray. Baru KALAU tunnel itu gagal/tidak tembus baru ketahuan lewat
+     * verifikasi [keepAliveThroughTunnel] di [establishTunnel] -- tapi itu
+     * PASCA-connect, dan bisa saja perlu waktu (timeout socket 8-15 detik di
+     * [ConnectRelay] dsb) sebelum benar-benar dianggap gagal, jadi user bisa
+     * lihat sekilas status transisi yang salah kira "berhasil".
+     * Fungsi ini dipanggil DI AWAL (sebelum bikin TUN sama sekali) supaya
+     * kasus "device benar-benar tidak ada jaringan fisik" (pesawat mode,
+     * data+WiFi off) langsung ketahuan & gagal SEKETIKA, tanpa perlu
+     * menunggu proses SSH/Xray/verifikasi jalan dulu.
+     * Cek SEMUA network yang terdaftar (bukan cuma activeNetwork) dengan
+     * kapabilitas NOT_VPN (jaringan fisik, bukan tunnel kita sendiri) +
+     * INTERNET + VALIDATED (Android sudah konfirmasi jaringan itu BENERAN
+     * tembus ke internet, bukan cuma "connected" ke router/AP tanpa akses
+     * keluar -- kasus umum WiFi tanpa data/captive portal).
+     */
+    private fun hasUsablePhysicalNetwork(): Boolean {
+        return try {
+            connectivityManager.allNetworks.any { network ->
+                val caps = connectivityManager.getNetworkCapabilities(network) ?: return@any false
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal cek status jaringan device, anggap ada (jangan blokir user)", e)
+            true
         }
     }
 
@@ -308,6 +366,24 @@ class MyVpnService : VpnService() {
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
         StatusBus.clearLog()
         StatusBus.initSteps(buildStepsFor(config))
+
+        // --- FIX: gagalkan SEKETIKA kalau device memang tidak punya
+        // jaringan fisik yang tembus internet, SEBELUM bikin TUN interface
+        // & nyoba SSH/Xray sama sekali. Tanpa ini, TUN interface tetap
+        // berhasil dibuat (murni OS, tidak butuh internet) dan proses lanjut
+        // ke SSH/Xray yang baru gagal belakangan (bisa makan waktu beberapa
+        // detik karena timeout socket) -- di jendela itu status sempat
+        // terlihat "berhasil" padahal device sama sekali tidak online. Lihat
+        // [hasUsablePhysicalNetwork].
+        if (!hasUsablePhysicalNetwork()) {
+            Log.w(TAG, "Tidak ada jaringan device yang valid, batalkan percobaan connect")
+            StatusBus.log("Tidak ada koneksi internet di device -- percobaan connect dibatalkan")
+            StatusBus.state.value = "Gagal: tidak ada koneksi internet di device"
+            releaseWakeLock()
+            stopSelf()
+            return
+        }
+
         StatusBus.state.value = "Membuat antarmuka VPN (TUN)..."
         StatusBus.start(StepId.TUN)
 
@@ -642,6 +718,20 @@ class MyVpnService : VpnService() {
         if (stoppingIntentionally) return
         val config = lastConfig ?: return
         if (vpnInterface != null) return // sudah ada yang buat ulang (mis. user tap Connect manual)
+
+        // FIX: sinyal onAvailable() dari Android kadang menandakan jaringan
+        // BARU SAJA konek tapi belum tentu sudah divalidasi tembus internet
+        // (mis. WiFi baru asosiasi tapi captive portal/internet belum
+        // benar-benar jalan) -- pakai pengecekan yang SAMA seperti di
+        // startVpn() supaya tidak nyoba bikin ulang TUN + tunnel kepagian,
+        // yang cuma bakal gagal lagi. Kalau belum valid, tetap
+        // waitingForNetwork = true (biarkan onAvailable() berikutnya,
+        // biasanya menyusul begitu VALIDATED, yang coba lagi).
+        if (!hasUsablePhysicalNetwork()) {
+            Log.w(TAG, "onAvailable() terpicu tapi jaringan belum tervalidasi tembus internet, tunggu lagi")
+            return
+        }
+
         waitingForNetwork = false
 
         StatusBus.log("Jaringan device kembali tersedia -- membuat ulang TUN interface & tunnel...")
