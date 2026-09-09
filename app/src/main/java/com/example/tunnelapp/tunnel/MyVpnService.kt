@@ -13,6 +13,7 @@ import android.util.Log
 import com.example.tunnelapp.DashboardActivity
 import com.example.tunnelapp.R
 import com.example.tunnelapp.model.ServerConfig
+import com.example.tunnelapp.model.GeneralSettingsStore
 import com.example.tunnelapp.model.VpnSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +73,9 @@ class MyVpnService : VpnService() {
         private const val MAX_RECONNECT_ATTEMPTS = 3
         private const val WATCHDOG_INTERVAL_MS = 10_000L
         private const val WATCHDOG_PROBE_TIMEOUT_MS = 3000
+
+        // --- "Auto Ping" (Pengaturan Dasar, terpisah dari VPN Setting) ---
+        private const val PING_TIMEOUT_MS = 5000
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -79,6 +83,18 @@ class MyVpnService : VpnService() {
     // diambil dari VpnSettingsStore sekali di startVpn() supaya kedua sisi
     // pasti konsisten walau user ganti nilainya di tengah sesi tunnel aktif.
     private var currentMtu: Int = com.example.tunnelapp.model.VpnSettings.DEFAULT_MTU
+    // Diambil dari VpnSettingsStore.autoReconnect sekali di startVpn(),
+    // dicek di scheduleReconnectOrGiveUp() -- kalau false, tunnel yang mati
+    // sendiri LANGSUNG di-stopVpn() tanpa retry sama sekali (bukan cuma
+    // MAX_RECONNECT_ATTEMPTS diset 0, supaya pesan status ke user juga beda:
+    // "auto reconnect nonaktif" vs "reconnect otomatis gagal").
+    private var currentAutoReconnect: Boolean = true
+    // Diambil dari GeneralSettingsStore.load() sekali di startVpn() -- MURNI
+    // "Pengaturan Dasar", sengaja TIDAK dicampur ke VpnSettingsStore
+    // (lihat GeneralSettingsStore) sesuai permintaan awal fitur ini.
+    private var currentAutoPingEnabled: Boolean = false
+    private var currentPingIntervalSeconds: Int = com.example.tunnelapp.model.GeneralSettings.DEFAULT_PING_INTERVAL_SECONDS
+    private var pingJob: kotlinx.coroutines.Job? = null
     // Non-null selama fitur "Keep CPU Awake" (VpnSettingsStore.keepCpuAwake)
     // aktif -- dipegang dari startVpn() sampai stopVpn(), mencegah CPU masuk
     // deep sleep (WAJIB PARTIAL_WAKE_LOCK, bukan varian yang menyalakan layar)
@@ -178,7 +194,12 @@ class MyVpnService : VpnService() {
 
         val vpnSettings = VpnSettingsStore.load(this)
         currentMtu = vpnSettings.mtu
+        currentAutoReconnect = vpnSettings.autoReconnect
         acquireWakeLockIfNeeded(vpnSettings.keepCpuAwake)
+
+        val generalSettings = GeneralSettingsStore.load(this)
+        currentAutoPingEnabled = generalSettings.autoPingEnabled
+        currentPingIntervalSeconds = generalSettings.pingIntervalSeconds
 
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
         StatusBus.clearLog()
@@ -321,6 +342,7 @@ class MyVpnService : VpnService() {
                 reconnectAttempt = 0
                 handlingDeath.set(false)
                 startWatchdog(config)
+                startPingLoop(config)
 
                 StatusBus.state.value = "Tunnel aktif — semua trafik device lewat SSH"
                 updateNotification("Tunnel aktif (${config.host})")
@@ -361,6 +383,8 @@ class MyVpnService : VpnService() {
 
         Log.w(TAG, "Tunnel mati sendiri: $reason")
         watchdogJob?.cancel()
+        pingJob?.cancel()
+        pingJob = null
 
         // Bongkar SSH/Xray + tun engine yang mati itu -- TUN interface
         // (vpnInterface) SENGAJA DIBIARKAN HIDUP supaya reconnect tidak perlu
@@ -376,6 +400,13 @@ class MyVpnService : VpnService() {
     private fun scheduleReconnectOrGiveUp(reason: String) {
         val config = lastConfig
         if (config == null) {
+            stopVpn()
+            return
+        }
+
+        if (!currentAutoReconnect) {
+            StatusBus.log("Tunnel terputus ($reason) -- auto reconnect nonaktif (VPN Setting), tidak mencoba nyambung ulang")
+            StatusBus.state.value = "Terputus: tunnel mati ($reason), auto reconnect nonaktif"
             stopVpn()
             return
         }
@@ -433,6 +464,58 @@ class MyVpnService : VpnService() {
         false
     }
 
+    /**
+     * "Auto Ping" (kartu "Pengaturan Dasar" -- SENGAJA TERPISAH dari kartu
+     * "VPN Setting", lihat [GeneralSettingsStore]). Beda tujuan dari
+     * [startWatchdog]: watchdog ngecek SOCKS5 LOKAL buat trigger reconnect
+     * otomatis, ini ngecek [ServerConfig.host] ASLI di internet buat kasih
+     * info latency/kualitas koneksi ke user lewat [StatusBus.log] (layar Log
+     * Koneksi) -- murni informatif, TIDAK memicu reconnect apa pun.
+     * No-op kalau [currentAutoPingEnabled] mati.
+     */
+    private fun startPingLoop(config: ServerConfig) {
+        pingJob?.cancel()
+        pingJob = null
+        if (!currentAutoPingEnabled) return
+
+        val intervalMs = currentPingIntervalSeconds.coerceIn(
+            com.example.tunnelapp.model.GeneralSettings.MIN_PING_INTERVAL_SECONDS,
+            com.example.tunnelapp.model.GeneralSettings.MAX_PING_INTERVAL_SECONDS
+        ) * 1000L
+
+        pingJob = serviceScope.launch {
+            while (isActive) {
+                delay(intervalMs)
+                if (stoppingIntentionally) break
+                val elapsedMs = pingHost(config.host, config.port)
+                if (elapsedMs != null) {
+                    StatusBus.log("Auto Ping: ${config.host}:${config.port} balas dalam ${elapsedMs}ms")
+                } else {
+                    StatusBus.log("Auto Ping: ${config.host}:${config.port} tidak merespons (timeout ${PING_TIMEOUT_MS}ms)")
+                }
+            }
+        }
+    }
+
+    /**
+     * Ukur round-trip lewat TCP connect (bukan ICMP -- app pihak ketiga di
+     * Android non-root umumnya tidak bisa buka raw ICMP socket) ke
+     * [host]:[port] ASLI di internet (di luar TUN interface, makanya WAJIB
+     * [protect] dulu -- persis seperti socket kontrol SSH/Xray, supaya
+     * paketnya tidak nyasar masuk ke TUN interface kita sendiri dan bikin
+     * loop routing).
+     */
+    private fun pingHost(host: String, port: Int): Long? = try {
+        Socket().use { socket ->
+            protect(socket)
+            val start = System.currentTimeMillis()
+            socket.connect(InetSocketAddress(host, port), PING_TIMEOUT_MS)
+            System.currentTimeMillis() - start
+        }
+    } catch (e: Exception) {
+        null
+    }
+
     /** Menjalankan [HevSocks5Engine], satu-satunya [TunEngine] yang dipakai app ini. */
     private fun startTunEngine(config: ServerConfig) {
         val fd = vpnInterface?.fd ?: throw IllegalStateException("TUN interface belum siap")
@@ -463,6 +546,8 @@ class MyVpnService : VpnService() {
         stoppingIntentionally = true
         watchdogJob?.cancel()
         watchdogJob = null
+        pingJob?.cancel()
+        pingJob = null
         releaseWakeLock()
         // Batalkan proses connect/reconnect yang mungkin masih jalan di
         // serviceScope -- TIDAK memengaruhi shutdownScope di bawah (scope beda).

@@ -21,7 +21,11 @@ data class VpnSettings(
     val dns1: String = "",
     val dns2: String = "",
     val mtu: Int = DEFAULT_MTU,
-    val keepCpuAwake: Boolean = false
+    val keepCpuAwake: Boolean = false,
+    // Nyambung ulang otomatis kalau tunnel putus sendiri (lihat
+    // MyVpnService.scheduleReconnectOrGiveUp). Default true supaya perilaku
+    // lama (sebelum toggle ini ada) tidak berubah buat user yang sudah pakai.
+    val autoReconnect: Boolean = true
 ) {
     companion object {
         const val DEFAULT_MTU = 1500
@@ -38,6 +42,7 @@ object VpnSettingsStore {
     private const val KEY_DNS2 = "vpn_dns2"
     private const val KEY_MTU = "vpn_mtu"
     private const val KEY_KEEP_CPU_AWAKE = "vpn_keep_cpu_awake"
+    private const val KEY_AUTO_RECONNECT = "vpn_auto_reconnect"
 
     fun load(context: Context): VpnSettings {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -45,7 +50,8 @@ object VpnSettingsStore {
             dns1 = prefs.getString(KEY_DNS1, "").orEmpty(),
             dns2 = prefs.getString(KEY_DNS2, "").orEmpty(),
             mtu = prefs.getInt(KEY_MTU, VpnSettings.DEFAULT_MTU),
-            keepCpuAwake = prefs.getBoolean(KEY_KEEP_CPU_AWAKE, false)
+            keepCpuAwake = prefs.getBoolean(KEY_KEEP_CPU_AWAKE, false),
+            autoReconnect = prefs.getBoolean(KEY_AUTO_RECONNECT, true)
         )
     }
 
@@ -56,6 +62,7 @@ object VpnSettingsStore {
             .putString(KEY_DNS2, settings.dns2)
             .putInt(KEY_MTU, settings.mtu)
             .putBoolean(KEY_KEEP_CPU_AWAKE, settings.keepCpuAwake)
+            .putBoolean(KEY_AUTO_RECONNECT, settings.autoReconnect)
             .apply()
     }
 }

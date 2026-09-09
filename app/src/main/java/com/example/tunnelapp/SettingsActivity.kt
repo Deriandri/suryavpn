@@ -7,18 +7,23 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.util.Patterns
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.tunnelapp.databinding.ActivitySettingsBinding
+import com.example.tunnelapp.model.GeneralSettings
+import com.example.tunnelapp.model.GeneralSettingsStore
 import com.example.tunnelapp.model.VpnSettings
 import com.example.tunnelapp.model.VpnSettingsStore
 
 /**
  * Layar Pengaturan, dibuka lewat tab "Pengaturan" di bilah navigasi bawah
- * (lihat [DashboardActivity.setupBottomNav]). Isinya kartu "VPN Setting"
- * (DNS/MTU/keep-CPU-awake/battery usage global, lihat [VpnSettingsStore])
- * plus info versi aplikasi.
+ * (lihat [DashboardActivity.setupBottomNav]). Isinya dua kartu independen:
+ * "Pengaturan Dasar" (auto ping, lihat [GeneralSettingsStore] -- SENGAJA
+ * TERPISAH dari VPN Setting sesuai permintaan awal fitur ini) dan
+ * "VPN Setting" (DNS/MTU/keep-CPU-awake/auto-reconnect/battery usage, lihat
+ * [VpnSettingsStore]), plus info versi aplikasi.
  *
  * Catatan: kartu "Konfigurasi Server" (SSH & Xray) yang dulu ada di sini
  * SUDAH DIHAPUS -- akses ke Konfigurasi SSH/Xray tetap ada lewat kartu
@@ -26,6 +31,10 @@ import com.example.tunnelapp.model.VpnSettingsStore
  * jadi tidak ada fungsi yang hilang, cuma tidak didobelkan di sini.
  */
 class SettingsActivity : AppCompatActivity() {
+
+    companion object {
+        private const val TAG = "SettingsActivity"
+    }
 
     private lateinit var binding: ActivitySettingsBinding
 
@@ -38,9 +47,42 @@ class SettingsActivity : AppCompatActivity() {
         binding.btnSaveVpnSetting.setOnClickListener { saveVpnSettingsFromForm() }
         binding.btnBatteryUsage.setOnClickListener { requestIgnoreBatteryOptimizations() }
 
+        loadGeneralSettingsIntoForm()
+        binding.btnSaveGeneralSetting.setOnClickListener { saveGeneralSettingsFromForm() }
+
         binding.tvAppVersion.text = "TunnelApp — versi ${appVersionName()}"
 
         setupBottomNav()
+    }
+
+    /** Isi form Pengaturan Dasar dari [GeneralSettingsStore]. */
+    private fun loadGeneralSettingsIntoForm() {
+        val settings = GeneralSettingsStore.load(this)
+        binding.switchAutoPing.isChecked = settings.autoPingEnabled
+        binding.etPingInterval.setText(settings.pingIntervalSeconds.toString())
+    }
+
+    /** Validasi ringan lalu simpan ke [GeneralSettingsStore]. */
+    private fun saveGeneralSettingsFromForm() {
+        val intervalText = binding.etPingInterval.text.toString().trim()
+        val interval = intervalText.toIntOrNull()
+        if (intervalText.isEmpty() || interval == null ||
+            interval < GeneralSettings.MIN_PING_INTERVAL_SECONDS ||
+            interval > GeneralSettings.MAX_PING_INTERVAL_SECONDS
+        ) {
+            binding.etPingInterval.error =
+                "Interval harus angka ${GeneralSettings.MIN_PING_INTERVAL_SECONDS}-${GeneralSettings.MAX_PING_INTERVAL_SECONDS} detik"
+            return
+        }
+
+        GeneralSettingsStore.save(
+            this,
+            GeneralSettings(
+                autoPingEnabled = binding.switchAutoPing.isChecked,
+                pingIntervalSeconds = interval
+            )
+        )
+        Toast.makeText(this, "Pengaturan Dasar disimpan", Toast.LENGTH_SHORT).show()
     }
 
     /**
@@ -82,31 +124,55 @@ class SettingsActivity : AppCompatActivity() {
 
     /**
      * Minta pengecualian dari Doze/App Standby lewat dialog sistem langsung
-     * (ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) -- BUKAN sekadar buka
+     * (ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS) — BUKAN sekadar buka
      * halaman pengaturan baterai app (ACTION_APPLICATION_DETAILS_SETTINGS),
-     * supaya user tinggal tap "Izinkan" tanpa navigasi manual. Beberapa OEM
-     * (mis. custom ROM yang mengunci intent ini) bisa saja tidak
-     * mendukungnya -- ditangkap & fallback ke halaman detail app supaya
-     * tombol tidak diam saja kalau tetap ditap.
+     * supaya user tinggal tap "Izinkan" tanpa navigasi manual.
+     *
+     * Catatan OEM (Xiaomi/MIUI, Oppo/ColorOS, dll): custom ROM ini sering
+     * TIDAK menampilkan dialog AOSP di atas sama sekali walau intent-nya
+     * berhasil di-start tanpa exception (bukan crash, cuma sistem custom
+     * ROM-nya sendiri yang mengabaikan) -- pengecualian baterai di ROM
+     * begini biasanya harus diaktifkan manual lewat app "Keamanan"/"Security"
+     * bawaan (mis. MIUI: Keamanan > Baterai > App battery saver > pilih app
+     * ini > "Tanpa batasan"). Ini keterbatasan platform, bukan sesuatu yang
+     * bisa dipaksa dari kode app pihak ketiga. Toast di bawah cuma menutupi
+     * kasus intent-nya sendiri gagal di-resolve (exception) -- BUKAN kasus
+     * dialog custom-ROM yang senyap.
      */
     private fun requestIgnoreBatteryOptimizations() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
-        try {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:$packageName")
-            }
-            startActivity(intent)
-        } catch (e: Exception) {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:$packageName")
+        }
+        if (intent.resolveActivity(packageManager) != null) {
             try {
-                startActivity(
-                    Intent(
-                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        Uri.parse("package:$packageName")
-                    )
-                )
-            } catch (e2: Exception) {
-                Toast.makeText(this, "Tidak bisa membuka pengaturan baterai di device ini", Toast.LENGTH_SHORT).show()
+                startActivity(intent)
+                return
+            } catch (e: Exception) {
+                Log.e(TAG, "ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS gagal dijalankan", e)
             }
+        } else {
+            Log.w(TAG, "ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS tidak didukung device ini")
+        }
+
+        // Fallback: intent di atas tidak ada yang menangani / gagal dijalankan
+        // -- arahkan ke halaman detail app, minimal user bisa cari menu
+        // baterai manual dari sana.
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName")
+                )
+            )
+            Toast.makeText(
+                this,
+                "Dialog izin baterai tidak tersedia di device ini -- cari menu baterai manual di halaman ini, atau di app Keamanan/Security bawaan HP",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e2: Exception) {
+            Log.e(TAG, "ACTION_APPLICATION_DETAILS_SETTINGS juga gagal", e2)
+            Toast.makeText(this, "Tidak bisa membuka pengaturan baterai di device ini", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -117,6 +183,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.etVpnDns2.setText(settings.dns2)
         binding.etVpnMtu.setText(settings.mtu.toString())
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
+        binding.switchAutoReconnect.isChecked = settings.autoReconnect
     }
 
     /**
@@ -150,7 +217,8 @@ class SettingsActivity : AppCompatActivity() {
                 dns1 = dns1,
                 dns2 = dns2,
                 mtu = mtu,
-                keepCpuAwake = binding.switchKeepAwake.isChecked
+                keepCpuAwake = binding.switchKeepAwake.isChecked,
+                autoReconnect = binding.switchAutoReconnect.isChecked
             )
         )
         Toast.makeText(this, "VPN Setting disimpan", Toast.LENGTH_SHORT).show()
