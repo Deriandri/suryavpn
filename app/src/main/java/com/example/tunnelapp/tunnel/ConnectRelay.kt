@@ -9,9 +9,14 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.charset.StandardCharsets
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
 import javax.net.ssl.SNIHostName
+import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 /**
  * Relay lokal satu-koneksi di 127.0.0.1.
@@ -44,6 +49,32 @@ class ConnectRelay(
         // di-reset ke 0 (tanpa batas) sebelum socket dipakai untuk trafik tunnel
         // asli, supaya tunnel yang sedang idle tidak ikut ke-timeout.
         private const val HANDSHAKE_READ_TIMEOUT_MS = 8000
+
+        // --- Dipakai HANYA kalau ServerConfig.ignoreCertErrors = true ---
+        // TrustManager yang menerima SEMUA sertifikat server apa adanya (tanpa
+        // validasi chain/tanggal/hostname sama sekali). Ini SENGAJA tidak aman
+        // secara TLS asli -- tujuannya cuma supaya handshake tetap jalan ke
+        // server yang pakai sertifikat self-signed/expired/nama tidak cocok
+        // (umum di server SSH/bug-host komunitas), sama seperti perilaku
+        // DarkTunnel/HTTP Custom yang juga tidak pernah benar-benar validasi
+        // sertifikat server tujuannya. TIDAK dipakai kalau ignoreCertErrors
+        // false (default) -- jalur situ tetap pakai SSLSocketFactory.getDefault()
+        // yang validasi normal via trust store sistem.
+        private val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        })
+
+        private val insecureSocketFactory: SSLSocketFactory by lazy {
+            SSLContext.getInstance("TLS").apply {
+                init(null, trustAllCerts, SecureRandom())
+            }.socketFactory
+        }
+
+        /** @return factory sesuai [ServerConfig.ignoreCertErrors] -- default (aman) atau trust-all. */
+        private fun socketFactoryFor(ignoreCertErrors: Boolean): SSLSocketFactory =
+            if (ignoreCertErrors) insecureSocketFactory else SSLSocketFactory.getDefault() as SSLSocketFactory
     }
 
     private var serverSocket: ServerSocket? = null
@@ -197,10 +228,11 @@ class ConnectRelay(
             StatusBus.start(StepId.TLS)
             try {
                 val sniHost = config.sslSni?.takeIf { it.isNotBlank() } ?: config.host
-                // SSLSocketFactory.getDefault() punya tipe return SocketFactory (parent class)
-                // walau isinya sebenarnya SSLSocketFactory -- wajib di-cast supaya overload
-                // createSocket(Socket, String, Int, Boolean) kelihatan oleh compiler.
-                val sslSocket = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                // SSLSocketFactory.getDefault() (atau insecureSocketFactory kalau
+                // config.ignoreCertErrors true) punya tipe return SocketFactory (parent
+                // class) walau isinya sebenarnya SSLSocketFactory -- wajib di-cast supaya
+                // overload createSocket(Socket, String, Int, Boolean) kelihatan oleh compiler.
+                val sslSocket = socketFactoryFor(config.ignoreCertErrors)
                     .createSocket(rawSocket, sniHost, rawSocket.port, true) as SSLSocket
                 val params = sslSocket.sslParameters
                 params.serverNames = listOf(SNIHostName(sniHost))
@@ -228,6 +260,8 @@ class ConnectRelay(
 
                 sslSocket.startHandshake()
                 Log.i(TAG, "TLS handshake sukses (SNI: $sniHost)")
+                val certNote = if (config.ignoreCertErrors) ", verifikasi sertifikat DINONAKTIFKAN" else ""
+                StatusBus.log("TLS handshake sukses (SNI: $sniHost, ${sslSocket.session.protocol}$certNote)")
                 StatusBus.success(StepId.TLS)
                 sslSocket
             } catch (e: Exception) {
@@ -261,6 +295,10 @@ class ConnectRelay(
                 val chunks = substituted.split("[split]")
                 for (chunk in chunks) {
                     if (chunk.isEmpty()) continue
+                    // Log baris ini APA ADANYA (isi payload yang betul-betul dikirim ke
+                    // socket, cuma \r\n ditulis balik jadi "[crlf]" biar kebaca di layar
+                    // -- sama seperti tampilan DarkTunnel), bukan teks pura-pura.
+                    StatusBus.log("Sending Payload: ${chunk.replace("\r\n", "[crlf]")}")
                     out.write(chunk.toByteArray(StandardCharsets.UTF_8))
                     out.flush()
                 }
@@ -268,6 +306,25 @@ class ConnectRelay(
                 StatusBus.success(StepId.PAYLOAD)
             } catch (e: Exception) {
                 StatusBus.fail(StepId.PAYLOAD, e.message ?: e.javaClass.simpleName)
+                throw e
+            }
+
+            // PENTING (bukan kosmetik -- ini bug-fix sekaligus sumber log "Response: ...").
+            // Server/CDN tujuan bisa saja membalas satu atau lebih baris non-SSH dulu
+            // (respons HTTP dari request di payload, mis. "404 Not Found" untuk request
+            // pertama, lalu "101 Switching Protocols" untuk request Upgrade) SEBELUM baris
+            // banner SSH asli ("SSH-2.0-...") benar-benar mulai. RFC 4253 §4.2 memang
+            // mengizinkan baris pembuka seperti itu, dan client WAJIB membuang baris yang
+            // TIDAK diawali "SSH-" sampai baris identifikasi asli ditemukan. Sebelumnya
+            // kode ini langsung menyerahkan socket ke trilead-ssh2 tanpa membuang baris
+            // itu -- trilead bisa salah mem-parsing baris HTTP itu sebagai banner dan
+            // gagal. Sekarang kita yang membaca & membuang baris-baris itu SENDIRI, sambil
+            // mencatatnya sebagai log -- baru socket yang bersih (persis mulai dari
+            // "SSH-2.0-...") diserahkan ke trilead-ssh2.
+            try {
+                consumeUntilSshBanner(socket.getInputStream())
+            } catch (e: Exception) {
+                StatusBus.fail(StepId.PAYLOAD, "Server tidak mengirim banner SSH setelah payload: ${e.message}")
                 throw e
             }
         }
@@ -286,7 +343,7 @@ class ConnectRelay(
             val wsHost = config.sslSni?.takeIf { it.isNotBlank() } ?: config.host
             val wsPath = config.wsPath?.takeIf { it.isNotBlank() } ?: "/"
             try {
-                WebSocketHandshake.perform(socket, wsHost, wsPath)
+                WebSocketHandshake.perform(socket, wsHost, wsPath, config.parsedCustomHeaders())
                 Log.i(TAG, "Handshake WebSocket sukses (host: $wsHost, path: $wsPath)")
                 StatusBus.success(StepId.WEBSOCKET)
                 // Fase handshake selesai -- kembalikan ke tanpa batas waktu supaya
@@ -325,10 +382,18 @@ class ConnectRelay(
     @Throws(IOException::class)
     private fun sendProxyConnect(rawSocket: Socket) {
         val target = "${config.host}:${config.port}"
+        // Header custom (kalau diisi user, lihat ServerConfig.customHeaders) disisipkan
+        // SEBELUM baris kosong penutup "\r\n\r\n" -- jadi tetap dianggap bagian header
+        // oleh proxy, bukan bagian body. Header bawaan (Host, Proxy-Connection,
+        // Connection) tetap selalu dikirim apa adanya; header custom cuma tambahan.
+        val extraHeaderLines = config.parsedCustomHeaders()
+            .joinToString("") { (name, value) -> "$name: $value\r\n" }
         val request = "CONNECT $target HTTP/1.1\r\n" +
             "Host: $target\r\n" +
             "Proxy-Connection: Keep-Alive\r\n" +
-            "Connection: Keep-Alive\r\n\r\n"
+            "Connection: Keep-Alive\r\n" +
+            extraHeaderLines +
+            "\r\n"
 
         rawSocket.getOutputStream().apply {
             write(request.toByteArray(StandardCharsets.US_ASCII))
@@ -347,9 +412,49 @@ class ConnectRelay(
         val isSuccess = Regex("""^HTTP/\d\.\d\s+200\b""").containsMatchIn(statusLine)
         if (!isSuccess) {
             val shown = statusLine.ifBlank { "tidak ada respons dari proxy" }
+            StatusBus.log("Response: $shown")
             throw IOException("Proxy menolak CONNECT ke $target: $shown")
         }
+        StatusBus.log("Response: $statusLine")
         Log.i(TAG, "Proxy CONNECT ke $target sukses ($statusLine)")
+    }
+
+    /**
+     * Baca stream byte demi byte (WAJIB byte demi byte, bukan buffered read --
+     * supaya tidak "memakan" byte binari SSH pertama yang datang tepat setelah
+     * baris banner) sampai ketemu baris yang diawali "SSH-". Setiap baris
+     * non-SSH yang dilewati dicatat ke [StatusBus.log] kalau memang terlihat
+     * seperti baris respons HTTP (diawali "HTTP/"), sama seperti DarkTunnel
+     * menampilkan "Response: HTTP/1.1 404 Not Found" / "101 Switching
+     * Protocols". Baris SSH banner asli yang ditemukan di akhir juga dicatat.
+     */
+    @Throws(IOException::class)
+    private fun consumeUntilSshBanner(input: InputStream) {
+        val lineBuf = ByteArrayOutputStream()
+        var linesSeen = 0
+        val maxLines = 25 // batas wajar, hindari loop tanpa akhir kalau server nyeleneh
+        while (linesSeen < maxLines) {
+            val b = input.read()
+            if (b == -1) throw IOException("Koneksi ditutup server sebelum mengirim banner SSH")
+            if (b == '\n'.code) {
+                val line = lineBuf.toByteArray().toString(StandardCharsets.ISO_8859_1).trimEnd('\r')
+                lineBuf.reset()
+                linesSeen++
+                if (line.startsWith("SSH-")) {
+                    StatusBus.log(line)
+                    return
+                }
+                if (line.isNotBlank() && Regex("""^HTTP/\d\.\d\s+\d{3}""").containsMatchIn(line)) {
+                    StatusBus.log("Response: $line")
+                }
+                // Baris lain (header HTTP seperti "Upgrade: websocket", dll) sengaja
+                // tidak ditampilkan supaya log tidak penuh sampah, tapi tetap DIBUANG
+                // dari stream di sini (itu intinya fungsi ini).
+            } else {
+                lineBuf.write(b)
+            }
+        }
+        throw IOException("Tidak menemukan banner SSH setelah $maxLines baris respons non-SSH")
     }
 
     private fun readUntilDoubleCrlf(input: InputStream): ByteArray {

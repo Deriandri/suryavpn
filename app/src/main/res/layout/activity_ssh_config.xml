@@ -304,6 +304,16 @@
                     </com.google.android.material.chip.ChipGroup>
                 </LinearLayout>
 
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipIgnoreCertErrors"
+                    style="@style/Widget.TunnelApp.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:checkable="true"
+                    android:text="Abaikan error sertifikat TLS (self-signed)"
+                    android:visibility="gone" />
+
                 <LinearLayout
                     android:id="@+id/containerProxy"
                     android:layout_width="match_parent"
@@ -390,6 +400,99 @@
                         android:autofillHints="" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- Header HTTP custom -- berlaku untuk request CONNECT proxy DAN
+                     handshake WebSocket genuine (lihat ServerConfig.customHeaders).
+                     Selalu ditampilkan (tidak digantung ke mode tertentu) sama
+                     seperti field Path WebSocket di atas, karena keduanya independen
+                     dari mode koneksi yang dipilih. -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilCustomHeaders"
+                    style="@style/Field.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="Header HTTP tambahan (opsional), 1 per baris, contoh: X-Online-Host: [host]">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etCustomHeaders"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textMultiLine"
+                        android:minLines="2"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:autofillHints="" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Card: DNS -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/Card.Section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/SectionTitleText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="DNS" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Berlaku untuk profil SSH maupun Xray. Kosongkan untuk pakai default (1.1.1.1)."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="8dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="8dp"
+                        android:hint="DNS 1 (mis. 1.1.1.1)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etDns1"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="DNS 2 (opsional)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etDns2"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

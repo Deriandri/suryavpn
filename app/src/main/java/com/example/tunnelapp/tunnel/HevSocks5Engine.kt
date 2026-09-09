@@ -21,7 +21,17 @@ class HevSocks5Engine : TunEngine {
 
     private var thread: Thread? = null
 
-    override fun start(tunFd: Int, tunAddress: String, mtu: Int, socksHost: String, socksPort: Int) {
+    /**
+     * PENTING: dicek di dalam thread native sebelum memanggil [onUnexpectedStop].
+     * Kalau true, berarti [stop] memang sengaja dipanggil (user disconnect,
+     * atau MyVpnService lagi bikin ulang tunnel buat reconnect) -- BUKAN
+     * kematian tak terduga, jadi callback TIDAK dipanggil.
+     */
+    @Volatile
+    private var stoppedByUs = false
+
+    override fun start(tunFd: Int, tunAddress: String, mtu: Int, socksHost: String, socksPort: Int, onUnexpectedStop: (() -> Unit)?) {
+        stoppedByUs = false
         val yamlConfig = """
             tunnel:
               name: tun0
@@ -39,10 +49,18 @@ class HevSocks5Engine : TunEngine {
         thread = Thread({
             val result = HevSocks5Bridge.startTunnel(yamlConfig, tunFd)
             Log.i(TAG, "hev-socks5-tunnel berhenti, kode: $result")
+            if (!stoppedByUs) {
+                // Engine berhenti sendiri (bukan diminta stop()) -- native lib exit
+                // atau socket ke SOCKS5 lokal putus fatal. Ini persis kondisi
+                // "tunnel mati sendiri" yang mau dideteksi.
+                Log.w(TAG, "hev-socks5-tunnel berhenti TAK TERDUGA (kode $result)")
+                onUnexpectedStop?.invoke()
+            }
         }, "hev-socks5-tunnel").apply { start() }
     }
 
     override fun stop() {
+        stoppedByUs = true
         val t = thread ?: return
         HevSocks5Bridge.stopTunnel()
         try {

@@ -25,9 +25,21 @@ interface TunEngine {
      * @param socksHost host SOCKS5 tujuan, selalu "127.0.0.1" di app ini
      * @param socksPort port SOCKS5 tujuan -- disediakan oleh SshTunnelManager
      *                  ATAU XrayTunnelManager tergantung [com.example.tunnelapp.model.ServerConfig.mode]
+     * @param onUnexpectedStop dipanggil (dari thread APAPUN, implementasi caller wajib thread-safe)
+     *   kalau engine berhenti SENDIRI di tengah jalan (native lib exit, socket
+     *   fatal error, dll) -- BUKAN karena [stop] dipanggil. Dipakai [MyVpnService]
+     *   untuk mendeteksi "tunnel mati sendiri" dan memicu reconnect otomatis.
+     *   Null = tidak ada yang peduli (dipakai test/pemanggil lama).
      */
     @Throws(Exception::class)
-    fun start(tunFd: Int, tunAddress: String, mtu: Int, socksHost: String, socksPort: Int)
+    fun start(
+        tunFd: Int,
+        tunAddress: String,
+        mtu: Int,
+        socksHost: String,
+        socksPort: Int,
+        onUnexpectedStop: (() -> Unit)? = null
+    )
 
     /** Hentikan engine yang sedang berjalan. Aman dipanggil berkali-kali / sebelum start(). */
     fun stop()

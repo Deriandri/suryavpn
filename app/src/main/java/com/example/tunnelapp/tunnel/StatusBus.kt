@@ -16,6 +16,28 @@ object StatusBus {
     val state = MutableStateFlow("Belum tersambung")
     val steps = MutableStateFlow<List<ConnectionStep>>(emptyList())
 
+    /**
+     * Log mentah real-time ala terminal (gaya DarkTunnel): setiap baris di sini
+     * berasal dari event ASLI yang benar-benar terjadi di socket (payload yang
+     * betul-betul ditulis ke stream, baris respons yang betul-betul dibaca dari
+     * server, banner SSH asli, dll) -- lihat pemanggil [log] di ConnectRelay.kt
+     * dan SshTunnelManager.kt. Bukan teks statis/hiasan.
+     */
+    private const val MAX_LOG_LINES = 300
+    val liveLog = MutableStateFlow<List<String>>(emptyList())
+    private val timeFormat = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+
+    /** Tambah satu baris log mentah, diberi timestamp "[HH:mm:ss]" sama seperti DarkTunnel. */
+    fun log(line: String) {
+        val stamped = "[${timeFormat.format(java.util.Date())}] $line"
+        val next = liveLog.value + stamped
+        liveLog.value = if (next.size > MAX_LOG_LINES) next.takeLast(MAX_LOG_LINES) else next
+    }
+
+    fun clearLog() {
+        liveLog.value = emptyList()
+    }
+
     fun initSteps(newSteps: List<ConnectionStep>) {
         steps.value = newSteps
     }
@@ -47,5 +69,6 @@ object StatusBus {
     fun reset() {
         steps.value = emptyList()
         state.value = "Belum tersambung"
+        clearLog()
     }
 }

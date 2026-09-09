@@ -15,7 +15,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * VpnService lengkap: SSH/Xray + bridging TUN<->SOCKS5 lewat [HevSocks5Engine]
@@ -48,11 +53,21 @@ class MyVpnService : VpnService() {
         const val EXTRA_WS_PATH = "extra_ws_path"
         const val EXTRA_PROXY_RAW_MODE = "extra_proxy_raw_mode"
         const val EXTRA_XRAY_LINK = "extra_xray_link"
+        const val EXTRA_CUSTOM_HEADERS = "extra_custom_headers"
+        const val EXTRA_IGNORE_CERT_ERRORS = "extra_ignore_cert_errors"
+        const val EXTRA_DNS1 = "extra_dns1"
+        const val EXTRA_DNS2 = "extra_dns2"
 
         private const val NOTIFICATION_CHANNEL_ID = "vpn_service_channel"
         private const val NOTIFICATION_ID = 1
         private const val TUN_ADDRESS = "10.10.0.2"
         private const val TUN_MTU = 1500
+        private const val DEFAULT_DNS = "1.1.1.1"
+
+        // --- Deteksi & reconnect otomatis kalau tunnel mati sendiri ---
+        private const val MAX_RECONNECT_ATTEMPTS = 3
+        private const val WATCHDOG_INTERVAL_MS = 10_000L
+        private const val WATCHDOG_PROBE_TIMEOUT_MS = 3000
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -61,6 +76,22 @@ class MyVpnService : VpnService() {
     private val sshTunnelManager = SshTunnelManager()
     private val xrayTunnelManager by lazy { XrayTunnelManager(this) }
     private var tunEngine: TunEngine? = null
+
+    // Config terakhir yang berhasil/sedang dicoba -- dipakai untuk reconnect
+    // otomatis tanpa perlu minta izin VPN ke user lagi (TUN interface yang
+    // sudah establish() dibiarkan hidup selama proses reconnect).
+    private var lastConfig: ServerConfig? = null
+    private var reconnectAttempt = 0
+    // true selama proses stop yang memang DIMINTA (user disconnect, atau kita
+    // sendiri lagi membongkar tunnel di tengah reconnect) -- dicek di
+    // handleTunnelDeath supaya penutupan socket yang kita sengaja tidak
+    // disalahartikan sebagai "tunnel mati sendiri".
+    @Volatile
+    private var stoppingIntentionally = false
+    // Mencegah beberapa sinyal kematian (hev engine + SSH monitor + watchdog)
+    // yang datang hampir bersamaan memicu reconnect dobel.
+    private val handlingDeath = AtomicBoolean(false)
+    private var watchdogJob: kotlinx.coroutines.Job? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -92,7 +123,11 @@ class MyVpnService : VpnService() {
                     useWebSocket = intent.getBooleanExtra(EXTRA_WEBSOCKET_ENABLED, false),
                     wsPath = intent.getStringExtra(EXTRA_WS_PATH),
                     proxyRawMode = intent.getBooleanExtra(EXTRA_PROXY_RAW_MODE, false),
-                    xrayLink = intent.getStringExtra(EXTRA_XRAY_LINK)
+                    xrayLink = intent.getStringExtra(EXTRA_XRAY_LINK),
+                    customHeaders = intent.getStringExtra(EXTRA_CUSTOM_HEADERS),
+                    ignoreCertErrors = intent.getBooleanExtra(EXTRA_IGNORE_CERT_ERRORS, false),
+                    dns1 = intent.getStringExtra(EXTRA_DNS1),
+                    dns2 = intent.getStringExtra(EXTRA_DNS2)
                 )
                 startVpn(config)
                 return START_STICKY
@@ -107,7 +142,13 @@ class MyVpnService : VpnService() {
             return
         }
 
+        lastConfig = config
+        reconnectAttempt = 0
+        stoppingIntentionally = false
+        handlingDeath.set(false)
+
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
+        StatusBus.clearLog()
         StatusBus.initSteps(buildStepsFor(config))
         StatusBus.state.value = "Membuat antarmuka VPN (TUN)..."
         StatusBus.start(StepId.TUN)
@@ -116,8 +157,8 @@ class MyVpnService : VpnService() {
             .setSession("TunnelApp")
             .addAddress(TUN_ADDRESS, 32)
             .addRoute("0.0.0.0", 0)
-            .addDnsServer("1.1.1.1")
             .setMtu(TUN_MTU)
+        applyDnsServers(builder, config)
 
         vpnInterface = try {
             builder.establish()
@@ -134,8 +175,50 @@ class MyVpnService : VpnService() {
         Log.i(TAG, "TUN interface berhasil dibuat")
         StatusBus.state.value = "Menghubungkan ke ${config.host}:${config.port}..."
 
+        establishTunnel(config, isReconnect = false)
+    }
+
+    /**
+     * Pasang DNS custom ([ServerConfig.dns1]/[ServerConfig.dns2]) ke [builder] kalau
+     * diisi & valid (harus literal IP, [VpnService.Builder.addDnsServer] melempar
+     * [IllegalArgumentException] untuk hostname/string sembarangan -- ditangkap di
+     * sini supaya salah ketik DNS tidak menggagalkan seluruh pembuatan TUN interface,
+     * cukup diabaikan + dicatat ke log). Kalau tidak ada satu pun DNS custom yang
+     * valid (kosong semua atau keduanya salah format), fallback ke [DEFAULT_DNS]
+     * supaya resolusi domain tetap jalan seperti perilaku lama.
+     */
+    private fun applyDnsServers(builder: Builder, config: ServerConfig) {
+        var addedAny = false
+        for ((label, dns) in listOf("DNS1" to config.dns1, "DNS2" to config.dns2)) {
+            val value = dns?.trim()?.takeIf { it.isNotEmpty() } ?: continue
+            try {
+                builder.addDnsServer(value)
+                addedAny = true
+            } catch (e: IllegalArgumentException) {
+                Log.w(TAG, "$label \"$value\" bukan alamat IP valid, diabaikan", e)
+                StatusBus.log("$label \"$value\" bukan alamat IP valid -- diabaikan")
+            }
+        }
+        if (!addedAny) {
+            builder.addDnsServer(DEFAULT_DNS)
+        }
+    }
+
+    /**
+     * Sambungkan SSH/Xray + nyalakan [TunEngine] di atas TUN interface yang
+     * SUDAH ada ([vpnInterface]). Dipisah dari [startVpn] supaya bisa dipakai
+     * ulang untuk reconnect otomatis TANPA perlu builder.establish() lagi
+     * (yang berarti tanpa perlu minta izin VPN ke user lagi).
+     */
+    private fun establishTunnel(config: ServerConfig, isReconnect: Boolean) {
         serviceScope.launch {
             try {
+                if (isReconnect) {
+                    StatusBus.initSteps(buildStepsFor(config))
+                    StatusBus.start(StepId.TUN)
+                    StatusBus.success(StepId.TUN)
+                }
+
                 if (config.usesXray()) {
                     // libXray protect socket beroperasi di level fd mentah (Go/gomobile),
                     // bukan java.net.Socket seperti jalur SSH -- pakai overload
@@ -144,7 +227,11 @@ class MyVpnService : VpnService() {
                     StatusBus.state.value = "Xray-core tersambung. Mengaktifkan tunnel..."
                     updateNotification("Xray-core aktif")
                 } else {
-                    sshTunnelManager.connect(config) { socket -> protect(socket) }
+                    sshTunnelManager.connect(
+                        config,
+                        protect = { socket -> protect(socket) },
+                        onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }
+                    )
                     StatusBus.state.value = "SSH tersambung. Mengaktifkan tunnel..."
                     updateNotification("SSH tersambung ke ${config.host}")
                 }
@@ -152,6 +239,12 @@ class MyVpnService : VpnService() {
                 StatusBus.start(StepId.TUNNEL_ACTIVE)
                 startTunEngine(config)
                 StatusBus.success(StepId.TUNNEL_ACTIVE)
+
+                // Reconnect (kalau ada) sukses -- reset hitungan percobaan &
+                // nyalakan ulang watchdog buat siklus berikutnya.
+                reconnectAttempt = 0
+                handlingDeath.set(false)
+                startWatchdog(config)
 
                 StatusBus.state.value = "Tunnel aktif — semua trafik device lewat SSH"
                 updateNotification("Tunnel aktif (${config.host})")
@@ -161,10 +254,107 @@ class MyVpnService : VpnService() {
                 // Pakai pesan dari tahap yang benar-benar gagal (lebih akurat)
                 // kalau ada, baru fallback ke pesan exception generik.
                 val reason = StatusBus.firstErrorDetail() ?: e.message ?: e.javaClass.simpleName
-                StatusBus.state.value = "Gagal: $reason"
-                stopVpn()
+                if (isReconnect) {
+                    scheduleReconnectOrGiveUp("Reconnect gagal: $reason")
+                } else {
+                    StatusBus.state.value = "Gagal: $reason"
+                    stopVpn()
+                }
             }
         }
+    }
+
+    /**
+     * Dipanggil dari SINYAL APAPUN yang menandakan tunnel mati sendiri (bukan
+     * diminta stop): thread hev-socks5-tunnel exit tak terduga
+     * ([HevSocks5Engine.onUnexpectedStop]), koneksi SSH putus
+     * ([com.trilead.ssh2.ConnectionMonitor]), atau watchdog gagal probe SOCKS5
+     * lokal ([startWatchdog]). Bisa dipanggil dari thread mana pun -- karena
+     * itu semua state yang dibaca/ditulis di sini WAJIB aman dipanggil
+     * berulang (idempotent), makanya pakai [handlingDeath] sebagai gerbang.
+     */
+    private fun handleTunnelDeath(reason: String) {
+        if (stoppingIntentionally) return
+        if (!handlingDeath.compareAndSet(false, true)) return // sudah lagi ditangani sinyal lain
+
+        val config = lastConfig
+        if (config == null) {
+            stopVpn()
+            return
+        }
+
+        Log.w(TAG, "Tunnel mati sendiri: $reason")
+        watchdogJob?.cancel()
+
+        // Bongkar SSH/Xray + tun engine yang mati itu -- TUN interface
+        // (vpnInterface) SENGAJA DIBIARKAN HIDUP supaya reconnect tidak perlu
+        // builder.establish() ulang (= tidak perlu izin VPN ulang dari user).
+        try { tunEngine?.stop() } catch (_: Exception) {}
+        tunEngine = null
+        try { sshTunnelManager.disconnect() } catch (_: Exception) {}
+        try { xrayTunnelManager.disconnect() } catch (_: Exception) {}
+
+        scheduleReconnectOrGiveUp(reason)
+    }
+
+    private fun scheduleReconnectOrGiveUp(reason: String) {
+        val config = lastConfig
+        if (config == null) {
+            stopVpn()
+            return
+        }
+
+        reconnectAttempt++
+        if (reconnectAttempt > MAX_RECONNECT_ATTEMPTS) {
+            StatusBus.log("Tunnel terputus ($reason) -- reconnect otomatis gagal setelah $MAX_RECONNECT_ATTEMPTS percobaan")
+            StatusBus.state.value = "Gagal: tunnel terputus, reconnect otomatis gagal ($reason)"
+            stopVpn()
+            return
+        }
+
+        val delayMs = 3000L * reconnectAttempt
+        StatusBus.log("Tunnel terputus ($reason) -- reconnect otomatis percobaan $reconnectAttempt/$MAX_RECONNECT_ATTEMPTS dalam ${delayMs / 1000}s")
+        StatusBus.state.value = "Tunnel terputus — reconnect otomatis ($reconnectAttempt/$MAX_RECONNECT_ATTEMPTS)..."
+        updateNotification("Reconnect otomatis ($reconnectAttempt/$MAX_RECONNECT_ATTEMPTS)...")
+
+        serviceScope.launch {
+            delay(delayMs)
+            if (stoppingIntentionally || vpnInterface == null) return@launch
+            handlingDeath.set(false)
+            establishTunnel(config, isReconnect = true)
+        }
+    }
+
+    /**
+     * Cek periodik: port SOCKS5 lokal (dipakai SSH maupun Xray) masih bisa
+     * di-connect atau tidak. Ini jaring pengaman UNIVERSAL -- beda dari
+     * callback hev-engine/SSH-monitor yang spesifik per komponen, watchdog
+     * ini nutup celah kasus yang tidak trigger callback manapun (mis.
+     * Xray-core hang/mati tanpa melempar error, yang tidak punya hook
+     * "connection lost" resmi ke luar seperti trilead-ssh2 py di SSH).
+     */
+    private fun startWatchdog(config: ServerConfig) {
+        watchdogJob?.cancel()
+        watchdogJob = serviceScope.launch {
+            while (isActive) {
+                delay(WATCHDOG_INTERVAL_MS)
+                if (stoppingIntentionally) break
+                if (!isSocksPortAlive(config.socksPort)) {
+                    Log.w(TAG, "Watchdog: SOCKS5 lokal (127.0.0.1:${config.socksPort}) tidak merespons")
+                    handleTunnelDeath("SOCKS5 lokal tidak merespons")
+                    break
+                }
+            }
+        }
+    }
+
+    private fun isSocksPortAlive(port: Int): Boolean = try {
+        Socket().use { s ->
+            s.connect(InetSocketAddress("127.0.0.1", port), WATCHDOG_PROBE_TIMEOUT_MS)
+        }
+        true
+    } catch (e: Exception) {
+        false
     }
 
     /** Menjalankan [HevSocks5Engine], satu-satunya [TunEngine] yang dipakai app ini. */
@@ -177,11 +367,21 @@ class MyVpnService : VpnService() {
             tunAddress = TUN_ADDRESS,
             mtu = TUN_MTU,
             socksHost = "127.0.0.1",
-            socksPort = config.socksPort
+            socksPort = config.socksPort,
+            onUnexpectedStop = { handleTunnelDeath("Engine tunnel (hev-socks5-tunnel) berhenti tak terduga") }
         )
     }
 
     private fun stopVpn() {
+        // Tandai dulu SEBELUM membongkar apa pun -- sshTunnelManager.disconnect()
+        // di bawah bakal manggil conn.close(), yang otomatis memicu
+        // ConnectionMonitor.connectionLost() juga. Tanpa flag ini,
+        // handleTunnelDeath() bisa salah mengira penutupan yang KITA lakukan
+        // sendiri sebagai "tunnel mati sendiri" lalu nyoba reconnect balik.
+        stoppingIntentionally = true
+        watchdogJob?.cancel()
+        watchdogJob = null
+
         // Urutan penting: matikan tun engine dulu (masih pakai fd TUN & SOCKS5),
         // baru SSH/Xray, baru TUN interface-nya sendiri.
         tunEngine?.stop()
@@ -199,6 +399,7 @@ class MyVpnService : VpnService() {
             Log.e(TAG, "Error saat menutup TUN interface", e)
         }
         vpnInterface = null
+        lastConfig = null
 
         serviceJob.cancel()
         // Jangan timpa pesan "Gagal: ..." yang sudah lebih spesifik kalau

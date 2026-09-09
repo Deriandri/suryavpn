@@ -101,6 +101,45 @@ enum class ConnectionMode {
  * @param xrayLink   link share Xray (khusus mode [ConnectionMode.XRAY]), format
  *                   "vmess://...", "vless://...", atau "trojan://...". Diabaikan
  *                   di mode lain. Lihat [com.example.tunnelapp.tunnel.XrayLinkParser].
+ * @param customHeaders header HTTP tambahan (opsional), satu header per baris,
+ *                   format "Nama: Nilai" (mis. "X-Online-Host: bug.host.com").
+ *                   Disisipkan ke DUA tempat yang masih hardcode headernya sendiri
+ *                   (beda dari [payload] yang memang request HTTP lengkap buatan
+ *                   sendiri, jadi TIDAK disentuh oleh field ini):
+ *                     1. Request "CONNECT" ke proxy HTTP (lihat
+ *                        [com.example.tunnelapp.tunnel.ConnectRelay.sendProxyConnect]) --
+ *                        berguna untuk header semacam "X-Online-Host" yang dipakai
+ *                        sebagian proxy/bug host untuk routing.
+ *                     2. Request upgrade WebSocket genuine RFC 6455 (lihat
+ *                        [com.example.tunnelapp.tunnel.WebSocketHandshake.perform]) --
+ *                        berguna untuk header semacam "Origin" atau "User-Agent"
+ *                        yang kadang diperlukan CDN/reverse-proxy tujuan.
+ *                   Mendukung placeholder yang sama seperti [payload]: [host], [port].
+ *                   Baris kosong atau tanpa ":" diabaikan. Header dengan nama yang
+ *                   sama seperti yang sudah dikirim bawaan (mis. "Host") akan
+ *                   membuat header itu terkirim DUA KALI apa adanya -- ini sengaja
+ *                   tidak divalidasi/dicegah supaya tetap fleksibel untuk trik bug
+ *                   host yang justru butuh header dobel.
+ * @param ignoreCertErrors kalau true, TLS handshake ([com.example.tunnelapp.tunnel.ConnectRelay])
+ *                   menerima sertifikat server APA ADANYA -- self-signed, kedaluwarsa,
+ *                   atau nama tidak cocok dengan host/SNI -- tanpa validasi chain sama
+ *                   sekali. TIDAK memengaruhi keamanan trafik SSH itu sendiri
+ *                   (autentikasi SSH tetap lewat username/password/key seperti biasa)
+ *                   -- TLS di sini cuma "pembungkus" (stunnel-style) supaya trafik
+ *                   terlihat seperti HTTPS biasa, BUKAN untuk memverifikasi identitas
+ *                   server. Default false (validasi normal via trust store sistem) --
+ *                   nyalakan HANYA kalau server tujuan memang pakai sertifikat
+ *                   self-signed/kedaluwarsa yang bikin handshake gagal padahal server
+ *                   & akun SSH-nya sendiri valid.
+ * @param dns1       DNS primer yang dipasang di TUN interface (lihat
+ *                   [com.example.tunnelapp.tunnel.MyVpnService]) -- SEMUA query DNS
+ *                   device diarahkan ke sini (lewat SOCKS5 UDP ASSOCIATE, lihat
+ *                   [com.example.tunnelapp.tunnel.Socks5Server], jadi tetap lewat
+ *                   tunnel, bukan bocor ke DNS jaringan lokal). Kosong/null berarti
+ *                   pakai default "1.1.1.1" (Cloudflare).
+ * @param dns2       DNS sekunder (opsional), cuma dipasang ke TUN kalau diisi --
+ *                   tidak ada fallback otomatis, murni tambahan resolver kedua untuk
+ *                   OS pilih sendiri kalau yang pertama tidak merespons.
  */
 data class ServerConfig(
     val host: String,
@@ -117,8 +156,35 @@ data class ServerConfig(
     val useWebSocket: Boolean = false,
     val wsPath: String? = null,
     val proxyRawMode: Boolean = false,
-    val xrayLink: String? = null
+    val xrayLink: String? = null,
+    val customHeaders: String? = null,
+    val ignoreCertErrors: Boolean = false,
+    val dns1: String? = null,
+    val dns2: String? = null
 ) {
+    /**
+     * Parse [customHeaders] jadi daftar pasangan (nama, nilai) siap pakai,
+     * dengan placeholder [host]/[port] sudah disubstitusi. Baris kosong atau
+     * yang tidak mengandung ":" diabaikan diam-diam (bukan error) supaya user
+     * tidak perlu khawatir soal baris kosong sisa di textarea.
+     */
+    fun parsedCustomHeaders(): List<Pair<String, String>> {
+        val raw = customHeaders ?: return emptyList()
+        return raw.lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .mapNotNull { line ->
+                val idx = line.indexOf(':')
+                if (idx <= 0) return@mapNotNull null
+                val name = line.substring(0, idx).trim()
+                val value = line.substring(idx + 1).trim()
+                    .replace("[host]", host)
+                    .replace("[port]", port.toString())
+                if (name.isEmpty()) null else name to value
+            }
+            .toList()
+    }
+
     /**
      * Apakah koneksi harus lewat HTTP proxy (CONNECT) dulu sebelum mencapai host asli.
      * Selalu false untuk mode XRAY -- jalur proxy/CDN Xray (kalau ada) sudah diatur

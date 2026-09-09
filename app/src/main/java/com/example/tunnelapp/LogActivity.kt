@@ -29,6 +29,18 @@ class LogActivity : AppCompatActivity() {
         lifecycleScope.launch {
             StatusBus.steps.collect { steps -> renderLogSteps(steps) }
         }
+
+        lifecycleScope.launch {
+            StatusBus.liveLog.collect { lines -> renderTerminal(lines) }
+        }
+    }
+
+    /** Render log mentah real-time (event asli dari ConnectRelay/SshTunnelManager), auto-scroll ke bawah. */
+    private fun renderTerminal(lines: List<String>) {
+        binding.tvTerminal.text = lines.joinToString("\n")
+        binding.svTerminal.post {
+            binding.svTerminal.fullScroll(android.view.View.FOCUS_DOWN)
+        }
     }
 
     private fun renderLogSteps(steps: List<ConnectionStep>) {

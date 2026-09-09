@@ -59,7 +59,11 @@ class DashboardActivity : AppCompatActivity() {
         val useWebSocket: Boolean,
         val wsPath: String,
         val proxyRawMode: Boolean,
-        val xrayLink: String
+        val xrayLink: String,
+        val customHeaders: String,
+        val ignoreCertErrors: Boolean,
+        val dns1: String,
+        val dns2: String
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -181,7 +185,9 @@ class DashboardActivity : AppCompatActivity() {
                 PendingConnection(
                     host = "", port = 0, username = "", password = "", mode = ConnectionMode.XRAY,
                     sni = "", payload = "", proxyHost = "", proxyPort = null, tlsVersion = null,
-                    useWebSocket = false, wsPath = "", proxyRawMode = false, xrayLink = saved.xrayLink
+                    useWebSocket = false, wsPath = "", proxyRawMode = false, xrayLink = saved.xrayLink,
+                    customHeaders = "", ignoreCertErrors = false,
+                    dns1 = saved.dns1, dns2 = saved.dns2
                 )
             )
             return
@@ -231,7 +237,11 @@ class DashboardActivity : AppCompatActivity() {
                 useWebSocket = true,
                 wsPath = saved.wsPath,
                 proxyRawMode = proxyRawMode,
-                xrayLink = ""
+                xrayLink = "",
+                customHeaders = saved.customHeaders,
+                ignoreCertErrors = saved.ignoreCertErrors,
+                dns1 = saved.dns1,
+                dns2 = saved.dns2
             )
         )
     }
@@ -274,6 +284,10 @@ class DashboardActivity : AppCompatActivity() {
             if (c.wsPath.isNotEmpty()) putExtra(MyVpnService.EXTRA_WS_PATH, c.wsPath)
             putExtra(MyVpnService.EXTRA_PROXY_RAW_MODE, c.proxyRawMode)
             if (c.xrayLink.isNotEmpty()) putExtra(MyVpnService.EXTRA_XRAY_LINK, c.xrayLink)
+            if (c.customHeaders.isNotEmpty()) putExtra(MyVpnService.EXTRA_CUSTOM_HEADERS, c.customHeaders)
+            putExtra(MyVpnService.EXTRA_IGNORE_CERT_ERRORS, c.ignoreCertErrors)
+            if (c.dns1.isNotEmpty()) putExtra(MyVpnService.EXTRA_DNS1, c.dns1)
+            if (c.dns2.isNotEmpty()) putExtra(MyVpnService.EXTRA_DNS2, c.dns2)
         }
         startForegroundService(intent)
     }

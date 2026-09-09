@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.tunnelapp.model.ConnectionMode
 import com.example.tunnelapp.model.ServerConfig
 import com.trilead.ssh2.Connection
+import com.trilead.ssh2.ConnectionMonitor
 import com.trilead.ssh2.ServerHostKeyVerifier
 import java.io.IOException
 import java.net.Socket
@@ -41,7 +42,11 @@ class SshTunnelManager {
     private var socks5Server: Socks5Server? = null
 
     @Throws(Exception::class)
-    fun connect(config: ServerConfig, protect: (Socket) -> Boolean) {
+    fun connect(
+        config: ServerConfig,
+        protect: (Socket) -> Boolean,
+        onUnexpectedDisconnect: (String) -> Unit = {}
+    ) {
         // (a) Relay lokal -- trilead-ssh2 akan connect ke sini, BUKAN
         // langsung ke server asli. Relay inilah yang benar-benar membuka
         // koneksi ke server (dengan protect(), proxy, payload, dan TLS kalau perlu).
@@ -73,6 +78,19 @@ class SshTunnelManager {
         }
         StatusBus.success(StepId.SSH_HANDSHAKE)
 
+        // PENTING (deteksi "tunnel mati sendiri"): ConnectionMonitor bawaan
+        // trilead-ssh2 dipanggil PERSIS saat socket TCP koneksi ini benar-benar
+        // tertutup, entah karena server yang memutus, jaringan hilang, atau
+        // koneksi memang kita tutup sendiri lewat disconnect() di bawah (yang
+        // terakhir ini difilter di level MyVpnService lewat flag
+        // "stoppingIntentionally", bukan di sini -- SshTunnelManager cukup
+        // teruskan semua event apa adanya).
+        conn.addConnectionMonitor(object : ConnectionMonitor {
+            override fun connectionLost(reason: Throwable?) {
+                onUnexpectedDisconnect(reason?.message ?: reason?.javaClass?.simpleName ?: "koneksi SSH terputus")
+            }
+        })
+
         StatusBus.start(StepId.SSH_AUTH)
         val authOk = try {
             conn.authenticateWithPassword(config.username, config.password.orEmpty())
@@ -89,6 +107,7 @@ class SshTunnelManager {
             relay.stop()
             throw IOException(msg)
         }
+        StatusBus.log("Auth complete")
         StatusBus.success(StepId.SSH_AUTH)
 
         connection = conn
@@ -106,6 +125,7 @@ class SshTunnelManager {
         }
         socks5Server = socks
         StatusBus.success(StepId.SOCKS5)
+        StatusBus.log("Connected")
 
         Log.i(TAG, "SSH (trilead-ssh2) tersambung via relay lokal. SOCKS5 di 127.0.0.1:${config.socksPort}")
     }

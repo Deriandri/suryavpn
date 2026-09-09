@@ -78,5 +78,45 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Card: Terminal log mentah (real-time, event asli -- lihat StatusBus.log) -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/Card.Section"
+            app:cardBackgroundColor="#0D0F14"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="4dp">
+
+                <TextView
+                    style="@style/SectionTitleText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#B7C4D0"
+                    android:layout_marginBottom="4dp"
+                    android:text="Terminal" />
+
+                <ScrollView
+                    android:id="@+id/svTerminal"
+                    android:layout_width="match_parent"
+                    android:layout_height="260dp"
+                    android:scrollbars="vertical">
+
+                    <TextView
+                        android:id="@+id/tvTerminal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:textSize="11.5sp"
+                        android:textColor="#8FE38F"
+                        android:textIsSelectable="true"
+                        android:text="" />
+                </ScrollView>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
     </LinearLayout>
 </ScrollView>

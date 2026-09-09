@@ -45,6 +45,10 @@ class SshConfigActivity : AppCompatActivity() {
         binding.etSni.setText(saved.sni)
         binding.etPayload.setText(saved.payload)
         binding.etWsPath.setText(saved.wsPath)
+        binding.etCustomHeaders.setText(saved.customHeaders)
+        binding.chipIgnoreCertErrors.isChecked = saved.ignoreCertErrors
+        binding.etDns1.setText(saved.dns1)
+        binding.etDns2.setText(saved.dns2)
         binding.etProxyHost.setText(saved.proxyHost)
         binding.etProxyPort.setText(saved.proxyPort)
         val tlsChip = when (saved.tlsVersion) {
@@ -107,6 +111,7 @@ class SshConfigActivity : AppCompatActivity() {
 
         binding.tilSni.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
         binding.containerTlsVersion.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
+        binding.chipIgnoreCertErrors.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
         binding.tilPayload.visibility = if (usesPayload) android.view.View.VISIBLE else android.view.View.GONE
         binding.containerProxy.visibility = if (usesProxy) android.view.View.VISIBLE else android.view.View.GONE
         binding.chipGroupEnhancedToggle.visibility = if (modeIndex == 2 || modeIndex == 3) android.view.View.VISIBLE else android.view.View.GONE
@@ -136,10 +141,26 @@ class SshConfigActivity : AppCompatActivity() {
         val password = binding.etPassword.text.toString()
         val sni = binding.etSni.text.toString().trim()
         val wsPath = binding.etWsPath.text.toString().trim()
+        val customHeaders = binding.etCustomHeaders.text.toString().trim()
+        val dns1 = binding.etDns1.text.toString().trim()
+        val dns2 = binding.etDns2.text.toString().trim()
 
         if (host.isEmpty() || username.isEmpty()) {
             binding.etHost.error = if (host.isEmpty()) "Wajib diisi" else null
             binding.etUsername.error = if (username.isEmpty()) "Wajib diisi" else null
+            return
+        }
+
+        // Validasi ringan format IP di sini (bukan hostname/domain -- DNS di
+        // VpnService.Builder WAJIB literal IP, lihat MyVpnService.applyDnsServers)
+        // supaya salah ketik ketahuan langsung saat Simpan, bukan baru gagal diam-diam
+        // (fallback ke default) saat Connect nanti.
+        if (dns1.isNotEmpty() && !android.util.Patterns.IP_ADDRESS.matcher(dns1).matches()) {
+            binding.etDns1.error = "Harus alamat IP (mis. 1.1.1.1), bukan domain"
+            return
+        }
+        if (dns2.isNotEmpty() && !android.util.Patterns.IP_ADDRESS.matcher(dns2).matches()) {
+            binding.etDns2.error = "Harus alamat IP (mis. 1.0.0.1), bukan domain"
             return
         }
 
@@ -164,6 +185,7 @@ class SshConfigActivity : AppCompatActivity() {
 
         val usesTls = usesTlsForMode(modeIndex)
         val tlsVersion = if (usesTls) selectedTlsVersion() else null
+        val ignoreCertErrors = usesTls && binding.chipIgnoreCertErrors.isChecked
 
         // Pertahankan profil Xray yang mungkin sudah tersimpan sebelumnya --
         // menyimpan dari layar SSH ini TIDAK boleh menghapus link Xray yang ada.
@@ -185,7 +207,11 @@ class SshConfigActivity : AppCompatActivity() {
                 useWebSocket = true,
                 wsPath = wsPath,
                 proxyRawMode = proxyRawMode,
-                xrayLink = previousXrayLink
+                xrayLink = previousXrayLink,
+                customHeaders = customHeaders,
+                ignoreCertErrors = ignoreCertErrors,
+                dns1 = dns1,
+                dns2 = dns2
             )
         )
 

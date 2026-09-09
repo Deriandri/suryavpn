@@ -35,9 +35,15 @@ object WebSocketHandshake {
      * @param host header "Host" yang dikirim (biasanya [ServerConfig.sslSni] kalau
      *             diisi, atau host server SSH asli)
      * @param path path HTTP untuk request upgrade, mis. "/" atau "/ws"
+     * @param extraHeaders header HTTP tambahan (opsional, lihat [ServerConfig.customHeaders])
+     *             yang disisipkan SEBELUM baris kosong penutup -- berguna untuk
+     *             header semacam "Origin" atau "User-Agent" yang kadang diperlukan
+     *             CDN/reverse-proxy tujuan supaya mau meneruskan upgrade-nya. Header
+     *             wajib bawaan (Host, Upgrade, Connection, Sec-WebSocket-*) tidak
+     *             bisa ditimpa lewat ini -- hanya ditambah.
      */
     @Throws(IOException::class)
-    fun perform(socket: Socket, host: String, path: String) {
+    fun perform(socket: Socket, host: String, path: String, extraHeaders: List<Pair<String, String>> = emptyList()) {
         val keyBytes = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val key = Base64.getEncoder().encodeToString(keyBytes)
         val usePath = path.ifBlank { "/" }
@@ -49,6 +55,9 @@ object WebSocketHandshake {
             append("Connection: Upgrade\r\n")
             append("Sec-WebSocket-Key: ").append(key).append("\r\n")
             append("Sec-WebSocket-Version: 13\r\n")
+            for ((name, value) in extraHeaders) {
+                append(name).append(": ").append(value).append("\r\n")
+            }
             append("\r\n")
         }
 
