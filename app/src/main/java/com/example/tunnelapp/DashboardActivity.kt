@@ -75,8 +75,7 @@ class DashboardActivity : AppCompatActivity() {
             notifPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        binding.btnConnect.setOnClickListener { onConnectClicked() }
-        binding.btnDisconnect.setOnClickListener { onDisconnectClicked() }
+        binding.btnConnectToggle.setOnClickListener { onConnectToggleClicked() }
         binding.btnCheckPing.setOnClickListener { onCheckPingClicked() }
 
         binding.rowMenuSsh.setOnClickListener {
@@ -93,6 +92,62 @@ class DashboardActivity : AppCompatActivity() {
             StatusBus.state.collect { status ->
                 binding.tvStatus.text = status
                 applyStatusPillColor(status)
+                applyConnectButtonState(status)
+            }
+        }
+    }
+
+    /**
+     * Tombol Connect/Disconnect digabung jadi satu ([binding.btnConnectToggle]).
+     * Klik dibaca sesuai state TERAKHIR yang disimpan lewat [applyConnectButtonState]
+     * (bukan dibaca dari teks tombol -- lebih tahan kalau nanti teksnya diganti/di-translate).
+     */
+    private enum class ConnectButtonState { IDLE, CONNECTING, CONNECTED }
+
+    private var connectButtonState = ConnectButtonState.IDLE
+
+    private fun onConnectToggleClicked() {
+        when (connectButtonState) {
+            ConnectButtonState.CONNECTED -> onDisconnectClicked()
+            ConnectButtonState.IDLE -> onConnectClicked()
+            ConnectButtonState.CONNECTING -> { /* sedang proses, abaikan tap dobel */ }
+        }
+    }
+
+    /** Ganti teks, warna, dan enabled/disabled tombol sesuai status tunnel terkini. */
+    private fun applyConnectButtonState(status: String) {
+        val isTransitioning = status.contains("Menghubungkan") ||
+            status.contains("Membuat") ||
+            status.contains("tersambung") ||
+            status.contains("Memutuskan") ||
+            status.contains("reconnect otomatis", ignoreCase = true)
+        val isConnected = !isTransitioning && status.contains("aktif", ignoreCase = true)
+
+        connectButtonState = when {
+            isTransitioning -> ConnectButtonState.CONNECTING
+            isConnected -> ConnectButtonState.CONNECTED
+            else -> ConnectButtonState.IDLE
+        }
+
+        when (connectButtonState) {
+            ConnectButtonState.CONNECTING -> {
+                binding.btnConnectToggle.isEnabled = false
+                binding.btnConnectToggle.text =
+                    if (status.contains("Memutuskan")) "Memutuskan..." else "Menghubungkan..."
+                binding.btnConnectToggle.backgroundTintList =
+                    ContextCompat.getColorStateList(this, R.color.text_hint)
+            }
+            ConnectButtonState.CONNECTED -> {
+                binding.btnConnectToggle.isEnabled = true
+                binding.btnConnectToggle.text = "Disconnect"
+                binding.btnConnectToggle.backgroundTintList =
+                    ContextCompat.getColorStateList(this, R.color.status_error)
+            }
+            ConnectButtonState.IDLE -> {
+                binding.btnConnectToggle.isEnabled = true
+                binding.btnConnectToggle.text = "Connect"
+                binding.btnConnectToggle.backgroundTintList =
+                    ContextCompat.getColorStateList(this, R.color.brand_primary)
             }
         }
     }
@@ -297,7 +352,8 @@ class DashboardActivity : AppCompatActivity() {
         val (bg, text) = when {
             status.startsWith("Gagal") -> R.color.status_error_bg to R.color.status_error
             status.contains("aktif", ignoreCase = true) -> R.color.status_success_bg to R.color.status_success
-            status.contains("Menghubungkan") || status.contains("Membuat") || status.contains("tersambung") ->
+            status.contains("Menghubungkan") || status.contains("Membuat") || status.contains("tersambung") ||
+                status.contains("Memutuskan") ->
                 R.color.status_running_bg to R.color.status_running
             else -> R.color.status_pending_bg to R.color.text_primary
         }

@@ -18,6 +18,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.SupervisorJob
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
@@ -92,6 +93,22 @@ class MyVpnService : VpnService() {
     // yang datang hampir bersamaan memicu reconnect dobel.
     private val handlingDeath = AtomicBoolean(false)
     private var watchdogJob: kotlinx.coroutines.Job? = null
+
+    // --- FIX ANR: scope KHUSUS untuk teardown (tunEngine.stop(), SSH/Xray
+    // disconnect(), vpnInterface.close()) ---
+    // Semua panggilan itu BLOCKING: HevSocks5Engine.stop() nge-join thread
+    // native sampai 2 detik, SshTunnelManager.disconnect() nutup socket SSH
+    // (trilead-ssh2), XrayTunnelManager.disconnect() manggil JNI ke runtime Go
+    // (libXray). stopVpn() dulu menjalankan semua itu LANGSUNG di badan
+    // onStartCommand()/onDestroy() -- keduanya jalan di MAIN THREAD (sama
+    // dengan UI Activity, app ini satu proses) -- jadi main thread ke-block
+    // sampai semuanya kelar & muncul dialog "isn't responding". Scope ini
+    // sengaja TERPISAH dari [serviceScope]/[serviceJob] (yang di-cancel duluan
+    // di stopVpn()) supaya teardown-nya sendiri tidak ikut ke-cancel.
+    private val shutdownScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Cegah stopVpn() dobel (bisa kepanggil dari onStartCommand, onDestroy,
+    // DAN onRevoke hampir bersamaan).
+    private val stopping = AtomicBoolean(false)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -373,6 +390,12 @@ class MyVpnService : VpnService() {
     }
 
     private fun stopVpn() {
+        // Cegah dobel: onDestroy/onRevoke/ACTION_DISCONNECT bisa saja
+        // hampir bersamaan manggil ini. Kalau sudah diproses, cukup return --
+        // bukan cuma optimisasi, ini WAJIB supaya tunEngine/vpnInterface yang
+        // sudah di-null-kan di bawah tidak "dibongkar dua kali".
+        if (!stopping.compareAndSet(false, true)) return
+
         // Tandai dulu SEBELUM membongkar apa pun -- sshTunnelManager.disconnect()
         // di bawah bakal manggil conn.close(), yang otomatis memicu
         // ConnectionMonitor.connectionLost() juga. Tanpa flag ini,
@@ -381,34 +404,68 @@ class MyVpnService : VpnService() {
         stoppingIntentionally = true
         watchdogJob?.cancel()
         watchdogJob = null
-
-        // Urutan penting: matikan tun engine dulu (masih pakai fd TUN & SOCKS5),
-        // baru SSH/Xray, baru TUN interface-nya sendiri.
-        tunEngine?.stop()
-        tunEngine = null
-
-        // Aman dipanggil dua-duanya: masing-masing manager no-op kalau memang
-        // tidak sedang aktif (lihat isConnected()/running di XrayTunnelManager,
-        // connection == null di SshTunnelManager).
-        sshTunnelManager.disconnect()
-        xrayTunnelManager.disconnect()
-
-        try {
-            vpnInterface?.close()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error saat menutup TUN interface", e)
-        }
-        vpnInterface = null
-        lastConfig = null
-
+        // Batalkan proses connect/reconnect yang mungkin masih jalan di
+        // serviceScope -- TIDAK memengaruhi shutdownScope di bawah (scope beda).
         serviceJob.cancel()
+
         // Jangan timpa pesan "Gagal: ..." yang sudah lebih spesifik kalau
         // stopVpn() ini dipanggil akibat error, bukan disconnect manual.
         if (!StatusBus.state.value.startsWith("Gagal")) {
-            StatusBus.state.value = "Terputus"
+            StatusBus.state.value = "Memutuskan..."
         }
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+
+        // Ambil referensi lokal, lalu langsung null-kan field-nya di sini
+        // (masih di caller thread, cepat & tidak blocking) supaya startVpn()
+        // berikutnya tidak salah kira VPN masih berjalan.
+        val engine = tunEngine
+        val vpnIf = vpnInterface
+        tunEngine = null
+        vpnInterface = null
+        lastConfig = null
+
+        // --- FIX ANR ---
+        // Semua pemanggilan di bawah ini BLOCKING (join thread native,
+        // tutup socket SSH, JNI ke libXray) -- makanya WAJIB dieksekusi di
+        // background thread (shutdownScope), BUKAN langsung di sini. Dulu
+        // baris-baris ini jalan langsung di badan stopVpn(), yang dipanggil
+        // dari onStartCommand()/onDestroy() di MAIN THREAD -- itulah
+        // sumber dialog "TunnelApp isn't responding".
+        shutdownScope.launch {
+            // Urutan penting: matikan tun engine dulu (masih pakai fd TUN &
+            // SOCKS5), baru SSH/Xray, baru TUN interface-nya sendiri.
+            try {
+                engine?.stop()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stop tun engine", e)
+            }
+
+            // Aman dipanggil dua-duanya: masing-masing manager no-op kalau
+            // memang tidak sedang aktif (lihat isConnected()/running di
+            // XrayTunnelManager, connection == null di SshTunnelManager).
+            try {
+                sshTunnelManager.disconnect()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error disconnect SSH", e)
+            }
+            try {
+                xrayTunnelManager.disconnect()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error disconnect Xray", e)
+            }
+
+            try {
+                vpnIf?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saat menutup TUN interface", e)
+            }
+
+            if (!StatusBus.state.value.startsWith("Gagal")) {
+                StatusBus.state.value = "Terputus"
+            }
+            // stopForeground()/stopSelf() aman dipanggil dari thread mana pun.
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     override fun onDestroy() {

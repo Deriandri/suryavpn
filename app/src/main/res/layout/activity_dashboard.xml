@@ -155,22 +155,15 @@
                     android:layout_height="wrap_content"
                     android:text="Kontrol Koneksi" />
 
+                <!-- Tombol tunggal: Connect/Disconnect digabung jadi satu toggle,
+                     tampilan & aksinya berubah sesuai status tunnel saat ini
+                     (lihat DashboardActivity.applyConnectButtonState). -->
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnConnect"
+                    android:id="@+id/btnConnectToggle"
                     style="@style/Button.Primary"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
                     android:text="Connect"
-                    android:textAllCaps="false"
-                    android:textSize="15sp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnDisconnect"
-                    style="@style/Button.Danger"
-                    android:layout_width="match_parent"
-                    android:layout_height="52dp"
-                    android:layout_marginTop="10dp"
-                    android:text="Disconnect"
                     android:textAllCaps="false"
                     android:textSize="15sp" />
             </LinearLayout>

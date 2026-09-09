@@ -122,6 +122,20 @@ class SshConfigActivity : AppCompatActivity() {
     private fun setupModeChips() {
         binding.chipGroupMode.setOnCheckedStateChangeListener { _, _ -> updateFieldVisibilityForMode() }
         binding.chipGroupEnhancedToggle.setOnCheckedStateChangeListener { _, _ -> updateFieldVisibilityForMode() }
+        // Raw Passthrough dulu tidak punya listener sama sekali -- toggle-nya
+        // KETAHUAN memengaruhi apakah Header HTTP tambahan kepakai (lihat
+        // updateWsAndHeaderFieldState) tapi UI tidak pernah di-refresh saat
+        // di-tap, jadi disambungkan di sini juga.
+        binding.chipRawMode.setOnCheckedChangeListener { _, _ -> updateFieldVisibilityForMode() }
+        // Payload custom diketik manual (bukan dipilih dari chip) -- field ini
+        // yang menentukan apakah Path WebSocket & Header HTTP tambahan kepakai
+        // atau tidak (lihat updateWsAndHeaderFieldState), jadi harus dipantau
+        // tiap kali isinya berubah, bukan cuma sekali saat halaman dibuka.
+        binding.etPayload.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) = updateFieldVisibilityForMode()
+        })
         updateFieldVisibilityForMode()
     }
 
@@ -169,6 +183,60 @@ class SshConfigActivity : AppCompatActivity() {
             proxyMandatory -> "Host / IP Proxy (wajib)"
             else -> "Host / IP Proxy (opsional)"
         }
+
+        updateWsAndHeaderFieldState(usesPayload, usesProxy, usesRawMode)
+    }
+
+    /**
+     * Path WebSocket & Header HTTP tambahan TIDAK SELALU dipakai -- keduanya
+     * cuma "aktif" kalau kondisi tertentu terpenuhi (lihat ServerConfig.kt &
+     * ConnectRelay.kt):
+     *
+     *  - Path WebSocket: hanya dipakai kalau Payload custom KOSONG
+     *    ([com.example.tunnelapp.model.ServerConfig.attemptsFormalWebSocket] --
+     *    handshake WebSocket "resmi" & payload custom manual saling
+     *    eksklusif; begitu Payload custom diisi, path ini diabaikan total).
+     *  - Header HTTP tambahan: dipakai di DUA tempat independen --
+     *    request CONNECT ke proxy ([ConnectRelay.sendProxyConnect], hanya
+     *    kalau proxy aktif TANPA Raw Passthrough) DAN/ATAU handshake
+     *    WebSocket resmi di atas (payload kosong). Salah satu saja
+     *    terpenuhi, header custom tetap kepakai.
+     *
+     * Field yang sedang TIDAK dipakai (menurut kombinasi mode + Raw
+     * Passthrough + isi Payload saat ini) di-nonaktifkan (redup, tidak bisa
+     * diketik) supaya kelihatan jelas -- bukan diam-diam diabaikan seperti
+     * sebelumnya.
+     */
+    private fun updateWsAndHeaderFieldState(usesPayload: Boolean, usesProxy: Boolean, usesRawMode: Boolean) {
+        val payloadFilled = usesPayload && binding.etPayload.text?.isNotBlank() == true
+
+        val wsPathActive = !payloadFilled
+        setFieldActive(
+            binding.tilWsPath, binding.etWsPath, wsPathActive,
+            activeHint = "Path WebSocket, contoh: /ssh-ws (kosongkan untuk \"/\")",
+            inactiveHint = "Tidak dipakai -- Payload custom sudah diisi (WebSocket resmi dilewati)"
+        )
+
+        val connectUsesHeaders = usesProxy && !usesRawMode
+        val headersActive = connectUsesHeaders || !payloadFilled
+        setFieldActive(
+            binding.tilCustomHeaders, binding.etCustomHeaders, headersActive,
+            activeHint = "Header HTTP tambahan (opsional), 1 per baris, contoh: X-Online-Host: [host]",
+            inactiveHint = "Tidak dipakai -- Raw Passthrough aktif & Payload custom sudah diisi"
+        )
+    }
+
+    private fun setFieldActive(
+        til: com.google.android.material.textfield.TextInputLayout,
+        et: com.google.android.material.textfield.TextInputEditText,
+        active: Boolean,
+        activeHint: String,
+        inactiveHint: String
+    ) {
+        et.isEnabled = active
+        til.isEnabled = active
+        til.hint = if (active) activeHint else inactiveHint
+        til.alpha = if (active) 1.0f else 0.5f
     }
 
     private fun selectedTlsVersion(): String? = when {
