@@ -35,7 +35,12 @@ class DashboardActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             startVpnServiceFromPending()
         } else {
-            binding.tvStatus.text = "Izin VPN ditolak"
+            // FIX: sebelumnya nulis langsung ke tvStatus.text, melewati StatusBus
+            // -- pill warna & state tombol jadi tidak ikut ter-refresh (bisa
+            // beda dari teks statusnya). Lewat StatusBus.state supaya semuanya
+            // (pill, warna, tombol) tetap konsisten sesuai satu sumber status.
+            StatusBus.state.value = "Gagal: izin VPN ditolak"
+            pending = null
         }
     }
 
@@ -110,18 +115,39 @@ class DashboardActivity : AppCompatActivity() {
         when (connectButtonState) {
             ConnectButtonState.CONNECTED -> onDisconnectClicked()
             ConnectButtonState.IDLE -> onConnectClicked()
-            ConnectButtonState.CONNECTING -> { /* sedang proses, abaikan tap dobel */ }
+            // FIX: dulu tap di sini diabaikan total, jadi kalau proses connect
+            // nyangkut (server tidak respons, tidak ada timeout socket) user
+            // TERKUNCI tanpa cara membatalkan selain force-close app. Sekarang
+            // tap saat CONNECTING dianggap "batalkan" -> kirim ACTION_DISCONNECT
+            // yang sudah aman dipanggil kapan pun (stopVpn() idempotent).
+            ConnectButtonState.CONNECTING -> onDisconnectClicked()
         }
     }
 
-    /** Ganti teks, warna, dan enabled/disabled tombol sesuai status tunnel terkini. */
+    /**
+     * Ganti teks, warna, dan enabled/disabled tombol sesuai status tunnel terkini.
+     *
+     * FIX (bug utama "tombol connect/disconnect macet"): status "Gagal: ..." yang
+     * dikirim MyVpnService setelah reconnect otomatis KEHABISAN percobaan masih
+     * memuat kata "reconnect otomatis" di dalam kalimatnya (mis. "Gagal: tunnel
+     * terputus, reconnect otomatis gagal (...)"). Sebelumnya deteksi "masih
+     * proses" hanya berdasar substring, jadi status gagal itu ikut kedeteksi
+     * sebagai "masih connecting" -> tombol permanen ke-disable dengan teks
+     * "Menghubungkan..." dan user tidak bisa tap Connect/Disconnect lagi sama
+     * sekali. Sekarang status yang diawali "Gagal" SELALU dianggap status akhir
+     * (bukan transisi) -- dicek PALING AWAL, sama seperti prioritas di
+     * [applyStatusPillColor] -- supaya tombol balik ke "Connect" dan bisa dicoba lagi.
+     */
     private fun applyConnectButtonState(status: String) {
-        val isTransitioning = status.contains("Menghubungkan") ||
+        val isFailed = status.startsWith("Gagal")
+        val isTransitioning = !isFailed && (
+            status.contains("Menghubungkan") ||
             status.contains("Membuat") ||
             status.contains("tersambung") ||
             status.contains("Memutuskan") ||
             status.contains("reconnect otomatis", ignoreCase = true)
-        val isConnected = !isTransitioning && status.contains("aktif", ignoreCase = true)
+        )
+        val isConnected = !isFailed && !isTransitioning && status.contains("aktif", ignoreCase = true)
 
         connectButtonState = when {
             isTransitioning -> ConnectButtonState.CONNECTING
@@ -131,9 +157,13 @@ class DashboardActivity : AppCompatActivity() {
 
         when (connectButtonState) {
             ConnectButtonState.CONNECTING -> {
-                binding.btnConnectToggle.isEnabled = false
-                binding.btnConnectToggle.text =
-                    if (status.contains("Memutuskan")) "Memutuskan..." else "Menghubungkan..."
+                // FIX: dulu isEnabled = false di sini -- sekarang tetap enabled
+                // supaya tap masih bisa membatalkan lewat onConnectToggleClicked().
+                binding.btnConnectToggle.isEnabled = true
+                binding.btnConnectToggle.text = when {
+                    status.contains("Memutuskan") -> "Memutuskan..."
+                    else -> "Batalkan"
+                }
                 binding.btnConnectToggle.backgroundTintList =
                     ContextCompat.getColorStateList(this, R.color.text_hint)
             }
