@@ -73,6 +73,21 @@
         <item name="android:textColor">@color/status_error</item>
     </style>
 
+    <!-- Bilah navigasi bawah (Dashboard <-> Pengaturan). Warna item pakai
+         selector bottom_nav_item_color (aktif = brand_primary, non-aktif =
+         text_hint), background dikunci ke card_background + garis pemisah
+         tipis di atasnya supaya konsisten dengan tema terang app ini
+         (sama alasannya dengan Theme.TunnelApp di atas: tidak ikut dark mode
+         sistem). -->
+    <style name="Widget.TunnelApp.BottomNav" parent="Widget.Material3.BottomNavigationView">
+        <item name="android:background">@color/card_background</item>
+        <item name="itemIconTint">@color/bottom_nav_item_color</item>
+        <item name="itemTextColor">@color/bottom_nav_item_color</item>
+        <item name="itemRippleColor">@color/divider</item>
+        <item name="elevation">8dp</item>
+        <item name="labelVisibilityMode">labeled</item>
+    </style>
+
     <!-- PENTING (fix bug tampilan): chip yang BELUM dipilih sebelumnya
          memakai warna teks default Material3 (colorOnSurfaceVariant) yang,
          sebelum fix tema di atas, bisa jadi sangat terang & sulit dibaca di

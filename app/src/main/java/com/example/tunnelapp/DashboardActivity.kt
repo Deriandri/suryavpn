@@ -93,11 +93,34 @@ class DashboardActivity : AppCompatActivity() {
             startActivity(Intent(this, LogActivity::class.java))
         }
 
+        setupBottomNav()
+
         lifecycleScope.launch {
             StatusBus.state.collect { status ->
                 binding.tvStatus.text = status
                 applyStatusPillColor(status)
                 applyConnectButtonState(status)
+            }
+        }
+    }
+
+    /**
+     * Bilah navigasi bawah: tab "Dashboard" (layar ini, sudah aktif dari awal)
+     * & "Pengaturan" (buka [SettingsActivity] yang berisi Konfigurasi
+     * SSH/Xray + info app). SettingsActivity di-launch dengan
+     * launchMode="singleTop" (lihat AndroidManifest) supaya tap "Pengaturan"
+     * berkali-kali tidak numpuk banyak instance di back stack.
+     */
+    private fun setupBottomNav() {
+        binding.bottomNav.selectedItemId = R.id.nav_dashboard
+        binding.bottomNav.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_dashboard -> true
+                R.id.nav_settings -> {
+                    startActivity(Intent(this, SettingsActivity::class.java))
+                    true
+                }
+                else -> false
             }
         }
     }
@@ -127,27 +150,38 @@ class DashboardActivity : AppCompatActivity() {
     /**
      * Ganti teks, warna, dan enabled/disabled tombol sesuai status tunnel terkini.
      *
-     * FIX (bug utama "tombol connect/disconnect macet"): status "Gagal: ..." yang
-     * dikirim MyVpnService setelah reconnect otomatis KEHABISAN percobaan masih
-     * memuat kata "reconnect otomatis" di dalam kalimatnya (mis. "Gagal: tunnel
-     * terputus, reconnect otomatis gagal (...)"). Sebelumnya deteksi "masih
-     * proses" hanya berdasar substring, jadi status gagal itu ikut kedeteksi
-     * sebagai "masih connecting" -> tombol permanen ke-disable dengan teks
-     * "Menghubungkan..." dan user tidak bisa tap Connect/Disconnect lagi sama
-     * sekali. Sekarang status yang diawali "Gagal" SELALU dianggap status akhir
-     * (bukan transisi) -- dicek PALING AWAL, sama seperti prioritas di
-     * [applyStatusPillColor] -- supaya tombol balik ke "Connect" dan bisa dicoba lagi.
+     * FIX #1 (bug "baru install langsung nyangkut di Batalkan"): status IDLE
+     * default/awal dari [StatusBus] adalah literal "Belum tersambung" -- dan
+     * string itu SENDIRI memuat substring "tersambung", yang juga dipakai untuk
+     * mendeteksi status tengah-proses seperti "SSH tersambung. Mengaktifkan
+     * tunnel...". Akibatnya "Belum tersambung" (harusnya IDLE, tombol
+     * "Connect") ikut kedeteksi sebagai CONNECTING -> tombol baru start di
+     * "Batalkan"/disable, bukan "Connect", padahal belum pernah nyoba connect
+     * sama sekali. Fix: status idle/terminal yang diketahui persis ("Belum
+     * tersambung" dari StatusBus default, "Terputus" dari stopVpn() sukses)
+     * dicek DULUAN via exact match -- bukan substring -- sebelum cek
+     * transisi, supaya tidak ketriger oleh kata "tersambung" di dalamnya.
+     *
+     * FIX #2 (bug "tombol connect/disconnect macet" setelah reconnect gagal):
+     * status "Gagal: ..." yang dikirim MyVpnService setelah reconnect otomatis
+     * KEHABISAN percobaan masih memuat kata "reconnect otomatis" di dalam
+     * kalimatnya (mis. "Gagal: tunnel terputus, reconnect otomatis gagal
+     * (...)"). Status yang diawali "Gagal" SELALU dianggap status akhir
+     * (bukan transisi) -- dicek di awal, sama seperti prioritas di
+     * [applyStatusPillColor] -- supaya tombol balik ke "Connect" dan bisa
+     * dicoba lagi.
      */
     private fun applyConnectButtonState(status: String) {
-        val isFailed = status.startsWith("Gagal")
-        val isTransitioning = !isFailed && (
+        val isIdle = status == "Belum tersambung" || status == "Terputus"
+        val isFailed = !isIdle && status.startsWith("Gagal")
+        val isTransitioning = !isIdle && !isFailed && (
             status.contains("Menghubungkan") ||
             status.contains("Membuat") ||
             status.contains("tersambung") ||
             status.contains("Memutuskan") ||
             status.contains("reconnect otomatis", ignoreCase = true)
         )
-        val isConnected = !isFailed && !isTransitioning && status.contains("aktif", ignoreCase = true)
+        val isConnected = !isIdle && !isFailed && !isTransitioning && status.contains("aktif", ignoreCase = true)
 
         connectButtonState = when {
             isTransitioning -> ConnectButtonState.CONNECTING

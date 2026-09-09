@@ -40,6 +40,15 @@
             android:exported="false"
             android:label="Log Koneksi" />
 
+        <!-- singleTop: dibuka dari tab "Pengaturan" di bilah navigasi bawah --
+             kalau instance-nya sudah di puncak back stack, tap ulang tidak
+             numpuk instance baru. -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:label="Pengaturan"
+            android:launchMode="singleTop" />
+
         <service
             android:name=".tunnel.MyVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
