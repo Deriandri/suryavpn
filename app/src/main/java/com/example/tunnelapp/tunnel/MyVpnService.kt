@@ -79,6 +79,15 @@ class MyVpnService : VpnService() {
         private const val MAX_RECONNECT_ATTEMPTS = 3
         private const val WATCHDOG_INTERVAL_MS = 10_000L
         private const val WATCHDOG_PROBE_TIMEOUT_MS = 3000
+        // --- FIX "status tetap Terhubung walau data/WiFi device dimatikan" ---
+        // isSocksPortAlive() SAJA TIDAK CUKUP (lihat catatan panjang di
+        // startWatchdog): itu cuma ngecek port lokal 127.0.0.1, yang SELALU
+        // bisa di-connect walau tidak ada jaringan fisik sama sekali. Watchdog
+        // sekarang WAJIB juga probe BENERAN lewat tunnel ke internet
+        // (keepAliveThroughTunnel) -- baru dianggap "tunnel mati" kalau probe
+        // itu gagal berturut-turut sebanyak ini (bukan cuma sekali, supaya
+        // satu paket yang kebetulan telat/drop tidak langsung memicu reconnect).
+        private const val WATCHDOG_REACHABILITY_FAIL_THRESHOLD = 2
 
         // --- "Auto Ping" (Pengaturan Dasar, terpisah dari VPN Setting) ---
         private const val PING_TIMEOUT_MS = 5000
@@ -404,6 +413,23 @@ class MyVpnService : VpnService() {
                 startTunEngine(config)
                 StatusBus.success(StepId.TUNNEL_ACTIVE)
 
+                // --- Verifikasi tunnel BENERAN tembus ke internet ---
+                // Untuk Xray, runXray() di atas cuma menyalakan proxy lokal --
+                // itu SUKSES walau device sama sekali tidak punya jaringan
+                // fisik (lihat catatan di XrayTunnelManager.connect()). Tanpa
+                // langkah ini, reconnect otomatis bisa "berhasil" padahal
+                // data/WiFi device masih mati, dan status keliru balik jadi
+                // "Tunnel aktif".
+                val verifySettings = GeneralSettingsStore.load(this@MyVpnService)
+                val (verifyHost, verifyPort) = parseKeepAliveTarget(verifySettings.keepAliveTarget)
+                val reachable = keepAliveThroughTunnel(config.socksPort, verifyHost, verifyPort) != null
+                if (!reachable) {
+                    throw IllegalStateException(
+                        "Tunnel nyala tapi tidak bisa menjangkau internet ($verifyHost:$verifyPort) " +
+                            "-- kemungkinan jaringan device mati"
+                    )
+                }
+
                 // Reconnect (kalau ada) sukses -- reset hitungan percobaan &
                 // nyalakan ulang watchdog buat siklus berikutnya.
                 reconnectAttempt = 0
@@ -510,13 +536,44 @@ class MyVpnService : VpnService() {
     private fun startWatchdog(config: ServerConfig) {
         watchdogJob?.cancel()
         watchdogJob = serviceScope.launch {
+            var consecutiveReachabilityFailures = 0
             while (isActive) {
                 delay(WATCHDOG_INTERVAL_MS)
                 if (stoppingIntentionally) break
+
+                // 1) Cek port lokal dulu (murah) -- kalau ini saja sudah mati,
+                //    Xray-core/SSH proxy-nya sendiri yang crash, tidak perlu
+                //    tunggu probe reachability segala.
                 if (!isSocksPortAlive(config.socksPort)) {
                     Log.w(TAG, "Watchdog: SOCKS5 lokal (127.0.0.1:${config.socksPort}) tidak merespons")
                     handleTunnelDeath("SOCKS5 lokal tidak merespons")
                     break
+                }
+
+                // 2) Port lokal hidup TIDAK BERARTI tunnel benar-benar tembus
+                //    ke internet -- itu murni socket di dalam device sendiri.
+                //    Probe BENERAN lewat tunnel (sama seperti "Keep-alive" di
+                //    startPingLoop) supaya kasus "data/WiFi device dimatikan
+                //    tapi Xray-core lokal tetap nyala" kepakai (status tidak
+                //    lagi nyangkut "Terhubung" tanpa batas).
+                if (stoppingIntentionally) break
+                val settings = GeneralSettingsStore.load(this@MyVpnService)
+                val (targetHost, targetPort) = parseKeepAliveTarget(settings.keepAliveTarget)
+                val reachable = keepAliveThroughTunnel(config.socksPort, targetHost, targetPort) != null
+
+                if (reachable) {
+                    consecutiveReachabilityFailures = 0
+                } else {
+                    consecutiveReachabilityFailures++
+                    Log.w(
+                        TAG,
+                        "Watchdog: probe lewat tunnel ke $targetHost:$targetPort gagal " +
+                            "($consecutiveReachabilityFailures/$WATCHDOG_REACHABILITY_FAIL_THRESHOLD)"
+                    )
+                    if (consecutiveReachabilityFailures >= WATCHDOG_REACHABILITY_FAIL_THRESHOLD) {
+                        handleTunnelDeath("Tunnel tidak bisa menjangkau internet ($targetHost:$targetPort)")
+                        break
+                    }
                 }
             }
         }
