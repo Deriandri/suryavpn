@@ -6,6 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
@@ -136,6 +140,58 @@ class MyVpnService : VpnService() {
     private val handlingDeath = AtomicBoolean(false)
     private var watchdogJob: kotlinx.coroutines.Job? = null
 
+    // --- FIX "data internet dimatikan tapi VPN tetap terhubung" ---
+    // Sebelumnya SATU-SATUNYA deteksi "tunnel mati" adalah watchdog yang
+    // nge-cek port SOCKS5 LOKAL (127.0.0.1) masih bisa di-connect atau
+    // tidak (lihat isSocksPortAlive()) -- itu selalu TRUE walau data
+    // seluler/WiFi device dimatikan total, karena itu murni socket lokal
+    // di dalam device sendiri, tidak menyentuh jaringan fisik sama sekali.
+    // Akibatnya StatusBus.state tetap "Tunnel aktif" tanpa batas walau
+    // sebenarnya sudah tidak ada jalur keluar sama sekali.
+    // NetworkCallback ini mendaftar ke jaringan FISIK (NOT_VPN, supaya
+    // tidak ke-trigger oleh TUN interface app ini sendiri) dan langsung
+    // memicu handleTunnelDeath() begitu Android melaporkan jaringan itu
+    // hilang -- deteksi instan, bukan menunggu watchdog/keep-alive.
+    private val connectivityManager: ConnectivityManager by lazy {
+        getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    }
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+
+    private fun registerNetworkWatcher() {
+        if (networkCallback != null) return
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: Network) {
+                Log.w(TAG, "Jaringan fisik device hilang (data seluler/WiFi dimatikan)")
+                handleTunnelDeath("Jaringan device terputus (data/WiFi mati)")
+            }
+
+            override fun onUnavailable() {
+                Log.w(TAG, "Tidak ada jaringan fisik yang tersedia")
+                handleTunnelDeath("Tidak ada jaringan aktif di device")
+            }
+        }
+        try {
+            connectivityManager.registerNetworkCallback(request, callback)
+            networkCallback = callback
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal mendaftarkan pemantau jaringan", e)
+        }
+    }
+
+    private fun unregisterNetworkWatcher() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        try {
+            connectivityManager.unregisterNetworkCallback(callback)
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal melepas pemantau jaringan (mungkin sudah tidak terdaftar)", e)
+        }
+    }
+
     // --- FIX ANR: scope KHUSUS untuk teardown (tunEngine.stop(), SSH/Xray
     // disconnect(), vpnInterface.close()) ---
     // Semua panggilan itu BLOCKING: HevSocks5Engine.stop() nge-join thread
@@ -237,6 +293,7 @@ class MyVpnService : VpnService() {
         StatusBus.success(StepId.TUN)
 
         Log.i(TAG, "TUN interface berhasil dibuat")
+        registerNetworkWatcher()
         StatusBus.state.value = "Menghubungkan ke ${config.host}:${config.port}..."
 
         establishTunnel(config, isReconnect = false)
@@ -678,6 +735,7 @@ class MyVpnService : VpnService() {
         pingJob?.cancel()
         pingJob = null
         releaseWakeLock()
+        unregisterNetworkWatcher()
         // Batalkan proses connect/reconnect yang mungkin masih jalan di
         // serviceScope -- TIDAK memengaruhi shutdownScope di bawah (scope beda).
         serviceJob.cancel()
