@@ -108,6 +108,22 @@ class SshTunnelManager {
             throw IOException(msg)
         }
         StatusBus.log("Auth complete")
+        // PENTING (fitur, bukan bug fix): "Server Message" ala DarkTunnel (rules/ASCII
+        // art dari server bug-host) itu SSH_MSG_USERAUTH_BANNER asli (RFC 4252 SS5.4) --
+        // dikirim server SETELAH key exchange, lewat kanal SSH yang sudah terenkripsi,
+        // jadi TIDAK BISA "diintip" di level socket mentah (beda dengan baris banner
+        // identifikasi "SSH-2.0-..." yang dibereskan lewat PrefixedSocket di
+        // ConnectRelay). trilead-ssh2 SENDIRI memang menerima & menyimpannya secara
+        // internal (field `banner` di com.trilead.ssh2.auth.AuthenticationManager),
+        // tapi TIDAK PERNAH mengekspornya lewat API publik Connection manapun (sudah
+        // dicek: tidak ada getBanner()/getAuthenticationBanner() di daftar lengkap
+        // method publiknya) -- makanya sebelum ini banner-nya memang tidak mungkin
+        // muncul di log app kita walau koneksinya sendiri sukses total. Satu-satunya
+        // cara mengambilnya adalah reflection ke field internal itu, lihat
+        // extractServerBanner().
+        extractServerBanner(conn)?.let { banner ->
+            StatusBus.log("Server Message:\n$banner")
+        }
         StatusBus.success(StepId.SSH_AUTH)
 
         connection = conn
@@ -208,6 +224,35 @@ class SshTunnelManager {
             }
         }
         return "$explanation ($rawDetail)"
+    }
+
+    /**
+     * Ambil "Server Message" (SSH_MSG_USERAUTH_BANNER, RFC 4252 SS5.4) lewat
+     * reflection ke internal trilead-ssh2 -- lihat catatan panjang di titik
+     * pemanggilan fungsi ini (di connect()) untuk alasan kenapa ini WAJIB
+     * lewat reflection, bukan API publik biasa.
+     *
+     * Sengaja dicari lewat TIPE field (bukan NAMA field) di kelas [Connection]
+     * -- lebih tahan kalau nama field internal itu beda-beda antar versi/fork
+     * trilead-ssh2 (nama TIPE-nya, com.trilead.ssh2.auth.AuthenticationManager,
+     * jauh lebih stabil daripada nama variabelnya). Kalau field `banner` di
+     * dalam AuthenticationManager itu sendiri ternyata berubah nama di versi
+     * lain, atau reflection-nya gagal karena alasan apa pun, fungsi ini cuma
+     * diam-diam mengembalikan null (banner tidak tampil) -- TIDAK PERNAH bikin
+     * proses connect gagal/crash, karena ini murni fitur tampilan tambahan,
+     * bukan sesuatu yang boleh mengganggu jalur koneksi utama.
+     */
+    private fun extractServerBanner(conn: Connection): String? = try {
+        val amField = Connection::class.java.declaredFields
+            .firstOrNull { it.type.name == "com.trilead.ssh2.auth.AuthenticationManager" }
+        amField?.isAccessible = true
+        val am = amField?.get(conn)
+        val bannerField = am?.javaClass?.declaredFields?.firstOrNull { it.name == "banner" }
+        bannerField?.isAccessible = true
+        (bannerField?.get(am) as? String)?.takeIf { it.isNotBlank() }
+    } catch (e: Exception) {
+        Log.w(TAG, "Tidak bisa ambil server banner (kemungkinan internal trilead-ssh2 berubah)", e)
+        null
     }
 
     fun disconnect() {
