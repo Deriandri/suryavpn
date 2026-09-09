@@ -23,6 +23,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicBoolean
@@ -76,6 +78,18 @@ class MyVpnService : VpnService() {
 
         // --- "Auto Ping" (Pengaturan Dasar, terpisah dari VPN Setting) ---
         private const val PING_TIMEOUT_MS = 5000
+
+        // --- Keep-alive SUNGGUHAN lewat tunnel (bagian dari "Auto Ping") ---
+        // Beda dari pingHost() di bawah (yang protect() -> LANGSUNG ke internet,
+        // BYPASS tunnel, jadi TIDAK membuat koneksi SSH/Xray yang sedang aktif
+        // "sibuk"). Ini sengaja CONNECT lewat SOCKS5 LOKAL (127.0.0.1:socksPort)
+        // supaya paketnya BENERAN lewat channel SSH / outbound Xray yang sudah
+        // konek -- itulah yang bikin firewall/NAT operator seluler tidak
+        // menganggap koneksi ke server idle lalu memutusnya paksa.
+        // Target (host:port) SEKARANG bisa diatur user lewat GeneralSettingsStore
+        // .keepAliveTarget -- konstanta di bawah cuma dipakai kalau parsing
+        // input user gagal (kosong / format salah / port di luar 1-65535).
+        private const val KEEP_ALIVE_TIMEOUT_MS = 5000
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -89,11 +103,11 @@ class MyVpnService : VpnService() {
     // MAX_RECONNECT_ATTEMPTS diset 0, supaya pesan status ke user juga beda:
     // "auto reconnect nonaktif" vs "reconnect otomatis gagal").
     private var currentAutoReconnect: Boolean = true
-    // Diambil dari GeneralSettingsStore.load() sekali di startVpn() -- MURNI
-    // "Pengaturan Dasar", sengaja TIDAK dicampur ke VpnSettingsStore
-    // (lihat GeneralSettingsStore) sesuai permintaan awal fitur ini.
-    private var currentAutoPingEnabled: Boolean = false
-    private var currentPingIntervalSeconds: Int = com.example.tunnelapp.model.GeneralSettings.DEFAULT_PING_INTERVAL_SECONDS
+    // CATATAN: dulu autoPingEnabled/pingIntervalSeconds di-cache ke sini
+    // SEKALI di startVpn() -- akibatnya toggle Auto Ping atau ganti interval
+    // di Pengaturan SAAT tunnel sudah aktif tidak ngefek sampai
+    // disconnect+reconnect. Sekarang startPingLoop() baca GeneralSettingsStore
+    // ULANG tiap siklus, jadi perubahan langsung kepakai di siklus berikutnya.
     private var pingJob: kotlinx.coroutines.Job? = null
     // Non-null selama fitur "Keep CPU Awake" (VpnSettingsStore.keepCpuAwake)
     // aktif -- dipegang dari startVpn() sampai stopVpn(), mencegah CPU masuk
@@ -196,10 +210,6 @@ class MyVpnService : VpnService() {
         currentMtu = vpnSettings.mtu
         currentAutoReconnect = vpnSettings.autoReconnect
         acquireWakeLockIfNeeded(vpnSettings.keepCpuAwake)
-
-        val generalSettings = GeneralSettingsStore.load(this)
-        currentAutoPingEnabled = generalSettings.autoPingEnabled
-        currentPingIntervalSeconds = generalSettings.pingIntervalSeconds
 
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
         StatusBus.clearLog()
@@ -468,33 +478,78 @@ class MyVpnService : VpnService() {
      * "Auto Ping" (kartu "Pengaturan Dasar" -- SENGAJA TERPISAH dari kartu
      * "VPN Setting", lihat [GeneralSettingsStore]). Beda tujuan dari
      * [startWatchdog]: watchdog ngecek SOCKS5 LOKAL buat trigger reconnect
-     * otomatis, ini ngecek [ServerConfig.host] ASLI di internet buat kasih
-     * info latency/kualitas koneksi ke user lewat [StatusBus.log] (layar Log
-     * Koneksi) -- murni informatif, TIDAK memicu reconnect apa pun.
-     * No-op kalau [currentAutoPingEnabled] mati.
+     * otomatis. Loop ini punya DUA tugas tiap siklus:
+     *  1. Ping diagnostik ke [ServerConfig.host] ASLI (lewat [pingHost],
+     *     BYPASS tunnel) -- murni info latency ke [StatusBus.log] (layar
+     *     Log Koneksi), TIDAK memicu reconnect apa pun.
+     *  2. Keep-alive SUNGGUHAN lewat [keepAliveThroughTunnel] -- CONNECT ke
+     *     target dari [GeneralSettings.keepAliveTarget] (bisa diatur user di
+     *     layar Pengaturan, lihat [parseKeepAliveTarget]) lewat SOCKS5 lokal
+     *     (artinya BENERAN lewat channel SSH/outbound Xray yang aktif),
+     *     supaya koneksi ke server TIDAK dianggap idle & diputus paksa oleh
+     *     firewall/NAT operator seluler. Ini yang sebelumnya TIDAK ADA --
+     *     pingHost() doang tidak menyentuh tunnel sama sekali.
+     *
+     * Job ini SELALU jalan selama tunnel aktif (bukan cuma kalau enabled di
+     * awal) dan baca ulang [GeneralSettingsStore] TIAP siklus -- supaya
+     * toggle Auto Ping / ganti interval di Pengaturan saat tunnel SEDANG
+     * aktif langsung kepakai di siklus berikutnya, tanpa perlu
+     * disconnect+reconnect dulu.
      */
     private fun startPingLoop(config: ServerConfig) {
         pingJob?.cancel()
-        pingJob = null
-        if (!currentAutoPingEnabled) return
-
-        val intervalMs = currentPingIntervalSeconds.coerceIn(
-            com.example.tunnelapp.model.GeneralSettings.MIN_PING_INTERVAL_SECONDS,
-            com.example.tunnelapp.model.GeneralSettings.MAX_PING_INTERVAL_SECONDS
-        ) * 1000L
-
         pingJob = serviceScope.launch {
             while (isActive) {
+                val settings = GeneralSettingsStore.load(this@MyVpnService)
+                val intervalMs = settings.pingIntervalSeconds.coerceIn(
+                    com.example.tunnelapp.model.GeneralSettings.MIN_PING_INTERVAL_SECONDS,
+                    com.example.tunnelapp.model.GeneralSettings.MAX_PING_INTERVAL_SECONDS
+                ) * 1000L
+
                 delay(intervalMs)
                 if (stoppingIntentionally) break
+                if (!settings.autoPingEnabled) continue // tetap nunggu, siap nyala begitu di-toggle ON
+
                 val elapsedMs = pingHost(config.host, config.port)
                 if (elapsedMs != null) {
                     StatusBus.log("Auto Ping: ${config.host}:${config.port} balas dalam ${elapsedMs}ms")
                 } else {
                     StatusBus.log("Auto Ping: ${config.host}:${config.port} tidak merespons (timeout ${PING_TIMEOUT_MS}ms)")
                 }
+
+                if (stoppingIntentionally) break
+                val (targetHost, targetPort) = parseKeepAliveTarget(settings.keepAliveTarget)
+                val keepAliveMs = keepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
+                if (keepAliveMs != null) {
+                    StatusBus.log("Keep-alive: handshake ke $targetHost:$targetPort lewat tunnel sukses (${keepAliveMs}ms)")
+                } else {
+                    StatusBus.log("Keep-alive: gagal membuka handshake ke $targetHost:$targetPort lewat tunnel")
+                }
             }
         }
+    }
+
+    /**
+     * Parse input user "host:port" ([GeneralSettings.keepAliveTarget]) jadi
+     * pasangan (host, port). Ambil bagian SETELAH titik dua TERAKHIR sebagai
+     * port -- supaya hostname yang aneh-aneh tetap kepisah dengan benar --
+     * lalu validasi port-nya harus angka 1-65535. Kalau kosong, format salah
+     * (tidak ada titik dua, host kosong), atau port invalid, fallback diam-
+     * diam ke [GeneralSettings.DEFAULT_KEEP_ALIVE_TARGET] supaya keep-alive
+     * tetap jalan walau user salah ketik, bukan malah mati total.
+     */
+    private fun parseKeepAliveTarget(raw: String): Pair<String, Int> {
+        val fallbackHost = "www.google.com"
+        val fallbackPort = 443
+        val trimmed = raw.trim()
+        val sepIndex = trimmed.lastIndexOf(':')
+        if (sepIndex <= 0 || sepIndex == trimmed.length - 1) return fallbackHost to fallbackPort
+
+        val host = trimmed.substring(0, sepIndex).trim()
+        val port = trimmed.substring(sepIndex + 1).trim().toIntOrNull()
+        if (host.isEmpty() || port == null || port !in 1..65535) return fallbackHost to fallbackPort
+
+        return host to port
     }
 
     /**
@@ -503,13 +558,87 @@ class MyVpnService : VpnService() {
      * [host]:[port] ASLI di internet (di luar TUN interface, makanya WAJIB
      * [protect] dulu -- persis seperti socket kontrol SSH/Xray, supaya
      * paketnya tidak nyasar masuk ke TUN interface kita sendiri dan bikin
-     * loop routing).
+     * loop routing). MURNI diagnostik, tidak menyentuh tunnel sama sekali.
      */
     private fun pingHost(host: String, port: Int): Long? = try {
         Socket().use { socket ->
             protect(socket)
             val start = System.currentTimeMillis()
             socket.connect(InetSocketAddress(host, port), PING_TIMEOUT_MS)
+            System.currentTimeMillis() - start
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * Keep-alive SUNGGUHAN: buka handshake SOCKS5 CONNECT ke
+     * [targetHost]:[targetPort] lewat SOCKS5 LOKAL di 127.0.0.1:[socksPort]
+     * -- port yang sama dipakai [Socks5Server] (mode SSH) maupun inbound
+     * Xray-core (mode Xray), KEDUANYA tanpa autentikasi (method 0x00).
+     * Bedanya dengan [pingHost]: koneksi ini betul-betul lewat channel
+     * SSH / outbound Xray yang sudah konek ke server, jadi TCP flow ke
+     * server itu kelihatan "aktif" oleh firewall/NAT di jalur tengah --
+     * inilah yang bikin server tidak diputus paksa gara-gara dianggap idle.
+     * Socket ditutup lagi begitu handshake CONNECT selesai (tidak perlu
+     * kirim data beneran, cukup buka-tutup channel).
+     *
+     * Return null kalau gagal di tahap mana pun (server nolak, konek gagal,
+     * timeout, dll) -- dianggap sebagai satu siklus keep-alive yang gagal,
+     * TIDAK memicu reconnect (biar konsisten dengan sifat "Auto Ping" yang
+     * murni informatif; watchdog di [startWatchdog] yang sudah bertugas
+     * mendeteksi tunnel benar-benar mati).
+     */
+    private fun keepAliveThroughTunnel(socksPort: Int, targetHost: String, targetPort: Int): Long? = try {
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress("127.0.0.1", socksPort), KEEP_ALIVE_TIMEOUT_MS)
+            socket.soTimeout = KEEP_ALIVE_TIMEOUT_MS
+            val out = socket.getOutputStream()
+            val din = DataInputStream(socket.getInputStream())
+
+            val start = System.currentTimeMillis()
+
+            // Greeting SOCKS5: versi 5, 1 metode ditawarkan, no-auth (0x00).
+            out.write(byteArrayOf(0x05, 0x01, 0x00))
+            out.flush()
+            val greeting = ByteArray(2)
+            din.readFully(greeting)
+            if (greeting[0] != 0x05.toByte() || greeting[1] != 0x00.toByte()) {
+                return@use null // server SOCKS5 lokal minta auth / versi tak dikenal
+            }
+
+            // Request CONNECT (0x01) pakai ATYP domain name (0x03) supaya
+            // resolusi DNS "targetHost" dilakukan DI SISI SERVER (lewat
+            // tunnel), bukan di device.
+            val hostBytes = targetHost.toByteArray(Charsets.US_ASCII)
+            val request = ByteArrayOutputStream().apply {
+                write(byteArrayOf(0x05, 0x01, 0x00, 0x03))
+                write(hostBytes.size)
+                write(hostBytes)
+                write((targetPort shr 8) and 0xFF)
+                write(targetPort and 0xFF)
+            }
+            out.write(request.toByteArray())
+            out.flush()
+
+            val replyHeader = ByteArray(4)
+            din.readFully(replyHeader)
+            if (replyHeader[1] != 0x00.toByte()) {
+                return@use null // server balas kode error (host unreachable, dll)
+            }
+
+            // Habiskan sisa alamat balasan (BND.ADDR + BND.PORT) sesuai ATYP
+            // supaya socket ditutup bersih -- bukan wajib secara fungsional,
+            // tapi menghindari data nyangkut di buffer sebelum socket.close().
+            val addrLen = when (replyHeader[3].toInt()) {
+                0x01 -> 4
+                0x04 -> 16
+                0x03 -> din.readUnsignedByte()
+                else -> 0
+            }
+            if (addrLen > 0) din.skipBytes(addrLen)
+            din.skipBytes(2)
+
             System.currentTimeMillis() - start
         }
     } catch (e: Exception) {

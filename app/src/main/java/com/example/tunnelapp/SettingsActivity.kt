@@ -60,9 +60,17 @@ class SettingsActivity : AppCompatActivity() {
         val settings = GeneralSettingsStore.load(this)
         binding.switchAutoPing.isChecked = settings.autoPingEnabled
         binding.etPingInterval.setText(settings.pingIntervalSeconds.toString())
+        binding.etKeepAliveTarget.setText(settings.keepAliveTarget)
     }
 
-    /** Validasi ringan lalu simpan ke [GeneralSettingsStore]. */
+    /**
+     * Validasi ringan lalu simpan ke [GeneralSettingsStore]. Target keep-alive
+     * WAJIB format "host:port" (port 1-65535) -- validasi di sini SEBELUM
+     * disimpan, biar salah ketik ketahuan langsung di layar Pengaturan,
+     * bukan diam-diam fallback ke default nanti pas tunnel jalan (lihat
+     * MyVpnService.parseKeepAliveTarget yang juga punya fallback sebagai
+     * jaring pengaman kedua kalau ada data lama/aneh di SharedPreferences).
+     */
     private fun saveGeneralSettingsFromForm() {
         val intervalText = binding.etPingInterval.text.toString().trim()
         val interval = intervalText.toIntOrNull()
@@ -75,14 +83,30 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
 
+        val keepAliveTarget = binding.etKeepAliveTarget.text.toString().trim()
+        if (!isValidHostPort(keepAliveTarget)) {
+            binding.etKeepAliveTarget.error = "Format harus host:port (mis. www.google.com:443)"
+            return
+        }
+
         GeneralSettingsStore.save(
             this,
             GeneralSettings(
                 autoPingEnabled = binding.switchAutoPing.isChecked,
-                pingIntervalSeconds = interval
+                pingIntervalSeconds = interval,
+                keepAliveTarget = keepAliveTarget
             )
         )
         Toast.makeText(this, "Pengaturan Dasar disimpan", Toast.LENGTH_SHORT).show()
+    }
+
+    /** Cek format "host:port": host tidak kosong, port angka 1-65535. */
+    private fun isValidHostPort(value: String): Boolean {
+        val sepIndex = value.lastIndexOf(':')
+        if (sepIndex <= 0 || sepIndex == value.length - 1) return false
+        val host = value.substring(0, sepIndex).trim()
+        val port = value.substring(sepIndex + 1).trim().toIntOrNull()
+        return host.isNotEmpty() && port != null && port in 1..65535
     }
 
     /**
