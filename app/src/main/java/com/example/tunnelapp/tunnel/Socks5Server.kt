@@ -36,6 +36,15 @@ class Socks5Server(private val sshConnection: Connection) {
 
     companion object {
         private const val TAG = "Socks5Server"
+
+        // --- FIX "channel/thread bocor kalau jaringan mati di tengah query DNS" ---
+        // fIn.readFully() di relayUdpPacket() TIDAK PUNYA timeout (channel SSH
+        // "direct-tcpip" bukan Socket asli, tidak dukung setSoTimeout) -- kalau
+        // device kehilangan jaringan PERSIS saat menunggu balasan DNS, read itu
+        // bisa menggantung sampai seluruh koneksi SSH ditutup (baru kepakai
+        // force-close). Watchdog manual di bawah membatasi SATU query DNS
+        // maksimal sekian lama sebelum channel-nya ditutup paksa sendiri.
+        private const val DNS_RELAY_TIMEOUT_MS = 8000L
     }
 
     private var serverSocket: ServerSocket? = null
@@ -318,10 +327,31 @@ class Socks5Server(private val sshConnection: Connection) {
 
         Thread({
             var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
+            val done = java.util.concurrent.atomic.AtomicBoolean(false)
+            var timeoutGuard: Thread? = null
             try {
                 forwarder = synchronized(channelOpenLock) {
                     sshConnection.createLocalStreamForwarder(destHost, 53)
                 }
+                val forwarderRef = forwarder
+
+                // Watchdog manual: forwarder.inputStream bukan Socket asli, jadi
+                // tidak bisa dipasangi setSoTimeout biasa. Kalau satu query DNS
+                // ini tidak selesai (kirim + terima balasan) dalam
+                // DNS_RELAY_TIMEOUT_MS, tutup paksa channel-nya -- itu akan
+                // membuat fIn.readFully() di bawah yang sedang blocking langsung
+                // gagal (IOException), ditangkap normal seperti kegagalan lain.
+                timeoutGuard = Thread({
+                    try {
+                        Thread.sleep(DNS_RELAY_TIMEOUT_MS)
+                        if (!done.get()) {
+                            Log.w(TAG, "DNS relay ke $destHost timeout -- menutup paksa channel")
+                            try { forwarderRef.close() } catch (_: Exception) {}
+                        }
+                    } catch (_: InterruptedException) {
+                    }
+                }, "socks5-dns-relay-timeout").apply { isDaemon = true; start() }
+
                 val fOut = forwarder.outputStream
                 val fIn = DataInputStream(forwarder.inputStream)
 
@@ -359,6 +389,8 @@ class Socks5Server(private val sshConnection: Connection) {
                 // tidak pernah ditutup sama sekali, channel DNS-over-TCP ini
                 // dibiarkan menggantung selamanya di sshConnection untuk SETIAP
                 // domain yang pernah di-resolve sejak tunnel connect.
+                done.set(true)
+                timeoutGuard?.interrupt()
                 try { forwarder?.close() } catch (_: Exception) {}
             }
         }, "socks5-dns-relay").apply { isDaemon = true; start() }

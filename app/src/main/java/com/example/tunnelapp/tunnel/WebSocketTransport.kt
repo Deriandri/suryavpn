@@ -312,4 +312,19 @@ class WebSocketSocket(private val delegate: Socket) : Socket() {
     override fun isConnected(): Boolean = delegate.isConnected
     override fun isInputShutdown(): Boolean = delegate.isInputShutdown
     override fun isOutputShutdown(): Boolean = delegate.isOutputShutdown
+
+    // FIX (celah laten, sama persis dengan catatan di PrefixedSocket milik
+    // ConnectRelay.kt): tanpa override ini, pemanggilan "socket.soTimeout = X"
+    // pada instance WebSocketSocket ini diam-diam akan mengenai state socket
+    // DUMMY milik wrapper Socket() ini sendiri (bukan delegate yang benar-benar
+    // dipakai untuk baca/tulis lewat framedIn/framedOut) -- jadi timeout yang
+    // dikira sudah diset tidak akan pernah benar-benar berlaku, atau
+    // sebaliknya, timeout lama di delegate tidak akan pernah ke-reset. Belum
+    // ada pemanggil yang mengubah soTimeout pada instance ini setelah handshake
+    // per hari ini, tapi didelegasikan di sini supaya tidak jadi jebakan diam-
+    // diam kalau ada penambahan fitur ke depan yang butuh itu.
+    override fun setSoTimeout(timeout: Int) {
+        delegate.soTimeout = timeout
+    }
+    override fun getSoTimeout(): Int = delegate.soTimeout
 }

@@ -41,6 +41,16 @@ class SshTunnelManager {
     private var connectRelay: ConnectRelay? = null
     private var socks5Server: Socks5Server? = null
 
+    // --- Defense-in-depth, konsisten dengan fix serupa di XrayTunnelManager ---
+    // trilead-ssh2 Connection.close() sendiri dirancang aman dipanggil
+    // berulang/dari thread lain, jadi risikonya jauh lebih rendah daripada
+    // invoke() native ke libXray -- tapi tetap dijaga di sini supaya
+    // disconnect() tidak pernah membongkar socks5Server/connectRelay dua kali
+    // secara bersamaan kalau handleTunnelDeath() (dipicu watchdog/jaringan
+    // mati) dan stopVpn() (disconnect manual) kebetulan datang nyaris
+    // bersamaan.
+    private val disconnecting = java.util.concurrent.atomic.AtomicBoolean(false)
+
     @Throws(Exception::class)
     fun connect(
         config: ServerConfig,
@@ -256,24 +266,32 @@ class SshTunnelManager {
     }
 
     fun disconnect() {
-        try {
-            socks5Server?.stop()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stop SOCKS5", e)
+        if (!disconnecting.compareAndSet(false, true)) {
+            Log.w(TAG, "disconnect() SSH sudah sedang diproses panggilan lain, diabaikan")
+            return
         }
         try {
-            connection?.close()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error close SSH", e)
+            try {
+                socks5Server?.stop()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stop SOCKS5", e)
+            }
+            try {
+                connection?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error close SSH", e)
+            }
+            try {
+                connectRelay?.stop()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stop relay", e)
+            }
+            socks5Server = null
+            connection = null
+            connectRelay = null
+        } finally {
+            disconnecting.set(false)
         }
-        try {
-            connectRelay?.stop()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stop relay", e)
-        }
-        socks5Server = null
-        connection = null
-        connectRelay = null
     }
 
     fun isConnected(): Boolean = connection?.isAuthenticationComplete == true
