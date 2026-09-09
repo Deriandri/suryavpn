@@ -166,6 +166,27 @@ class MyVpnService : VpnService() {
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    // --- FIX "rekonek tanpa memutus VPN dulu saat internet device mati" ---
+    // Sebelumnya onLost/onUnavailable di bawah langsung manggil
+    // handleTunnelDeath() -- fungsi yang SAMA dipakai untuk kematian
+    // tunnel/server (SSH putus, hev-engine crash, dll), yang MEMANG
+    // sengaja membiarkan TUN interface (vpnInterface) tetap hidup supaya
+    // reconnect cepat tanpa minta izin VPN ulang. Itu masuk akal kalau
+    // penyebabnya di sisi server/tunnel -- tapi kalau jaringan FISIK
+    // device sendiri yang mati (pesawat mode, data+WiFi off, dst),
+    // membiarkan TUN "nyala" lalu langsung nyoba establishTunnel() ulang
+    // cuma buang-buang jatah MAX_RECONNECT_ATTEMPTS (pasti gagal, tidak
+    // ada jalur keluar sama sekali) DAN VPN keliru kelihatan masih
+    // setengah aktif padahal harusnya sudah putus total.
+    // Sekarang jalur network-loss dipisah lewat [handleNetworkLost]: TUN
+    // interface ditutup BENERAN (VPN benar-benar OFF di level OS, status
+    // "Terputus"), lalu app cukup MENUNGGU sinyal [onAvailable] dari
+    // Android -- baru begitu jaringan device kembali, [resumeAfterNetworkReturn]
+    // membuat ulang TUN + tunnel dari nol. Tidak ada percobaan reconnect
+    // buta selagi memang tidak ada jaringan sama sekali.
+    @Volatile
+    private var waitingForNetwork = false
+
     private fun registerNetworkWatcher() {
         if (networkCallback != null) return
         val request = NetworkRequest.Builder()
@@ -175,12 +196,19 @@ class MyVpnService : VpnService() {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
                 Log.w(TAG, "Jaringan fisik device hilang (data seluler/WiFi dimatikan)")
-                handleTunnelDeath("Jaringan device terputus (data/WiFi mati)")
+                handleNetworkLost("Jaringan device terputus (data/WiFi mati)")
             }
 
             override fun onUnavailable() {
                 Log.w(TAG, "Tidak ada jaringan fisik yang tersedia")
-                handleTunnelDeath("Tidak ada jaringan aktif di device")
+                handleNetworkLost("Tidak ada jaringan aktif di device")
+            }
+
+            override fun onAvailable(network: Network) {
+                if (waitingForNetwork) {
+                    Log.i(TAG, "Jaringan device kembali tersedia -- mencoba menyambung ulang")
+                    resumeAfterNetworkReturn()
+                }
             }
         }
         try {
@@ -270,6 +298,7 @@ class MyVpnService : VpnService() {
         reconnectAttempt = 0
         stoppingIntentionally = false
         handlingDeath.set(false)
+        waitingForNetwork = false
 
         val vpnSettings = VpnSettingsStore.load(this)
         currentMtu = vpnSettings.mtu
@@ -523,6 +552,124 @@ class MyVpnService : VpnService() {
             handlingDeath.set(false)
             establishTunnel(config, isReconnect = true)
         }
+    }
+
+    /**
+     * Dipanggil KHUSUS dari [ConnectivityManager.NetworkCallback.onLost] /
+     * `onUnavailable()` -- yaitu jaringan FISIK device sendiri yang hilang
+     * (data seluler/WiFi mati), BUKAN tunnel/server yang mati sendiri
+     * (itu tetap lewat [handleTunnelDeath] seperti biasa).
+     *
+     * Beda pentingnya dengan [handleTunnelDeath]: di sini TUN interface
+     * ([vpnInterface]) BENERAN ditutup (bukan dibiarkan hidup), jadi VPN
+     * sungguh-sungguh OFF (status "Terputus") SEBELUM mencoba apa pun lagi
+     * -- persis seperti yang diminta: putuskan dulu, baru nanti nyambung
+     * ulang. Tidak ada gunanya membiarkan TUN "nyala" ataupun langsung
+     * memanggil establishTunnel() lagi di sini: tanpa jaringan fisik sama
+     * sekali, percobaan itu PASTI gagal dan cuma menghabiskan jatah
+     * [MAX_RECONNECT_ATTEMPTS] dalam hitungan detik lalu app menyerah
+     * permanen padahal jaringan device mungkin baru mati sebentar.
+     * Sebagai gantinya app menunggu (via [waitingForNetwork] +
+     * `onAvailable()` di [registerNetworkWatcher]) sampai Android sendiri
+     * yang melaporkan jaringan sudah kembali, baru [resumeAfterNetworkReturn]
+     * membuat ulang TUN + tunnel dari nol.
+     */
+    private fun handleNetworkLost(reason: String) {
+        if (stoppingIntentionally) return
+        if (!handlingDeath.compareAndSet(false, true)) return // sudah lagi ditangani sinyal lain
+
+        val config = lastConfig
+        if (config == null) {
+            stopVpn()
+            return
+        }
+
+        Log.w(TAG, "Jaringan device hilang, memutus tunnel dulu: $reason")
+        watchdogJob?.cancel()
+        watchdogJob = null
+        pingJob?.cancel()
+        pingJob = null
+
+        // Bongkar tun engine + SSH/Xray seperti biasa.
+        try { tunEngine?.stop() } catch (e: Exception) { Log.e(TAG, "Error stop tun engine", e) }
+        tunEngine = null
+        try { sshTunnelManager.disconnect() } catch (e: Exception) { Log.e(TAG, "Error disconnect SSH", e) }
+        try { xrayTunnelManager.disconnect() } catch (e: Exception) { Log.e(TAG, "Error disconnect Xray", e) }
+
+        if (!currentAutoReconnect) {
+            StatusBus.log("Jaringan device terputus ($reason) -- auto reconnect nonaktif (VPN Setting), tidak menunggu jaringan")
+            StatusBus.state.value = "Terputus: jaringan device mati, auto reconnect nonaktif"
+            stopVpn()
+            return
+        }
+
+        // --- Di sinilah bedanya dengan handleTunnelDeath: TUN interface
+        // ditutup SUNGGUHAN (bukan dibiarkan hidup) supaya VPN benar-benar
+        // OFF selama tidak ada jaringan, bukan menggantung "seolah aktif".
+        val vpnIf = vpnInterface
+        vpnInterface = null
+        waitingForNetwork = true
+        reconnectAttempt = 0
+
+        StatusBus.log("Jaringan device terputus ($reason) -- tunnel diputus, menunggu jaringan aktif kembali...")
+        StatusBus.state.value = "Terputus: tidak ada koneksi internet — menunggu jaringan..."
+        updateNotification("Menunggu jaringan aktif...")
+
+        shutdownScope.launch {
+            try {
+                vpnIf?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error menutup TUN interface saat jaringan hilang", e)
+            }
+            StatusBus.log("TUN interface ditutup, VPN benar-benar terputus. Menunggu jaringan...")
+            // Bebaskan gerbang [handlingDeath] supaya sinyal kematian lain
+            // (mis. onUnavailable menyusul onLost) tetap bisa diproses idempotent,
+            // dan supaya resumeAfterNetworkReturn() tidak diblokir olehnya.
+            handlingDeath.set(false)
+        }
+    }
+
+    /**
+     * Kebalikan dari [handleNetworkLost]: dipanggil dari
+     * `onAvailable()` di [registerNetworkWatcher] begitu Android melaporkan
+     * ada jaringan fisik baru. Membuat ULANG TUN interface (karena yang lama
+     * sudah ditutup oleh [handleNetworkLost]) lalu menyalakan tunnel dari nol
+     * -- TIDAK perlu izin VPN ulang ke user karena VpnService.Builder.establish()
+     * boleh dipanggil berkali-kali selama app ini masih pemegang sesi VPN aktif.
+     */
+    private fun resumeAfterNetworkReturn() {
+        if (!waitingForNetwork) return
+        if (stoppingIntentionally) return
+        val config = lastConfig ?: return
+        if (vpnInterface != null) return // sudah ada yang buat ulang (mis. user tap Connect manual)
+        waitingForNetwork = false
+
+        StatusBus.log("Jaringan device kembali tersedia -- membuat ulang TUN interface & tunnel...")
+        StatusBus.state.value = "Jaringan kembali -- menyambung ulang..."
+        updateNotification("Menyambung ulang...")
+
+        val vpnSettings = VpnSettingsStore.load(this)
+        val builder = Builder()
+            .setSession("TunnelApp")
+            .addAddress(TUN_ADDRESS, 32)
+            .addRoute("0.0.0.0", 0)
+            .setMtu(currentMtu)
+        applyDnsServers(builder, config, vpnSettings)
+
+        vpnInterface = try {
+            builder.establish()
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal membuat ulang TUN interface setelah jaringan kembali", e)
+            StatusBus.log("Gagal membuat ulang TUN interface (${e.message}) -- tetap menunggu jaringan")
+            StatusBus.state.value = "Terputus: gagal menyambung ulang, menunggu jaringan..."
+            // Tetap tandai menunggu supaya onAvailable() berikutnya dicoba lagi.
+            waitingForNetwork = true
+            return
+        }
+
+        Log.i(TAG, "TUN interface berhasil dibuat ulang setelah jaringan kembali")
+        handlingDeath.set(false)
+        establishTunnel(config, isReconnect = true)
     }
 
     /**
@@ -787,6 +934,7 @@ class MyVpnService : VpnService() {
         // handleTunnelDeath() bisa salah mengira penutupan yang KITA lakukan
         // sendiri sebagai "tunnel mati sendiri" lalu nyoba reconnect balik.
         stoppingIntentionally = true
+        waitingForNetwork = false
         watchdogJob?.cancel()
         watchdogJob = null
         pingJob?.cancel()
