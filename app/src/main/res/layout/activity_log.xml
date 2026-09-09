@@ -91,19 +91,42 @@
                 android:orientation="vertical"
                 android:padding="4dp">
 
-                <TextView
-                    style="@style/SectionTitleText"
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="#B7C4D0"
-                    android:layout_marginBottom="4dp"
-                    android:text="Terminal" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="4dp">
 
-                <ScrollView
+                    <TextView
+                        style="@style/SectionTitleText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textColor="#B7C4D0"
+                        android:text="Terminal" />
+
+                    <TextView
+                        android:id="@+id/btnClearLog"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Hapus Log"
+                        android:textColor="#B7C4D0"
+                        android:textSize="12sp"
+                        android:paddingHorizontal="10dp"
+                        android:paddingVertical="4dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:background="?attr/selectableItemBackgroundBorderless" />
+                </LinearLayout>
+
+                <com.example.tunnelapp.ui.TerminalScrollView
                     android:id="@+id/svTerminal"
                     android:layout_width="match_parent"
                     android:layout_height="260dp"
-                    android:scrollbars="vertical">
+                    android:scrollbars="vertical"
+                    android:fadeScrollbars="false"
+                    android:overScrollMode="always">
 
                     <TextView
                         android:id="@+id/tvTerminal"
@@ -114,7 +137,7 @@
                         android:textColor="#8FE38F"
                         android:textIsSelectable="true"
                         android:text="" />
-                </ScrollView>
+                </com.example.tunnelapp.ui.TerminalScrollView>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
