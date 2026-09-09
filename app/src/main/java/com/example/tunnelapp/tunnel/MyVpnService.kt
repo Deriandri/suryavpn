@@ -687,6 +687,15 @@ class MyVpnService : VpnService() {
         if (!StatusBus.state.value.startsWith("Gagal")) {
             StatusBus.state.value = "Memutuskan..."
         }
+        // FIX: sebelumnya stopVpn() cuma update StatusBus.state, sedangkan
+        // layar Log (Tahapan Koneksi + Terminal) murni mengikuti
+        // StatusBus.steps / StatusBus.liveLog -- jadi begitu VPN diputus,
+        // dua-duanya tetap menampilkan snapshot terakhir saat masih
+        // connect (seolah beku/tidak real), dan tahap yang masih RUNNING
+        // (spinner) nyangkut selamanya. Sekarang kirim event nyata ke
+        // liveLog + tandai tahap yang belum selesai.
+        StatusBus.log("Memutuskan tunnel (diminta pengguna)...")
+        StatusBus.markInterrupted()
 
         // Ambil referensi lokal, lalu langsung null-kan field-nya di sini
         // (masih di caller thread, cepat & tidak blocking) supaya startVpn()
@@ -736,6 +745,12 @@ class MyVpnService : VpnService() {
             if (!StatusBus.state.value.startsWith("Gagal")) {
                 StatusBus.state.value = "Terputus"
             }
+            // Baris log terakhir yang menandakan tunnel BENAR-BENAR sudah
+            // ditutup (engine, SSH/Xray, dan TUN interface semua sudah
+            // dibongkar) -- ini yang bikin layar Log terasa "real": ada
+            // event baru yang muncul persis saat status berubah jadi
+            // Terputus, bukan cuma diam di baris terakhir sebelum stop.
+            StatusBus.log("Tunnel terputus, semua koneksi ditutup.")
             // stopForeground()/stopSelf() aman dipanggil dari thread mana pun.
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()

@@ -58,6 +58,22 @@ object StatusBus {
         }
     }
 
+    /**
+     * Dipanggil saat user memutus koneksi secara manual SEBELUM tahapan
+     * selesai semua (misal masih di tengah SSH handshake). Tanpa ini,
+     * tahap yang lagi RUNNING (spinner) nyangkut selamanya di layar Log
+     * walau koneksi sudah benar-benar mati -- karena tidak ada status
+     * lanjutan (SUCCESS/ERROR) yang pernah masuk untuk tahap itu.
+     * Tahap yang belum sempat dicoba (PENDING) juga ikut ditandai SKIPPED.
+     */
+    fun markInterrupted() {
+        steps.value = steps.value.map {
+            if (it.status == StepStatus.RUNNING || it.status == StepStatus.PENDING) {
+                it.copy(status = StepStatus.SKIPPED, detail = "Diputuskan")
+            } else it
+        }
+    }
+
     /** Ambil detail tahap pertama yang gagal -- ini alasan paling akurat kenapa koneksi putus. */
     fun firstErrorDetail(): String? =
         steps.value.firstOrNull { it.status == StepStatus.ERROR }?.let { "${it.label}: ${it.detail ?: "gagal"}" }
