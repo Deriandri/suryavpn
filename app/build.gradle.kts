@@ -1,0 +1,99 @@
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+}
+
+android {
+    namespace = "com.example.tunnelapp"
+    compileSdk = 34
+    ndkVersion = "27.0.12077973"
+
+    defaultConfig {
+        applicationId = "com.example.tunnelapp"
+        minSdk = 28        // Android 9.0
+        targetSdk = 34
+        versionCode = 1
+        versionName = "0.1.0"
+
+        externalNativeBuild {
+            cmake {
+                // Batasi ke ABI perangkat fisik yang realistis dipakai, biar
+                // waktu build di GitHub Actions tidak bengkak (tiap ABI
+                // meng-clone & compile ulang hev-socks5-tunnel dari nol).
+                // Tambahkan "x86_64" di sini kalau mau tes di emulator.
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
+        }
+
+        // PENTING: samakan dengan abiFilters cmake di atas. xray.aar (Go/gomobile)
+        // membawa libgojni.so untuk 4 ABI (arm64-v8a, armeabi-v7a, x86, x86_64),
+        // tapi hev-socks5-tunnel (cmake di atas) cuma di-build utk 2 ABI fisik.
+        // Tanpa baris ini, Gradle bakal ikut mem-package libgojni.so x86/x86_64
+        // dari xray.aar TANPA libtunneljni.so pasangannya -- APK tetap terpasang
+        // di emulator x86_64 tapi UnsatisfiedLinkError begitu tunnel dimulai.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        viewBinding = true
+    }
+}
+
+dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("com.google.android.material:material:1.12.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
+
+    // --- Modul SSH (tahap 2) ---
+    // Engine SSH: trilead-ssh2. PENTING: pakai fork "jenkinsci/trilead-ssh2"
+    // (dipelihara aktif, dipakai Jenkins sendiri untuk SSH ke ribuan server
+    // produksi), BUKAN "com.trilead:trilead-ssh2:1.0.0-build222" yang merupakan
+    // build lama ±2015 dan TIDAK mendukung algoritma modern (ed25519, ECDSA,
+    // curve25519-sha256, rsa-sha2-256/512, cipher CTR, MAC -etm@openssh.com).
+    // Server SSH modern yang sudah mematikan algoritma lama akan gagal total
+    // di tahap key-exchange dengan pesan generik "There was a problem while
+    // connecting to ..." -- persis error yang tadinya muncul.
+    // Ambil dari repo Maven resmi Jenkins (org.jenkins-ci), BUKAN dari JitPack
+    // (com.github.jenkinsci) -- JitPack sempat dicoba tapi gagal di GitHub
+    // Actions karena JitPack baru compile versi ini saat diminta pertama kali
+    // (builds on-demand), gampang timeout/gagal di CI. Paket Java-nya tetap
+    // sama (com.trilead.ssh2.*), jadi tidak perlu ubah kode Kotlin manapun.
+    implementation("org.jenkins-ci:trilead-ssh2:build-217-jenkins-293.v56de4d4d3515")
+
+    // --- Modul Xray (tahap 3) ---
+    // 1. Ambil/compile xray.aar dari proyek resmi XTLS/libXray (https://github.com/XTLS/libXray),
+    //    letakkan hasilnya di app/libs/xray.aar.
+    // 2. Baru aktifkan baris di bawah ini (uncomment) supaya ikut ter-compile.
+    // 3. Cek ulang import "libXray.LibXray" di XrayTunnelManager.kt sesuai package
+    //    sebenarnya di AAR yang kamu pakai -- lihat komentar panjang di kepala file itu.
+    implementation(files("libs/xray.aar"))
+
+    // Coroutines, untuk operasi jaringan di background thread
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+}

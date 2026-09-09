@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PENTING (fix bug tampilan): pakai varian "Light" secara eksplisit,
+         BUKAN "DayNight". Semua warna di app ini (app_background, card_background,
+         text_primary, dst.) sudah didesain untuk latar terang, tapi
+         "DayNight" tetap mengikuti mode gelap/terang SISTEM Android. Kalau HP
+         user memakai dark mode, Material3 otomatis memilih warna teks
+         "colorOnSurface" versi gelap (abu-abu terang, dirancang untuk latar
+         gelap) walau colorSurface/app_background di sini tetap dipaksa terang,
+         hasilnya teks abu-abu sangat terang di atas kartu putih, nyaris
+         tidak terbaca. Ini penyebab utama tulisan di field akun/server
+         terlihat pudar. "Light" mengunci teori warna terang terlepas dari
+         setting sistem, konsisten dengan seluruh palet warna di colors.xml. -->
+    <style name="Theme.TunnelApp" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorPrimaryDark">@color/brand_primary_dark</item>
+        <item name="colorOnPrimary">@color/brand_on_primary</item>
+        <item name="colorSecondary">@color/brand_secondary</item>
+        <item name="colorSurface">@color/card_background</item>
+        <!-- PENTING: ini yang sebenarnya mengontrol warna teks di dalam
+             TextInputEditText, Chip (belum dipilih), dan komponen Material3
+             lain yang tidak diberi android:textColor eksplisit. Tanpa ini,
+             nilainya ikut default tema induk (bisa jadi terang kalau device
+             dark mode, walau sekarang sudah dikunci ke "Light" di atas,
+             didefinisikan eksplisit di sini supaya benar-benar pasti & tidak
+             bergantung pada versi/варian Material3 yang dipakai). -->
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="colorOutline">@color/divider</item>
+        <item name="android:colorBackground">@color/app_background</item>
+        <item name="android:statusBarColor">@color/brand_primary_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Card.Section" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardCornerRadius">16dp</item>
+        <item name="cardElevation">2dp</item>
+        <item name="contentPadding">16dp</item>
+        <item name="cardBackgroundColor">@color/card_background</item>
+        <item name="strokeWidth">0dp</item>
+    </style>
+
+    <style name="SectionTitleText">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:layout_marginBottom">12dp</item>
+    </style>
+
+    <style name="Field.Outlined" parent="Widget.Material3.TextInputLayout.OutlinedBox">
+        <item name="boxCornerRadiusTopStart">12dp</item>
+        <item name="boxCornerRadiusTopEnd">12dp</item>
+        <item name="boxCornerRadiusBottomStart">12dp</item>
+        <item name="boxCornerRadiusBottomEnd">12dp</item>
+        <item name="android:layout_marginTop">10dp</item>
+        <!-- Warna label/hint mengambang & border kotak dikunci eksplisit juga,
+             supaya tidak ikut goyah oleh mode gelap/terang sistem seperti
+             kasus warna teks isi field di atas. -->
+        <item name="hintTextColor">@color/text_secondary</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+        <item name="boxStrokeColor">@color/brand_primary</item>
+        <item name="boxStrokeErrorColor">@color/status_error</item>
+    </style>
+
+    <style name="Button.Primary" parent="Widget.Material3.Button">
+        <item name="cornerRadius">14dp</item>
+        <item name="backgroundTint">@color/brand_primary</item>
+    </style>
+
+    <style name="Button.Danger" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="cornerRadius">14dp</item>
+        <item name="strokeColor">@color/status_error</item>
+        <item name="android:textColor">@color/status_error</item>
+    </style>
+
+    <!-- PENTING (fix bug tampilan): chip yang BELUM dipilih sebelumnya
+         memakai warna teks default Material3 (colorOnSurfaceVariant) yang,
+         sebelum fix tema di atas, bisa jadi sangat terang & sulit dibaca di
+         atas kartu putih, persis seperti "SSH SSL + Payload" yang terlihat
+         pudar di screenshot. Style ini mengunci warna teks & background chip
+         baik saat dipilih maupun tidak, terlepas dari tema sistem. -->
+    <style name="Widget.TunnelApp.Chip.Filter" parent="Widget.Material3.Chip.Filter">
+        <item name="android:textColor">@color/chip_text_color</item>
+        <item name="chipBackgroundColor">@color/chip_background_color</item>
+        <item name="chipStrokeColor">@color/divider</item>
+        <item name="chipStrokeWidth">1dp</item>
+    </style>
+</resources>
+
