@@ -31,6 +31,8 @@ import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -103,6 +105,64 @@ class MyVpnService : VpnService() {
         // .keepAliveTarget -- konstanta di bawah cuma dipakai kalau parsing
         // input user gagal (kosong / format salah / port di luar 1-65535).
         private const val KEEP_ALIVE_TIMEOUT_MS = 5000
+
+        // --- FIX "status/app nyangkut selamanya saat teardown" ---
+        // Batas maksimal menunggu SATU langkah teardown (tunEngine.stop(),
+        // sshTunnelManager.disconnect(), xrayTunnelManager.disconnect()).
+        // Lihat [runBlockingWithTimeout] untuk alasan lengkap kenapa ini
+        // wajib ada.
+        private const val TEARDOWN_STEP_TIMEOUT_MS = 5000L
+    }
+
+    /**
+     * Jalankan [block] (operasi BLOCKING -- native/JNI atau I/O biasa, TIDAK
+     * mendukung pembatalan lewat coroutine cancellation) di thread terpisah,
+     * lalu tunggu maksimal [timeoutMs]. Dipakai untuk SEMUA panggilan teardown
+     * (tunEngine.stop(), sshTunnelManager.disconnect(),
+     * xrayTunnelManager.disconnect()) yang sebelumnya dipanggil TELANJANG
+     * tanpa batas waktu.
+     *
+     * PENTING (bug fix "app stuck total, VPN tidak bisa dimatikan"): panggilan
+     * ini bisa datang dari thread MANA PUN -- callback native hev-socks5-
+     * tunnel, ConnectionMonitor trilead-ssh2, callback ConnectivityManager
+     * saat jaringan device mati (handleTunnelDeath), ATAU shutdownScope
+     * (stopVpn manual). xrayTunnelManager.disconnect() KHUSUSNYA memanggil
+     * LibXray.invoke("stopXray") -- native call ke runtime Go yang TIDAK
+     * PUNYA timeout internal sama sekali. Kalau jaringan device benar-benar
+     * mati saat dipanggil, panggilan itu bisa MENGGANTUNG SELAMANYA di thread
+     * pemanggil -- itulah sebab asli status "Memutuskan..."/"Terhubung" yang
+     * tidak pernah berubah, dan tombol Kontrol Koneksi yang macet permanen.
+     *
+     * Thread di bawah SENGAJA TIDAK di-interrupt paksa kalau timeout (operasi
+     * native/JNI umumnya tidak aman/tidak bisa diinterupsi begitu saja) --
+     * dibiarkan jalan sendiri di background (daemon thread, tidak menahan
+     * proses hidup) sementara caller SUDAH BEBAS lanjut. Kalaupun runtime
+     * di baliknya benar-benar macet total, stopVpn() tetap akan sampai ke
+     * stopSelf() dalam waktu terbatas, dan Android pada akhirnya akan
+     * membongkar seluruh proses (termasuk native handle yang macet itu).
+     */
+    private fun runBlockingWithTimeout(label: String, timeoutMs: Long = TEARDOWN_STEP_TIMEOUT_MS, block: () -> Unit) {
+        val latch = CountDownLatch(1)
+        val thread = Thread({
+            try {
+                block()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saat $label", e)
+            } finally {
+                latch.countDown()
+            }
+        }, "teardown-$label").apply {
+            isDaemon = true
+            start()
+        }
+        val finishedInTime = latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!finishedInTime) {
+            Log.w(
+                TAG,
+                "$label tidak selesai dalam ${timeoutMs}ms -- melanjutkan tanpa menunggu " +
+                    "(thread '${thread.name}' dibiarkan jalan sendiri di background)"
+            )
+        }
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
@@ -166,73 +226,21 @@ class MyVpnService : VpnService() {
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
-    // --- FIX "rekonek tanpa memutus VPN dulu saat internet device mati" ---
-    // Sebelumnya onLost/onUnavailable di bawah langsung manggil
-    // handleTunnelDeath() -- fungsi yang SAMA dipakai untuk kematian
-    // tunnel/server (SSH putus, hev-engine crash, dll), yang MEMANG
-    // sengaja membiarkan TUN interface (vpnInterface) tetap hidup supaya
-    // reconnect cepat tanpa minta izin VPN ulang. Itu masuk akal kalau
-    // penyebabnya di sisi server/tunnel -- tapi kalau jaringan FISIK
-    // device sendiri yang mati (pesawat mode, data+WiFi off, dst),
-    // membiarkan TUN "nyala" lalu langsung nyoba establishTunnel() ulang
-    // cuma buang-buang jatah MAX_RECONNECT_ATTEMPTS (pasti gagal, tidak
-    // ada jalur keluar sama sekali) DAN VPN keliru kelihatan masih
-    // setengah aktif padahal harusnya sudah putus total.
-    // Sekarang jalur network-loss dipisah lewat [handleNetworkLost]: TUN
-    // interface ditutup BENERAN (VPN benar-benar OFF di level OS, status
-    // "Terputus"), lalu app cukup MENUNGGU sinyal [onAvailable] dari
-    // Android -- baru begitu jaringan device kembali, [resumeAfterNetworkReturn]
-    // membuat ulang TUN + tunnel dari nol. Tidak ada percobaan reconnect
-    // buta selagi memang tidak ada jaringan sama sekali.
-    @Volatile
-    private var waitingForNetwork = false
-
     private fun registerNetworkWatcher() {
         if (networkCallback != null) return
-        // FIX: sebelumnya request ini cuma minta NOT_VPN + INTERNET --
-        // Android bisa saja masih melaporkan network itu "tersedia" walau
-        // sebenarnya tidak tembus internet beneran (mis. WiFi konek ke
-        // router tapi router-nya sendiri tidak ada koneksi keluar/captive
-        // portal). Tambah VALIDATED di sini supaya onLost()/onAvailable()
-        // memang mengikuti status "device BENERAN online", persis definisi
-        // yang dipakai [hasUsablePhysicalNetwork] di startVpn()/
-        // resumeAfterNetworkReturn() -- dua-duanya sekarang konsisten.
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
                 Log.w(TAG, "Jaringan fisik device hilang (data seluler/WiFi dimatikan)")
-                handleNetworkLost("Jaringan device terputus (data/WiFi mati)")
+                handleTunnelDeath("Jaringan device terputus (data/WiFi mati)")
             }
 
             override fun onUnavailable() {
                 Log.w(TAG, "Tidak ada jaringan fisik yang tersedia")
-                handleNetworkLost("Tidak ada jaringan aktif di device")
-            }
-
-            override fun onAvailable(network: Network) {
-                if (waitingForNetwork) {
-                    Log.i(TAG, "Jaringan device kembali tersedia -- mencoba menyambung ulang")
-                    resumeAfterNetworkReturn()
-                }
-            }
-
-            // FIX: onAvailable() bisa terpicu SEBELUM Android selesai
-            // memvalidasi jaringan itu benar-benar tembus internet (mis.
-            // WiFi baru asosiasi, captive portal belum lolos). Kalau
-            // resumeAfterNetworkReturn() di onAvailable() tadi menyerah
-            // karena belum VALIDATED (lihat hasUsablePhysicalNetwork()),
-            // callback ini yang menyusul begitu status validasi jaringan
-            // itu berubah -- tanpa ini, app bisa nyangkut nunggu tanpa ada
-            // pemicu lain sampai user connect manual.
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                if (waitingForNetwork && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
-                    Log.i(TAG, "Jaringan device tervalidasi tembus internet -- mencoba menyambung ulang")
-                    resumeAfterNetworkReturn()
-                }
+                handleTunnelDeath("Tidak ada jaringan aktif di device")
             }
         }
         try {
@@ -250,40 +258,6 @@ class MyVpnService : VpnService() {
             connectivityManager.unregisterNetworkCallback(callback)
         } catch (e: Exception) {
             Log.w(TAG, "Gagal melepas pemantau jaringan (mungkin sudah tidak terdaftar)", e)
-        }
-    }
-
-    /**
-     * FIX (bug "connect manual berhasil padahal internet mati"): sebelumnya
-     * TIDAK ADA pengecekan jaringan SAMA SEKALI sebelum mulai connect --
-     * [startVpn] langsung bikin TUN interface (ini SELALU berhasil, murni
-     * urusan OS, tidak butuh internet beneran) lalu langsung lanjut ke
-     * SSH/Xray. Baru KALAU tunnel itu gagal/tidak tembus baru ketahuan lewat
-     * verifikasi [keepAliveThroughTunnel] di [establishTunnel] -- tapi itu
-     * PASCA-connect, dan bisa saja perlu waktu (timeout socket 8-15 detik di
-     * [ConnectRelay] dsb) sebelum benar-benar dianggap gagal, jadi user bisa
-     * lihat sekilas status transisi yang salah kira "berhasil".
-     * Fungsi ini dipanggil DI AWAL (sebelum bikin TUN sama sekali) supaya
-     * kasus "device benar-benar tidak ada jaringan fisik" (pesawat mode,
-     * data+WiFi off) langsung ketahuan & gagal SEKETIKA, tanpa perlu
-     * menunggu proses SSH/Xray/verifikasi jalan dulu.
-     * Cek SEMUA network yang terdaftar (bukan cuma activeNetwork) dengan
-     * kapabilitas NOT_VPN (jaringan fisik, bukan tunnel kita sendiri) +
-     * INTERNET + VALIDATED (Android sudah konfirmasi jaringan itu BENERAN
-     * tembus ke internet, bukan cuma "connected" ke router/AP tanpa akses
-     * keluar -- kasus umum WiFi tanpa data/captive portal).
-     */
-    private fun hasUsablePhysicalNetwork(): Boolean {
-        return try {
-            connectivityManager.allNetworks.any { network ->
-                val caps = connectivityManager.getNetworkCapabilities(network) ?: return@any false
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
-                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                    caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Gagal cek status jaringan device, anggap ada (jangan blokir user)", e)
-            true
         }
     }
 
@@ -356,7 +330,6 @@ class MyVpnService : VpnService() {
         reconnectAttempt = 0
         stoppingIntentionally = false
         handlingDeath.set(false)
-        waitingForNetwork = false
 
         val vpnSettings = VpnSettingsStore.load(this)
         currentMtu = vpnSettings.mtu
@@ -366,24 +339,6 @@ class MyVpnService : VpnService() {
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
         StatusBus.clearLog()
         StatusBus.initSteps(buildStepsFor(config))
-
-        // --- FIX: gagalkan SEKETIKA kalau device memang tidak punya
-        // jaringan fisik yang tembus internet, SEBELUM bikin TUN interface
-        // & nyoba SSH/Xray sama sekali. Tanpa ini, TUN interface tetap
-        // berhasil dibuat (murni OS, tidak butuh internet) dan proses lanjut
-        // ke SSH/Xray yang baru gagal belakangan (bisa makan waktu beberapa
-        // detik karena timeout socket) -- di jendela itu status sempat
-        // terlihat "berhasil" padahal device sama sekali tidak online. Lihat
-        // [hasUsablePhysicalNetwork].
-        if (!hasUsablePhysicalNetwork()) {
-            Log.w(TAG, "Tidak ada jaringan device yang valid, batalkan percobaan connect")
-            StatusBus.log("Tidak ada koneksi internet di device -- percobaan connect dibatalkan")
-            StatusBus.state.value = "Gagal: tidak ada koneksi internet di device"
-            releaseWakeLock()
-            stopSelf()
-            return
-        }
-
         StatusBus.state.value = "Membuat antarmuka VPN (TUN)..."
         StatusBus.start(StepId.TUN)
 
@@ -518,20 +473,31 @@ class MyVpnService : VpnService() {
                 startTunEngine(config)
                 StatusBus.success(StepId.TUNNEL_ACTIVE)
 
-                // --- Verifikasi tunnel BENERAN tembus ke internet ---
-                // Untuk Xray, runXray() di atas cuma menyalakan proxy lokal --
-                // itu SUKSES walau device sama sekali tidak punya jaringan
-                // fisik (lihat catatan di XrayTunnelManager.connect()). Tanpa
-                // langkah ini, reconnect otomatis bisa "berhasil" padahal
-                // data/WiFi device masih mati, dan status keliru balik jadi
-                // "Tunnel aktif".
-                val verifySettings = GeneralSettingsStore.load(this@MyVpnService)
-                val (verifyHost, verifyPort) = parseKeepAliveTarget(verifySettings.keepAliveTarget)
-                val reachable = keepAliveThroughTunnel(config.socksPort, verifyHost, verifyPort) != null
+                // --- Verifikasi tunnel BENERAN tembus ke internet DAN akun/
+                // kredensial-nya masih valid ---
+                // FIX (laporan user): "internet nyala lagi, VPN langsung
+                // 'terhubung' tanpa ngecek akun valid atau tidak". Sebelumnya
+                // baris ini pakai keepAliveThroughTunnel() -- itu CUMA
+                // mengecek balasan handshake SOCKS5 CONNECT dari Xray-core
+                // LOKAL, dan balasan itu dikirim begitu TCP OUTBOUND ke server
+                // remote berhasil dibuka -- BUKAN setelah server VMess/VLESS/
+                // Trojan remote benar-benar memvalidasi kredensial (UUID/
+                // password), karena validasi itu terjadi DI DALAM payload
+                // terenkripsi yang tidak pernah dibalas lewat ack terpisah di
+                // level SOCKS5. Akibatnya: akun expired/invalid pun tetap
+                // dianggap "reachable" selama server proxy remote-nya sendiri
+                // masih hidup -- inilah yang bikin reconnect otomatis
+                // "berhasil" walau sebenarnya akun sudah tidak berlaku.
+                // verifyTunnelReallyWorks() di bawah BENERAN mengirim &
+                // menunggu balasan HTTP asli lewat tunnel -- kalau akun
+                // invalid, server remote diam-diam DROP payloadnya (tidak ada
+                // balasan sama sekali), dan itu baru ketahuan dari sini.
+                val reachable = verifyTunnelReallyWorks(config.socksPort)
                 if (!reachable) {
                     throw IllegalStateException(
-                        "Tunnel nyala tapi tidak bisa menjangkau internet ($verifyHost:$verifyPort) " +
-                            "-- kemungkinan jaringan device mati"
+                        "Tunnel nyala tapi tidak ada trafik nyata yang balik lewat tunnel " +
+                            "-- kemungkinan jaringan device mati, ATAU akun/kredensial server " +
+                            "sudah tidak valid/expired"
                     )
                 }
 
@@ -587,10 +553,24 @@ class MyVpnService : VpnService() {
         // Bongkar SSH/Xray + tun engine yang mati itu -- TUN interface
         // (vpnInterface) SENGAJA DIBIARKAN HIDUP supaya reconnect tidak perlu
         // builder.establish() ulang (= tidak perlu izin VPN ulang dari user).
-        try { tunEngine?.stop() } catch (_: Exception) {}
+        //
+        // FIX "status nyangkut Terhubung walau internet mati / app freeze":
+        // handleTunnelDeath() ini bisa dipanggil dari thread APA SAJA (native
+        // hev-socks5-tunnel, ConnectionMonitor SSH, ATAU callback
+        // ConnectivityManager saat jaringan device hilang) -- ketiga panggilan
+        // di bawah dulu TELANJANG tanpa batas waktu, padahal
+        // xrayTunnelManager.disconnect() bisa menggantung selamanya kalau
+        // jaringan device benar-benar mati (lihat catatan panjang di
+        // [runBlockingWithTimeout]). Sekarang dibungkus timeout supaya thread
+        // pemanggil PASTI bebas lagi dalam waktu terbatas, dan
+        // scheduleReconnectOrGiveUp() di bawah ini SELALU sempat terpanggil.
+        val engine = tunEngine
         tunEngine = null
-        try { sshTunnelManager.disconnect() } catch (_: Exception) {}
-        try { xrayTunnelManager.disconnect() } catch (_: Exception) {}
+        if (engine != null) {
+            runBlockingWithTimeout("tunEngine.stop()") { engine.stop() }
+        }
+        runBlockingWithTimeout("sshTunnelManager.disconnect()") { sshTunnelManager.disconnect() }
+        runBlockingWithTimeout("xrayTunnelManager.disconnect()") { xrayTunnelManager.disconnect() }
 
         scheduleReconnectOrGiveUp(reason)
     }
@@ -631,138 +611,6 @@ class MyVpnService : VpnService() {
     }
 
     /**
-     * Dipanggil KHUSUS dari [ConnectivityManager.NetworkCallback.onLost] /
-     * `onUnavailable()` -- yaitu jaringan FISIK device sendiri yang hilang
-     * (data seluler/WiFi mati), BUKAN tunnel/server yang mati sendiri
-     * (itu tetap lewat [handleTunnelDeath] seperti biasa).
-     *
-     * Beda pentingnya dengan [handleTunnelDeath]: di sini TUN interface
-     * ([vpnInterface]) BENERAN ditutup (bukan dibiarkan hidup), jadi VPN
-     * sungguh-sungguh OFF (status "Terputus") SEBELUM mencoba apa pun lagi
-     * -- persis seperti yang diminta: putuskan dulu, baru nanti nyambung
-     * ulang. Tidak ada gunanya membiarkan TUN "nyala" ataupun langsung
-     * memanggil establishTunnel() lagi di sini: tanpa jaringan fisik sama
-     * sekali, percobaan itu PASTI gagal dan cuma menghabiskan jatah
-     * [MAX_RECONNECT_ATTEMPTS] dalam hitungan detik lalu app menyerah
-     * permanen padahal jaringan device mungkin baru mati sebentar.
-     * Sebagai gantinya app menunggu (via [waitingForNetwork] +
-     * `onAvailable()` di [registerNetworkWatcher]) sampai Android sendiri
-     * yang melaporkan jaringan sudah kembali, baru [resumeAfterNetworkReturn]
-     * membuat ulang TUN + tunnel dari nol.
-     */
-    private fun handleNetworkLost(reason: String) {
-        if (stoppingIntentionally) return
-        if (!handlingDeath.compareAndSet(false, true)) return // sudah lagi ditangani sinyal lain
-
-        val config = lastConfig
-        if (config == null) {
-            stopVpn()
-            return
-        }
-
-        Log.w(TAG, "Jaringan device hilang, memutus tunnel dulu: $reason")
-        watchdogJob?.cancel()
-        watchdogJob = null
-        pingJob?.cancel()
-        pingJob = null
-
-        // Bongkar tun engine + SSH/Xray seperti biasa.
-        try { tunEngine?.stop() } catch (e: Exception) { Log.e(TAG, "Error stop tun engine", e) }
-        tunEngine = null
-        try { sshTunnelManager.disconnect() } catch (e: Exception) { Log.e(TAG, "Error disconnect SSH", e) }
-        try { xrayTunnelManager.disconnect() } catch (e: Exception) { Log.e(TAG, "Error disconnect Xray", e) }
-
-        if (!currentAutoReconnect) {
-            StatusBus.log("Jaringan device terputus ($reason) -- auto reconnect nonaktif (VPN Setting), tidak menunggu jaringan")
-            StatusBus.state.value = "Terputus: jaringan device mati, auto reconnect nonaktif"
-            stopVpn()
-            return
-        }
-
-        // --- Di sinilah bedanya dengan handleTunnelDeath: TUN interface
-        // ditutup SUNGGUHAN (bukan dibiarkan hidup) supaya VPN benar-benar
-        // OFF selama tidak ada jaringan, bukan menggantung "seolah aktif".
-        val vpnIf = vpnInterface
-        vpnInterface = null
-        waitingForNetwork = true
-        reconnectAttempt = 0
-
-        StatusBus.log("Jaringan device terputus ($reason) -- tunnel diputus, menunggu jaringan aktif kembali...")
-        StatusBus.state.value = "Terputus: tidak ada koneksi internet — menunggu jaringan..."
-        updateNotification("Menunggu jaringan aktif...")
-
-        shutdownScope.launch {
-            try {
-                vpnIf?.close()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error menutup TUN interface saat jaringan hilang", e)
-            }
-            StatusBus.log("TUN interface ditutup, VPN benar-benar terputus. Menunggu jaringan...")
-            // Bebaskan gerbang [handlingDeath] supaya sinyal kematian lain
-            // (mis. onUnavailable menyusul onLost) tetap bisa diproses idempotent,
-            // dan supaya resumeAfterNetworkReturn() tidak diblokir olehnya.
-            handlingDeath.set(false)
-        }
-    }
-
-    /**
-     * Kebalikan dari [handleNetworkLost]: dipanggil dari
-     * `onAvailable()` di [registerNetworkWatcher] begitu Android melaporkan
-     * ada jaringan fisik baru. Membuat ULANG TUN interface (karena yang lama
-     * sudah ditutup oleh [handleNetworkLost]) lalu menyalakan tunnel dari nol
-     * -- TIDAK perlu izin VPN ulang ke user karena VpnService.Builder.establish()
-     * boleh dipanggil berkali-kali selama app ini masih pemegang sesi VPN aktif.
-     */
-    private fun resumeAfterNetworkReturn() {
-        if (!waitingForNetwork) return
-        if (stoppingIntentionally) return
-        val config = lastConfig ?: return
-        if (vpnInterface != null) return // sudah ada yang buat ulang (mis. user tap Connect manual)
-
-        // FIX: sinyal onAvailable() dari Android kadang menandakan jaringan
-        // BARU SAJA konek tapi belum tentu sudah divalidasi tembus internet
-        // (mis. WiFi baru asosiasi tapi captive portal/internet belum
-        // benar-benar jalan) -- pakai pengecekan yang SAMA seperti di
-        // startVpn() supaya tidak nyoba bikin ulang TUN + tunnel kepagian,
-        // yang cuma bakal gagal lagi. Kalau belum valid, tetap
-        // waitingForNetwork = true (biarkan onAvailable() berikutnya,
-        // biasanya menyusul begitu VALIDATED, yang coba lagi).
-        if (!hasUsablePhysicalNetwork()) {
-            Log.w(TAG, "onAvailable() terpicu tapi jaringan belum tervalidasi tembus internet, tunggu lagi")
-            return
-        }
-
-        waitingForNetwork = false
-
-        StatusBus.log("Jaringan device kembali tersedia -- membuat ulang TUN interface & tunnel...")
-        StatusBus.state.value = "Jaringan kembali -- menyambung ulang..."
-        updateNotification("Menyambung ulang...")
-
-        val vpnSettings = VpnSettingsStore.load(this)
-        val builder = Builder()
-            .setSession("TunnelApp")
-            .addAddress(TUN_ADDRESS, 32)
-            .addRoute("0.0.0.0", 0)
-            .setMtu(currentMtu)
-        applyDnsServers(builder, config, vpnSettings)
-
-        vpnInterface = try {
-            builder.establish()
-        } catch (e: Exception) {
-            Log.e(TAG, "Gagal membuat ulang TUN interface setelah jaringan kembali", e)
-            StatusBus.log("Gagal membuat ulang TUN interface (${e.message}) -- tetap menunggu jaringan")
-            StatusBus.state.value = "Terputus: gagal menyambung ulang, menunggu jaringan..."
-            // Tetap tandai menunggu supaya onAvailable() berikutnya dicoba lagi.
-            waitingForNetwork = true
-            return
-        }
-
-        Log.i(TAG, "TUN interface berhasil dibuat ulang setelah jaringan kembali")
-        handlingDeath.set(false)
-        establishTunnel(config, isReconnect = true)
-    }
-
-    /**
      * Cek periodik: port SOCKS5 lokal (dipakai SSH maupun Xray) masih bisa
      * di-connect atau tidak. Ini jaring pengaman UNIVERSAL -- beda dari
      * callback hev-engine/SSH-monitor yang spesifik per komponen, watchdog
@@ -788,15 +636,17 @@ class MyVpnService : VpnService() {
                 }
 
                 // 2) Port lokal hidup TIDAK BERARTI tunnel benar-benar tembus
-                //    ke internet -- itu murni socket di dalam device sendiri.
-                //    Probe BENERAN lewat tunnel (sama seperti "Keep-alive" di
-                //    startPingLoop) supaya kasus "data/WiFi device dimatikan
-                //    tapi Xray-core lokal tetap nyala" kepakai (status tidak
-                //    lagi nyangkut "Terhubung" tanpa batas).
+                //    ke internet DENGAN AKUN YANG MASIH VALID -- itu murni
+                //    socket di dalam device sendiri. Pakai
+                //    verifyTunnelReallyWorks() (BENERAN kirim & tunggu balasan
+                //    HTTP lewat tunnel, lihat catatan panjang di definisinya)
+                //    supaya DUA kasus ini kepakai: (a) data/WiFi device
+                //    dimatikan tapi Xray-core lokal tetap nyala, DAN (b) akun/
+                //    kredensial server tiba-tiba invalid/dicabut di tengah
+                //    sesi (server proxy remote-nya sendiri masih hidup, jadi
+                //    TCP tetap connect, tapi tidak ada trafik nyata yang balik).
                 if (stoppingIntentionally) break
-                val settings = GeneralSettingsStore.load(this@MyVpnService)
-                val (targetHost, targetPort) = parseKeepAliveTarget(settings.keepAliveTarget)
-                val reachable = keepAliveThroughTunnel(config.socksPort, targetHost, targetPort) != null
+                val reachable = verifyTunnelReallyWorks(config.socksPort)
 
                 if (reachable) {
                     consecutiveReachabilityFailures = 0
@@ -804,11 +654,11 @@ class MyVpnService : VpnService() {
                     consecutiveReachabilityFailures++
                     Log.w(
                         TAG,
-                        "Watchdog: probe lewat tunnel ke $targetHost:$targetPort gagal " +
+                        "Watchdog: probe lewat tunnel gagal " +
                             "($consecutiveReachabilityFailures/$WATCHDOG_REACHABILITY_FAIL_THRESHOLD)"
                     )
                     if (consecutiveReachabilityFailures >= WATCHDOG_REACHABILITY_FAIL_THRESHOLD) {
-                        handleTunnelDeath("Tunnel tidak bisa menjangkau internet ($targetHost:$targetPort)")
+                        handleTunnelDeath("Tunnel tidak menjangkau internet / akun tidak valid (tidak ada trafik nyata yang balik)")
                         break
                     }
                 }
@@ -923,6 +773,105 @@ class MyVpnService : VpnService() {
     }
 
     /**
+     * Verifikasi tunnel BENERAN bisa dipakai: BENERAN kirim request HTTP lewat
+     * tunnel dan menunggu balasan HTTP ASLI dari server tujuan -- bukan cuma
+     * buka-tutup handshake SOCKS5 seperti [keepAliveThroughTunnel] (yang
+     * tujuannya beda, lihat catatan di sana).
+     *
+     * PENTING (bug fix: "internet nyala lagi, VPN langsung 'terhubung' tanpa
+     * ngecek akun valid atau tidak"): baik SOCKS5 lokal (mode SSH lewat
+     * [Socks5Server]) maupun inbound Xray-core (mode Xray) MENGIRIM BALASAN
+     * SOCKS5 "sukses" begitu koneksi TCP OUTBOUND ke server tujuan berhasil
+     * dibuka -- ini kejadian di level TCP/SOCKS5, SAMA SEKALI TIDAK
+     * MENUNGGU server VMess/VLESS/Trojan remote memvalidasi kredensial
+     * (UUID/password) yang dikirim di dalam payload terenkripsi setelahnya.
+     * Kalau akun sudah expired/invalid, server proxy remote-nya SENDIRI masih
+     * hidup (makanya TCP tetap connect & SOCKS5 tetap balas "sukses"), tapi
+     * begitu ada trafik ASLI, server itu diam-diam DROP paket kita tanpa
+     * balasan apa pun (tidak ada RST, tidak ada pesan error -- cuma diam).
+     * [keepAliveThroughTunnel] tidak pernah sampai ke tahap kirim data asli,
+     * jadi tidak pernah menangkap kasus ini -- akun invalid tetap dianggap
+     * "reachable".
+     *
+     * Fix-nya: kirim request HTTP polos (port 80, BUKAN TLS, supaya gampang
+     * diparse tanpa perlu implementasi handshake TLS sendiri) ke endpoint
+     * connectivity-check RESMI milik Google (dipakai Android sendiri untuk
+     * deteksi captive portal/internet, jadi hampir tidak pernah diblokir) --
+     * lalu tunggu baris status HTTP ASLI ("HTTP/1.1 204 ..."). Endpoint ini
+     * SENGAJA di-hardcode (bukan pakai target keep-alive yang bisa diatur
+     * user di Pengaturan) supaya hasil verifikasi ini konsisten & tidak
+     * kepengaruh salah ketik/target yang bukan HTTP di kartu "Pengaturan
+     * Dasar". Kalau akun invalid, balasan ini TIDAK AKAN PERNAH datang --
+     * [KEEP_ALIVE_TIMEOUT_MS] di bawah yang menangkapnya sebagai gagal.
+     *
+     * @return true HANYA kalau balasan HTTP ASLI dengan status 2xx/3xx
+     * benar-benar diterima lewat tunnel; false untuk semua kegagalan lain
+     * (tidak ada jaringan, TCP gagal connect, SOCKS5 ditolak, timeout
+     * menunggu balasan HTTP -- termasuk kasus akun invalid di atas).
+     */
+    private fun verifyTunnelReallyWorks(socksPort: Int): Boolean = try {
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress("127.0.0.1", socksPort), KEEP_ALIVE_TIMEOUT_MS)
+            socket.soTimeout = KEEP_ALIVE_TIMEOUT_MS
+            val out = socket.getOutputStream()
+            val din = DataInputStream(socket.getInputStream())
+
+            // Handshake SOCKS5 (persis seperti keepAliveThroughTunnel).
+            out.write(byteArrayOf(0x05, 0x01, 0x00))
+            out.flush()
+            val greeting = ByteArray(2)
+            din.readFully(greeting)
+            if (greeting[0] != 0x05.toByte() || greeting[1] != 0x00.toByte()) {
+                return@use false
+            }
+
+            val host = "connectivitycheck.gstatic.com"
+            val port = 80
+            val hostBytes = host.toByteArray(Charsets.US_ASCII)
+            val request = ByteArrayOutputStream().apply {
+                write(byteArrayOf(0x05, 0x01, 0x00, 0x03))
+                write(hostBytes.size)
+                write(hostBytes)
+                write((port shr 8) and 0xFF)
+                write(port and 0xFF)
+            }
+            out.write(request.toByteArray())
+            out.flush()
+
+            val replyHeader = ByteArray(4)
+            din.readFully(replyHeader)
+            if (replyHeader[1] != 0x00.toByte()) return@use false
+            val addrLen = when (replyHeader[3].toInt()) {
+                0x01 -> 4
+                0x04 -> 16
+                0x03 -> din.readUnsignedByte()
+                else -> 0
+            }
+            if (addrLen > 0) din.skipBytes(addrLen)
+            din.skipBytes(2)
+
+            // --- Bedanya dari keepAliveThroughTunnel: BENERAN kirim request
+            // HTTP & tunggu balasan ASLI dari server, bukan cuma buka-tutup
+            // handshake SOCKS5. Ini yang bisa menangkap akun invalid/expired.
+            val httpRequest = "GET /generate_204 HTTP/1.1\r\nHost: $host\r\nConnection: close\r\n\r\n"
+            out.write(httpRequest.toByteArray(Charsets.US_ASCII))
+            out.flush()
+
+            val statusLine = ByteArrayOutputStream()
+            while (statusLine.size() < 64) {
+                val b = din.read()
+                if (b == -1 || b == '\n'.code) break
+                if (b != '\r'.code) statusLine.write(b)
+            }
+            val line = statusLine.toByteArray().toString(Charsets.US_ASCII)
+            Regex("""^HTTP/1\.\d\s+(\d{3})""").find(line)
+                ?.groupValues?.get(1)?.toIntOrNull()?.let { it in 200..399 } == true
+        }
+    } catch (e: Exception) {
+        false
+    }
+
+    /**
      * Keep-alive SUNGGUHAN: buka handshake SOCKS5 CONNECT ke
      * [targetHost]:[targetPort] lewat SOCKS5 LOKAL di 127.0.0.1:[socksPort]
      * -- port yang sama dipakai [Socks5Server] (mode SSH) maupun inbound
@@ -933,6 +882,13 @@ class MyVpnService : VpnService() {
      * inilah yang bikin server tidak diputus paksa gara-gara dianggap idle.
      * Socket ditutup lagi begitu handshake CONNECT selesai (tidak perlu
      * kirim data beneran, cukup buka-tutup channel).
+     *
+     * CATATAN: fungsi ini SEKARANG cuma dipakai untuk "Keep-alive" (menjaga
+     * koneksi tidak dianggap idle oleh firewall/NAT, di [startPingLoop]) --
+     * BUKAN lagi untuk memutuskan apakah tunnel "valid"/akun masih aktif,
+     * karena buka-tutup handshake saja TIDAK CUKUP untuk itu (lihat
+     * [verifyTunnelReallyWorks] yang dipakai [establishTunnel] & [startWatchdog]
+     * untuk keperluan itu).
      *
      * Return null kalau gagal di tahap mana pun (server nolak, konek gagal,
      * timeout, dll) -- dianggap sebagai satu siklus keep-alive yang gagal,
@@ -1024,7 +980,6 @@ class MyVpnService : VpnService() {
         // handleTunnelDeath() bisa salah mengira penutupan yang KITA lakukan
         // sendiri sebagai "tunnel mati sendiri" lalu nyoba reconnect balik.
         stoppingIntentionally = true
-        waitingForNetwork = false
         watchdogJob?.cancel()
         watchdogJob = null
         pingJob?.cancel()
@@ -1069,25 +1024,29 @@ class MyVpnService : VpnService() {
         shutdownScope.launch {
             // Urutan penting: matikan tun engine dulu (masih pakai fd TUN &
             // SOCKS5), baru SSH/Xray, baru TUN interface-nya sendiri.
-            try {
-                engine?.stop()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error stop tun engine", e)
+            //
+            // FIX "tombol Kontrol Koneksi macet di Memutuskan... selamanya":
+            // sebelumnya dipanggil TELANJANG di sini -- kalau
+            // xrayTunnelManager.disconnect() kebetulan lagi menggantung
+            // (misalnya karena handleTunnelDeath() sempat memicu disconnect
+            // yang sama sebelum ini, saat jaringan device mati -- lihat
+            // catatan di [runBlockingWithTimeout] dan guard [disconnecting]
+            // di XrayTunnelManager), coroutine ini pun ikut menggantung
+            // selamanya SEBELUM sempat sampai ke vpnIf?.close() dan
+            // stopSelf() di bawah -- itulah kenapa VPN "tidak bisa dimatikan
+            // sama sekali". Sekarang tiap langkah dibatasi waktu, jadi proses
+            // shutdown ini DIJAMIN sampai ke stopForeground()/stopSelf() di
+            // bawah dalam waktu terbatas, apa pun kondisi native lib di
+            // baliknya.
+            if (engine != null) {
+                runBlockingWithTimeout("tunEngine.stop()") { engine.stop() }
             }
 
             // Aman dipanggil dua-duanya: masing-masing manager no-op kalau
             // memang tidak sedang aktif (lihat isConnected()/running di
             // XrayTunnelManager, connection == null di SshTunnelManager).
-            try {
-                sshTunnelManager.disconnect()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error disconnect SSH", e)
-            }
-            try {
-                xrayTunnelManager.disconnect()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error disconnect Xray", e)
-            }
+            runBlockingWithTimeout("sshTunnelManager.disconnect()") { sshTunnelManager.disconnect() }
+            runBlockingWithTimeout("xrayTunnelManager.disconnect()") { xrayTunnelManager.disconnect() }
 
             try {
                 vpnIf?.close()

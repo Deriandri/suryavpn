@@ -7,6 +7,7 @@ import libXray.DialerController
 import libXray.LibXray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Menjalankan Xray-core lewat binding resmi libXray (proyek XTLS/libXray,
@@ -60,6 +61,22 @@ class XrayTunnelManager(private val context: Context) {
     }
 
     private var running = false
+
+    // --- FIX "app stuck, tidak bisa disconnect sama sekali" ---
+    // Sebelumnya disconnect() bisa terpanggil DUA KALI hampir bersamaan:
+    // sekali dari handleTunnelDeath() (dipicu watchdog/NetworkCallback saat
+    // jaringan device mati) dan sekali lagi dari stopVpn() (saat user tekan
+    // tombol disconnect manual) -- keduanya sama-sama memanggil
+    // LibXray.invoke("stopXray") ke runtime Go yang SAMA secara paralel.
+    // invoke() ini TIDAK ADA jaminan aman dipanggil concurrent untuk
+    // start/stop yang sama, dan kalau runtime Go-nya lagi menunggu I/O yang
+    // tidak akan pernah selesai (jaringan device mati), dua panggilan
+    // bertabrakan ini bisa membuatnya menggantung PERMANEN -- persis gejala
+    // tombol "Kontrol Koneksi" macet di "Memutuskan..." selamanya. Guard ini
+    // memastikan hanya SATU invoke("stopXray") yang benar-benar jalan;
+    // panggilan lain yang datang selagi masih diproses cukup diabaikan
+    // (bukan error, karena hasil akhirnya sama: xray akan berhenti).
+    private val disconnecting = AtomicBoolean(false)
 
     /**
      * @param protectFd Callback fd-based (BUKAN Socket seperti punya SshTunnelManager),
@@ -159,6 +176,13 @@ class XrayTunnelManager(private val context: Context) {
 
     fun disconnect() {
         if (!running) return
+        if (!disconnecting.compareAndSet(false, true)) {
+            // Sudah ada panggilan disconnect() lain yang sedang diproses
+            // (lihat catatan [disconnecting] di atas) -- jangan kirim
+            // invoke("stopXray") kedua, cukup keluar.
+            Log.w(TAG, "disconnect() Xray sudah sedang diproses panggilan lain, diabaikan")
+            return
+        }
         try {
             val request = JSONObject().apply {
                 put("apiVersion", LIBXRAY_API_VERSION)
@@ -169,8 +193,10 @@ class XrayTunnelManager(private val context: Context) {
             LibXray.resetDNS()
         } catch (e: Exception) {
             Log.e(TAG, "Error stop Xray-core", e)
+        } finally {
+            running = false
+            disconnecting.set(false)
         }
-        running = false
     }
 
     fun isConnected(): Boolean = running

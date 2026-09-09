@@ -174,26 +174,14 @@ class DashboardActivity : AppCompatActivity() {
     private fun applyConnectButtonState(status: String) {
         val isIdle = status == "Belum tersambung" || status == "Terputus"
         val isFailed = !isIdle && status.startsWith("Gagal")
-        // FIX (bug "auto reconnect nonaktif" kebaca CONNECTED): status
-        // "Terputus: ..., auto reconnect nonaktif" TIDAK diawali "Terputus"
-        // persis (ada teks tambahan setelahnya) jadi lolos dari isIdle exact
-        // match -- lalu status itu MENGANDUNG substring "aktif" (dari kata
-        // "non-aktif"), jadi ke-match cabang isConnected di bawah kalau
-        // masih pakai contains("aktif") generik. Sekarang deteksi "sudah
-        // benar-benar konek" pakai frasa PERSIS yang cuma dikirim
-        // MyVpnService pas tunnel BENERAN aktif ("Tunnel aktif ..."), bukan
-        // sekadar substring "aktif" yang juga muncul di "nonaktif" atau
-        // "Mengaktifkan tunnel...".
         val isTransitioning = !isIdle && !isFailed && (
             status.contains("Menghubungkan") ||
             status.contains("Membuat") ||
             status.contains("tersambung") ||
             status.contains("Memutuskan") ||
-            status.contains("menunggu jaringan", ignoreCase = true) ||
-            status.contains("menyambung ulang", ignoreCase = true) ||
             status.contains("reconnect otomatis", ignoreCase = true)
         )
-        val isConnected = !isIdle && !isFailed && !isTransitioning && status.startsWith("Tunnel aktif")
+        val isConnected = !isIdle && !isFailed && !isTransitioning && status.contains("aktif", ignoreCase = true)
 
         connectButtonState = when {
             isTransitioning -> ConnectButtonState.CONNECTING
@@ -208,8 +196,6 @@ class DashboardActivity : AppCompatActivity() {
                 binding.btnConnectToggle.isEnabled = true
                 binding.btnConnectToggle.text = when {
                     status.contains("Memutuskan") -> "Memutuskan..."
-                    status.contains("menunggu jaringan", ignoreCase = true) -> "Menunggu jaringan..."
-                    status.contains("menyambung ulang", ignoreCase = true) -> "Menyambung ulang..."
                     else -> "Batalkan"
                 }
                 binding.btnConnectToggle.backgroundTintList =
@@ -447,14 +433,9 @@ class DashboardActivity : AppCompatActivity() {
         val (bg, text) = when {
             status.startsWith("Gagal") -> R.color.status_error_bg to R.color.status_error
             status.contains("Menghubungkan") || status.contains("Membuat") || status.contains("tersambung") ||
-                status.contains("Memutuskan") || status.contains("menunggu jaringan", ignoreCase = true) ||
-                status.contains("menyambung ulang", ignoreCase = true) ->
+                status.contains("Memutuskan") ->
                 R.color.status_running_bg to R.color.status_running
-            // FIX: pakai frasa PERSIS "Tunnel aktif" (satu-satunya status sukses
-            // sungguhan dari MyVpnService), bukan substring "aktif" generik --
-            // itu juga cocok dengan "nonaktif" (auto reconnect off) dan bikin
-            // pill kelihatan hijau/sukses padahal tunnel sudah mati.
-            status.startsWith("Tunnel aktif") -> R.color.status_success_bg to R.color.status_success
+            status.contains("aktif", ignoreCase = true) -> R.color.status_success_bg to R.color.status_success
             else -> R.color.status_pending_bg to R.color.text_primary
         }
         (binding.pillStatus.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(this, bg))
