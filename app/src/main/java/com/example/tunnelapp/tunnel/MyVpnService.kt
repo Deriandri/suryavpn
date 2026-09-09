@@ -4,13 +4,16 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.util.Log
 import com.example.tunnelapp.DashboardActivity
 import com.example.tunnelapp.R
 import com.example.tunnelapp.model.ServerConfig
+import com.example.tunnelapp.model.VpnSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -62,8 +65,8 @@ class MyVpnService : VpnService() {
         private const val NOTIFICATION_CHANNEL_ID = "vpn_service_channel"
         private const val NOTIFICATION_ID = 1
         private const val TUN_ADDRESS = "10.10.0.2"
-        private const val TUN_MTU = 1500
         private const val DEFAULT_DNS = "1.1.1.1"
+        private const val WAKE_LOCK_TAG = "TunnelApp:VpnKeepAwake"
 
         // --- Deteksi & reconnect otomatis kalau tunnel mati sendiri ---
         private const val MAX_RECONNECT_ATTEMPTS = 3
@@ -72,6 +75,15 @@ class MyVpnService : VpnService() {
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    // MTU dipakai di dua tempat (Builder.setMtu() & HevSocks5Engine.start()),
+    // diambil dari VpnSettingsStore sekali di startVpn() supaya kedua sisi
+    // pasti konsisten walau user ganti nilainya di tengah sesi tunnel aktif.
+    private var currentMtu: Int = com.example.tunnelapp.model.VpnSettings.DEFAULT_MTU
+    // Non-null selama fitur "Keep CPU Awake" (VpnSettingsStore.keepCpuAwake)
+    // aktif -- dipegang dari startVpn() sampai stopVpn(), mencegah CPU masuk
+    // deep sleep (WAJIB PARTIAL_WAKE_LOCK, bukan varian yang menyalakan layar)
+    // supaya tunnel/reconnect otomatis tetap jalan mulus walau layar mati.
+    private var wakeLock: PowerManager.WakeLock? = null
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private val sshTunnelManager = SshTunnelManager()
@@ -164,6 +176,10 @@ class MyVpnService : VpnService() {
         stoppingIntentionally = false
         handlingDeath.set(false)
 
+        val vpnSettings = VpnSettingsStore.load(this)
+        currentMtu = vpnSettings.mtu
+        acquireWakeLockIfNeeded(vpnSettings.keepCpuAwake)
+
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
         StatusBus.clearLog()
         StatusBus.initSteps(buildStepsFor(config))
@@ -174,8 +190,8 @@ class MyVpnService : VpnService() {
             .setSession("TunnelApp")
             .addAddress(TUN_ADDRESS, 32)
             .addRoute("0.0.0.0", 0)
-            .setMtu(TUN_MTU)
-        applyDnsServers(builder, config)
+            .setMtu(currentMtu)
+        applyDnsServers(builder, config, vpnSettings)
 
         vpnInterface = try {
             builder.establish()
@@ -196,17 +212,29 @@ class MyVpnService : VpnService() {
     }
 
     /**
-     * Pasang DNS custom ([ServerConfig.dns1]/[ServerConfig.dns2]) ke [builder] kalau
-     * diisi & valid (harus literal IP, [VpnService.Builder.addDnsServer] melempar
-     * [IllegalArgumentException] untuk hostname/string sembarangan -- ditangkap di
-     * sini supaya salah ketik DNS tidak menggagalkan seluruh pembuatan TUN interface,
-     * cukup diabaikan + dicatat ke log). Kalau tidak ada satu pun DNS custom yang
-     * valid (kosong semua atau keduanya salah format), fallback ke [DEFAULT_DNS]
-     * supaya resolusi domain tetap jalan seperti perilaku lama.
+     * Pasang DNS ke [builder] kalau diisi & valid (harus literal IP,
+     * [VpnService.Builder.addDnsServer] melempar [IllegalArgumentException]
+     * untuk hostname/string sembarangan -- ditangkap di sini supaya salah
+     * ketik DNS tidak menggagalkan seluruh pembuatan TUN interface, cukup
+     * diabaikan + dicatat ke log).
+     *
+     * Prioritas sumber DNS: DNS1/DNS2 di kartu "VPN Setting"
+     * ([VpnSettingsStore], global) MENIMPA DNS per-server
+     * ([ServerConfig.dns1]/[ServerConfig.dns2], dari Konfigurasi SSH) kalau
+     * salah satunya diisi. Kalau keduanya kosong/tidak diisi sama sekali,
+     * fallback ke [DEFAULT_DNS] supaya resolusi domain tetap jalan seperti
+     * perilaku lama.
      */
-    private fun applyDnsServers(builder: Builder, config: ServerConfig) {
+    private fun applyDnsServers(builder: Builder, config: ServerConfig, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
+        val useGlobalOverride = vpnSettings.dns1.isNotBlank() || vpnSettings.dns2.isNotBlank()
+        val dnsCandidates = if (useGlobalOverride) {
+            listOf("DNS1 (VPN Setting)" to vpnSettings.dns1, "DNS2 (VPN Setting)" to vpnSettings.dns2)
+        } else {
+            listOf("DNS1" to config.dns1, "DNS2" to config.dns2)
+        }
+
         var addedAny = false
-        for ((label, dns) in listOf("DNS1" to config.dns1, "DNS2" to config.dns2)) {
+        for ((label, dns) in dnsCandidates) {
             val value = dns?.trim()?.takeIf { it.isNotEmpty() } ?: continue
             try {
                 builder.addDnsServer(value)
@@ -219,6 +247,37 @@ class MyVpnService : VpnService() {
         if (!addedAny) {
             builder.addDnsServer(DEFAULT_DNS)
         }
+    }
+
+    /**
+     * Fitur "Keep CPU Awake" (kartu VPN Setting) -- pegang
+     * PARTIAL_WAKE_LOCK selama tunnel aktif supaya CPU tidak masuk deep
+     * sleep dan koneksi/reconnect otomatis tetap jalan walau layar device
+     * mati. Aman dipanggil berulang: kalau [enabled] false atau wakeLock
+     * sudah dipegang, tidak melakukan apa-apa.
+     */
+    private fun acquireWakeLockIfNeeded(enabled: Boolean) {
+        if (!enabled) return
+        if (wakeLock?.isHeld == true) return
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            Log.i(TAG, "Keep CPU Awake aktif: wake lock dipegang")
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal memegang wake lock (Keep CPU Awake)", e)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal melepas wake lock", e)
+        }
+        wakeLock = null
     }
 
     /**
@@ -382,7 +441,7 @@ class MyVpnService : VpnService() {
         engine.start(
             tunFd = fd,
             tunAddress = TUN_ADDRESS,
-            mtu = TUN_MTU,
+            mtu = currentMtu,
             socksHost = "127.0.0.1",
             socksPort = config.socksPort,
             onUnexpectedStop = { handleTunnelDeath("Engine tunnel (hev-socks5-tunnel) berhenti tak terduga") }
@@ -404,6 +463,7 @@ class MyVpnService : VpnService() {
         stoppingIntentionally = true
         watchdogJob?.cancel()
         watchdogJob = null
+        releaseWakeLock()
         // Batalkan proses connect/reconnect yang mungkin masih jalan di
         // serviceScope -- TIDAK memengaruhi shutdownScope di bawah (scope beda).
         serviceJob.cancel()

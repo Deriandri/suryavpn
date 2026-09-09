@@ -39,12 +39,12 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Konfigurasi server &amp; info aplikasi"
+                android:text="Pengaturan VPN &amp; info aplikasi"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- Card: Konfigurasi server -->
+        <!-- Card: VPN Setting -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"
             android:layout_width="match_parent"
@@ -60,19 +60,87 @@
                     style="@style/SectionTitleText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Konfigurasi Server" />
+                    android:text="VPN Setting" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Kalau diisi, DNS di sini menimpa DNS profil SSH/Xray. Kosongkan untuk pakai default (1.1.1.1)."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="8dp" />
 
                 <LinearLayout
-                    android:id="@+id/rowMenuSsh"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="8dp"
+                        android:hint="DNS 1 (mis. 1.1.1.1)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etVpnDns1"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="DNS 2 (opsional)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etVpnDns2"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:hint="MTU (default 1500)">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etVpnMtu"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number"
+                        android:maxLength="4"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:autofillHints="" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="16dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:paddingTop="14dp"
-                    android:paddingBottom="14dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:background="?attr/selectableItemBackground">
+                    android:paddingTop="14dp">
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -83,7 +151,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Konfigurasi SSH"
+                            android:text="Keep CPU Awake"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
@@ -91,35 +159,29 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="SSH, SSH SSL, SSH TLS Payload Proxy"
+                            android:text="Cegah CPU tidur selagi tunnel aktif, biar koneksi tidak putus-putus di background"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
 
-                    <TextView
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switchKeepAwake"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="›"
-                        android:textColor="@color/text_hint"
-                        android:textSize="22sp" />
+                        android:layout_height="wrap_content" />
                 </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
+                    android:layout_marginTop="14dp"
                     android:background="@color/divider" />
 
                 <LinearLayout
-                    android:id="@+id/rowMenuXray"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:paddingTop="14dp"
-                    android:paddingBottom="14dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:background="?attr/selectableItemBackground">
+                    android:paddingTop="14dp">
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -130,26 +192,35 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Konfigurasi Xray"
+                            android:text="Battery Usage"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
 
                         <TextView
+                            android:id="@+id/tvBatteryStatus"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="VMess / VLESS / Trojan"
+                            android:text="Mengecek status..."
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
 
-                    <TextView
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnBatteryUsage"
+                        style="@style/Widget.Material3.Button.TonalButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="›"
-                        android:textColor="@color/text_hint"
-                        android:textSize="22sp" />
+                        android:text="Atur" />
                 </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnSaveVpnSetting"
+                    style="@style/Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Simpan VPN Setting" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -184,7 +255,7 @@
     </LinearLayout>
     </ScrollView>
 
-    <!-- Bilah navigasi bawah, sama seperti di Dashboard -- tab "Pengaturan"
+    <!-- Bilah navigasi bawah, sama seperti di Dashboard: tab "Pengaturan"
          yang aktif di layar ini. Lihat SettingsActivity.setupBottomNav(). -->
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottomNav"

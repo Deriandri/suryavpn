@@ -7,6 +7,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Buat fitur "Keep CPU Awake" (VPN Setting) -- MyVpnService pegang
+         PowerManager.PARTIAL_WAKE_LOCK selama tunnel aktif kalau di-aktifkan. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Buat fitur "Battery Usage" (VPN Setting) -- minta pengecualian dari
+         Doze/App Standby lewat ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+         supaya sistem tidak membekukan tunnel di background. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:allowBackup="true"
@@ -40,7 +47,7 @@
             android:exported="false"
             android:label="Log Koneksi" />
 
-        <!-- singleTop: dibuka dari tab "Pengaturan" di bilah navigasi bawah --
+        <!-- singleTop: dibuka dari tab "Pengaturan" di bilah navigasi bawah,
              kalau instance-nya sudah di puncak back stack, tap ulang tidak
              numpuk instance baru. -->
         <activity
