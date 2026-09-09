@@ -155,8 +155,9 @@ class Socks5Server(private val sshConnection: Connection) {
         targetHost: String,
         targetPort: Int
     ) {
+        var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
         try {
-            val forwarder = synchronized(channelOpenLock) {
+            forwarder = synchronized(channelOpenLock) {
                 sshConnection.createLocalStreamForwarder(targetHost, targetPort)
             }
 
@@ -196,6 +197,27 @@ class Socks5Server(private val sshConnection: Connection) {
         } catch (e: Exception) {
             Log.e(TAG, "Error CONNECT SOCKS5", e)
             try { client.close() } catch (_: Exception) {}
+        } finally {
+            // PENTING (bug fix INTI -- ini penyebab "internet cuma jalan
+            // sebentar lalu hilang"): sebelumnya cuma socket SOCKS5 lokal
+            // (`client`) yang ditutup di sini -- channel SSH "direct-tcpip"
+            // asli (`forwarder`, dari createLocalStreamForwarder) TIDAK PERNAH
+            // ditutup, dibiarkan terbuka SELAMANYA di sshConnection. Browser
+            // membuka BANYAK koneksi TCP paralel per halaman -- tiap satu
+            // koneksi = satu channel yang bocor di sini kalau tidak ditutup.
+            // Lama-lama channel yang menumpuk ini bikin: (a) server/CDN
+            // menolak channel baru begitu limitnya kena -- tunnel SSH-nya
+            // sendiri masih "connected", tapi tidak ada request baru yang bisa
+            // lewat lagi (persis kelihatan seperti "internet hilang"), dan/atau
+            // (b) dispatcher internal trilead-ssh2 (SATU thread pembaca untuk
+            // SEMUA channel di Connection yang sama) ikut tersendat kalau
+            // buffer channel yang bocor itu penuh dan tidak pernah dikuras --
+            // yang berakibat channel LAIN (bukan cuma yang bocor) ikut macet
+            // juga, plus jumlah objek/thread yang menumpuk seiring waktu bisa
+            // bikin proses app jadi berat/ANR saat dibuka lagi. Sekarang
+            // forwarder SELALU ditutup di sini begitu koneksinya selesai,
+            // apa pun hasilnya (sukses, gagal, atau exception).
+            try { forwarder?.close() } catch (_: Exception) {}
         }
     }
 
@@ -295,8 +317,9 @@ class Socks5Server(private val sshConnection: Connection) {
         }
 
         Thread({
+            var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
             try {
-                val forwarder = synchronized(channelOpenLock) {
+                forwarder = synchronized(channelOpenLock) {
                     sshConnection.createLocalStreamForwarder(destHost, 53)
                 }
                 val fOut = forwarder.outputStream
@@ -327,6 +350,16 @@ class Socks5Server(private val sshConnection: Connection) {
                 udpSocket.send(DatagramPacket(out, out.size, replyToAddr, replyToPort))
             } catch (e: Exception) {
                 Log.e(TAG, "Gagal relay DNS via DNS-over-TCP ke $destHost", e)
+            } finally {
+                // PENTING (bug fix -- leak yang sama persis dengan handleConnect,
+                // TAPI lebih parah di sini: query DNS terjadi jauh lebih sering
+                // daripada koneksi TCP biasa, jadi channel yang bocor di jalur
+                // ini menumpuk lebih cepat). forwarder WAJIB ditutup begitu satu
+                // query DNS selesai (sukses ATAU gagal/timeout) -- sebelumnya
+                // tidak pernah ditutup sama sekali, channel DNS-over-TCP ini
+                // dibiarkan menggantung selamanya di sshConnection untuk SETIAP
+                // domain yang pernah di-resolve sejak tunnel connect.
+                try { forwarder?.close() } catch (_: Exception) {}
             }
         }, "socks5-dns-relay").apply { isDaemon = true; start() }
     }
