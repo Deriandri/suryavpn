@@ -242,17 +242,29 @@ class ConnectRelay(
         if (!payload.isNullOrEmpty()) {
             StatusBus.start(StepId.PAYLOAD)
             try {
-                val payloadText = payload
+                val substituted = payload
                     .replace("[host]", config.host)
                     .replace("[port]", config.port.toString())
                     .replace("[crlf]", "\r\n")
                     .replace("[cr]", "\r")
                     .replace("[lf]", "\n")
-                socket.getOutputStream().apply {
-                    write(payloadText.toByteArray(StandardCharsets.UTF_8))
-                    flush()
+                // PENTING (bug fix, ditemukan dari perbandingan langsung dengan payload
+                // DarkTunnel yang berhasil): placeholder "[split]" sebelumnya TIDAK
+                // dikenali sama sekali di sini -- ikut terkirim APA ADANYA sebagai 7
+                // byte ASCII literal "[split]" yang nyempil di tengah body HTTP,
+                // padahal di konvensi HTTP Injector/DarkTunnel/HTTP Custom placeholder
+                // ini artinya "kirim sebagai request/tulisan socket TERPISAH di titik
+                // ini" (dipakai buat memecah payload jadi beberapa potongan TCP,
+                // bukan satu blok). Sekarang setiap potongan ditulis+flush satu per
+                // satu, TANPA sisa teks "[split]" ikut terkirim.
+                val out = socket.getOutputStream()
+                val chunks = substituted.split("[split]")
+                for (chunk in chunks) {
+                    if (chunk.isEmpty()) continue
+                    out.write(chunk.toByteArray(StandardCharsets.UTF_8))
+                    out.flush()
                 }
-                Log.i(TAG, "Payload custom terkirim (${payloadText.length} bytes)")
+                Log.i(TAG, "Payload custom terkirim (${chunks.size} bagian, ${substituted.length - "[split]".length * (chunks.size - 1)} bytes)")
                 StatusBus.success(StepId.PAYLOAD)
             } catch (e: Exception) {
                 StatusBus.fail(StepId.PAYLOAD, e.message ?: e.javaClass.simpleName)
@@ -260,15 +272,16 @@ class ConnectRelay(
             }
         }
 
-        // (WebSocket) Sekarang SELALU dicoba di akhir untuk SEMUA mode (tidak ada
-        // toggle manual lagi) -- dilakukan di atas socket hasil akhir (TLS/proxy/payload
-        // sudah selesai) SEBELUM SSH dimulai. Kalau berhasil, semua byte SSH setelah ini
-        // otomatis dibungkus/dibuka sebagai frame WebSocket biner asli. Kalau server/CDN
-        // tujuan menolak upgrade-nya (berarti bukan endpoint WebSocket, atau memang tidak
-        // pernah dimaksudkan untuk WebSocket sama sekali), socket ini ditutup dan koneksi
-        // diulang dari nol tanpa WebSocket (attemptWebSocket=false) -- supaya tetap jalan
-        // normal walau payload/server tujuannya sama sekali tidak menyinggung WebSocket.
-        if (config.usesWebSocket() && attemptWebSocket) {
+        // (WebSocket genuine, RFC 6455) Cuma dicoba kalau TIDAK ada payload custom
+        // -- lihat ServerConfig.attemptsFormalWebSocket() untuk alasannya (payload
+        // custom dipercaya sebagai satu-satunya trik HTTP yang berdiri sendiri,
+        // sama seperti konvensi DarkTunnel/HTTP Custom -- mencoba WS genuine di
+        // atasnya cuma bikin bentrok/rusak). Dilakukan di atas socket hasil akhir
+        // (TLS/proxy sudah selesai) SEBELUM SSH dimulai. Kalau berhasil, semua byte
+        // SSH setelah ini otomatis dibungkus/dibuka sebagai frame WebSocket biner
+        // asli. Kalau server/CDN tujuan menolak upgrade-nya, socket ini ditutup dan
+        // koneksi diulang dari nol tanpa WebSocket (attemptWebSocket=false).
+        if (config.attemptsFormalWebSocket() && attemptWebSocket) {
             StatusBus.start(StepId.WEBSOCKET)
             val wsHost = config.sslSni?.takeIf { it.isNotBlank() } ?: config.host
             val wsPath = config.wsPath?.takeIf { it.isNotBlank() } ?: "/"

@@ -85,10 +85,13 @@ fun buildStepsFor(config: ServerConfig): List<ConnectionStep> {
     if (!config.payload.isNullOrEmpty()) {
         steps += ConnectionStep(StepId.PAYLOAD, "Mengirim payload custom")
     }
-    // WebSocket sekarang SELALU dicoba (lihat ServerConfig.usesWebSocket()) --
-    // step ini akan ditandai SKIPPED oleh ConnectRelay sendiri kalau ternyata
-    // fallback ke raw yang dipakai (server/CDN tujuan menolak upgrade-nya).
-    if (config.usesWebSocket()) {
+    // WebSocket genuine (RFC 6455) cuma dicoba kalau TIDAK ada payload custom --
+    // lihat ServerConfig.attemptsFormalWebSocket(). Kalau payload diisi, payload
+    // itu sendiri sudah dipercaya sebagai satu-satunya trik HTTP yang dipakai
+    // (sama seperti DarkTunnel/HTTP Custom), jadi step ini tidak akan pernah
+    // benar-benar dijalankan dan sebaiknya tidak ditampilkan di log supaya
+    // tidak membingungkan.
+    if (config.attemptsFormalWebSocket()) {
         steps += ConnectionStep(StepId.WEBSOCKET, "Mencoba handshake WebSocket (fallback ke raw jika ditolak)")
     }
     steps += ConnectionStep(StepId.SSH_HANDSHAKE, "Melakukan handshake protokol SSH")

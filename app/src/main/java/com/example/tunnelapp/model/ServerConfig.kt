@@ -164,6 +164,37 @@ data class ServerConfig(
      */
     fun usesWebSocket(): Boolean = mode != ConnectionMode.XRAY
 
+    /**
+     * Apakah harus mencoba handshake WebSocket RFC 6455 GENUINE (framing biner asli,
+     * masking, dst -- lihat [com.example.tunnelapp.tunnel.WebSocketTransport]).
+     *
+     * PENTING (bug fix, ditemukan dari perbandingan langsung dengan log DarkTunnel
+     * yang berhasil connect ke server yang SAMA persis): kalau payload custom SUDAH
+     * diisi, payload itu di konvensi komunitas (HTTP Injector/DarkTunnel/HTTP Custom)
+     * BIASANYA sudah jadi trik HTTP yang lengkap & berdiri sendiri -- termasuk baris
+     * request semacam "PATCH / HTTP/1.1[crlf]Host: ...[crlf]Upgrade: websocket[crlf][crlf]"
+     * yang cuma dipakai sebagai KATA KUNCI pemicu supaya reverse-proxy/CDN tujuan
+     * beralih ke mode raw passthrough polos ke sshd asli -- BUKAN implementasi
+     * WebSocket (RFC 6455) yang benar-benar mem-framing/mask byte sesudahnya. Semua
+     * byte sesudah "101 Switching Protocols" di server semacam ini murni APA ADANYA
+     * (bahkan banner SSH dropbear terkirim mentah, tanpa bungkus frame apa pun).
+     *
+     * Kalau [ConnectRelay] TETAP memaksakan handshake WebSocket genuine-nya sendiri
+     * setelah payload seperti itu, dua hal yang terjadi: (1) request upgrade KEDUA
+     * (duplikat, dari kode ini) dikirim ke server yang SEBENARNYA sudah beralih ke
+     * mode raw sejak request pertama (bagian dari payload) -- ditolak/parsing gagal
+     * (menerima banner SSH mentah, disangka respons HTTP) -- lalu (2) walau berhasil
+     * bertemu framing WebSocket asli di server lain, byte SSH sesudahnya kadung
+     * dibungkus frame biner RFC 6455 yang backend bug-host semacam ini TIDAK PERNAH
+     * membongkarnya balik -- sshd cuma menerima sampah.
+     *
+     * Jadi: WebSocket genuine cuma relevan/aman dicoba kalau TIDAK ada payload custom
+     * sama sekali (mis. mode SSH/SSH SSL polos ke server WebSocket asli) -- begitu
+     * user mengisi payload sendiri, payload itu dipercaya penuh sebagai satu-satunya
+     * trik HTTP yang dipakai, sama seperti perilaku DarkTunnel/HTTP Custom.
+     */
+    fun attemptsFormalWebSocket(): Boolean = usesWebSocket() && payload.isNullOrEmpty()
+
     /** Apakah mode ini pakai jalur Xray-core, bukan jalur SSH (trilead-ssh2). */
     fun usesXray(): Boolean = mode == ConnectionMode.XRAY
 }

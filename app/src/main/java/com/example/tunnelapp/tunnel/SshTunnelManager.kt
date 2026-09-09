@@ -160,12 +160,32 @@ class SshTunnelManager {
         }
 
         // WebSocket sekarang toggle independen (bisa dikombinasikan dengan mode
-        // apa pun di atas) -- kalau aktif, tambahkan catatan spesifik supaya
-        // user tahu handshake WebSocket-nya sendiri sudah sukses dan masalahnya
-        // ada di respons SSH setelah itu, bukan di WebSocket-nya.
-        if (config.usesWebSocket()) {
-            explanation += " Handshake WebSocket di atas mode ini sudah berhasil -- cek juga " +
-                "path WebSocket dan pastikan server memang meneruskan tunnel WebSocket ke SSH asli."
+        // apa pun di atas). PENTING (bug fix pesan menyesatkan): sebelumnya baris
+        // di bawah ini menempel "WebSocket sudah berhasil" HANYA berdasarkan
+        // config.usesWebSocket() (flag statis per-mode, SELALU true) -- tanpa
+        // pernah mengecek apakah WebSocket di percobaan barusan ini benar-benar
+        // sukses atau malah ditolak lalu fallback ke raw (StepStatus.SKIPPED).
+        // Akibatnya user selalu diberi tahu "WebSocket berhasil" walau
+        // sebenarnya ditolak -- menyesatkan arah troubleshooting. Sekarang
+        // dicek status ASLI tahap WEBSOCKET di StatusBus, dan kalau ternyata
+        // SKIPPED, alasan penolakan aslinya (disimpan di step.detail sejak
+        // ConnectRelay.openRealConnection tapi sebelumnya tidak pernah
+        // ditampilkan sama sekali) ikut ditampilkan.
+        val wsStep = StatusBus.steps.value.firstOrNull { it.id == StepId.WEBSOCKET }
+        if (wsStep != null) {
+            explanation += when (wsStep.status) {
+                StepStatus.SUCCESS ->
+                    " Handshake WebSocket di atas mode ini sudah berhasil -- cek juga " +
+                        "path WebSocket dan pastikan server memang meneruskan tunnel WebSocket ke SSH asli."
+                StepStatus.SKIPPED ->
+                    " CATATAN: handshake WebSocket sebenarnya DITOLAK/gagal " +
+                        "(${wsStep.detail ?: "alasan tidak diketahui"}), lalu otomatis fallback ke " +
+                        "koneksi raw TANPA WebSocket -- dan SSH tetap gagal setelah fallback ini. " +
+                        "Kemungkinan besar server tujuan MEWAJIBKAN WebSocket supaya bisa menjangkau " +
+                        "SSH asli-nya, jadi cek ulang payload/path WebSocket yang dipakai (jangan " +
+                        "sampai payload custom dan handshake WebSocket otomatis ini saling tumpang tindih)."
+                else -> ""
+            }
         }
         return "$explanation ($rawDetail)"
     }

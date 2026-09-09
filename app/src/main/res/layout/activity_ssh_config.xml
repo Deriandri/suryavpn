@@ -371,8 +371,8 @@
                 <!-- WebSocket sekarang SELALU dicoba di semua mode (lihat
                      ServerConfig.usesWebSocket()), jadi field ini selalu
                      ditampilkan (tidak ikut disembunyikan/diperlihatkan per
-                     mode seperti field lain di atas) -- lihat
-                     updateFieldVisibilityForMode() di SshConfigActivity. -->
+                     mode seperti field lain di atas, lihat
+                     updateFieldVisibilityForMode() di SshConfigActivity). -->
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/tilWsPath"
                     style="@style/Field.Outlined"
