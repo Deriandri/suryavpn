@@ -224,7 +224,7 @@ class ConnectRelay(
         // akhir (socket TLS kalau mode-nya pakai TLS, socket mentah kalau
         // tidak) -- persis urutan yang sudah ditampilkan di UI log
         // (buildStepsFor menaruh tahap proxy -> TLS -> payload berurutan).
-        var socket: Socket = if (config.usesTls()) {
+        val socket: Socket = if (config.usesTls()) {
             StatusBus.start(StepId.TLS)
             try {
                 val sniHost = config.sslSni?.takeIf { it.isNotBlank() } ?: config.host
@@ -322,7 +322,7 @@ class ConnectRelay(
             // mencatatnya sebagai log -- baru socket yang bersih (persis mulai dari
             // "SSH-2.0-...") diserahkan ke trilead-ssh2.
             try {
-                socket = consumeUntilSshBanner(socket)
+                consumeUntilSshBanner(socket.getInputStream())
             } catch (e: Exception) {
                 StatusBus.fail(StepId.PAYLOAD, "Server tidak mengirim banner SSH setelah payload: ${e.message}")
                 throw e
@@ -428,82 +428,78 @@ class ConnectRelay(
      * menampilkan "Response: HTTP/1.1 404 Not Found" / "101 Switching
      * Protocols". Baris SSH banner asli yang ditemukan di akhir juga dicatat.
      *
-     * PENTING (bug fix -- "Tidak menemukan banner SSH setelah 25 baris" padahal
-     * bannernya ADA): kalau salah satu request di payload custom sendiri
-     * berisi header "Upgrade: websocket" dan server/CDN membalas dengan
-     * "101 Switching Protocols", byte-byte SETELAH balasan itu SUDAH
-     * dibingkai sebagai frame WebSocket biner oleh server -- BUKAN lagi teks
-     * banner SSH polos. Kalau tetap dipindai sebagai teks mentah (perilaku
-     * sebelumnya), pemindaian baris tidak akan PERNAH cocok dengan "SSH-"
-     * (byte biner acak disangka baris terus-menerus) dan selalu gagal walau
-     * bannernya sebenarnya ada, cuma terbungkus frame. Sekarang begitu
-     * terdeteksi respons 101 di antara balasan payload, socket dibungkus
-     * [WebSocketSocket] (pembuka frame WS yang sama dipakai jalur WebSocket
-     * formal) SEBELUM lanjut mencari baris banner -- kali ini dari byte hasil
-     * buka-bungkus frame, bukan byte mentah. @return socket yang harus dipakai
-     * SETERUSNYA (socket asli kalau tidak ada switch, atau [WebSocketSocket]
-     * kalau ada).
+     * PENTING (bug fix -- salah diagnosis sebelumnya): sempat dikira byte
+     * setelah respons "101 Switching Protocols" perlu dibuka sebagai frame
+     * WebSocket biner (RFC 6455) -- ternyata TIDAK, dibuktikan lewat
+     * perbandingan langsung dengan DarkTunnel yang berhasil connect memakai
+     * payload PERSIS SAMA ke server yang sama: banner SSH-nya muncul sebagai
+     * TEKS POLOS langsung setelah baris "101 Switching Protocols", bukan
+     * data biner. Berarti "Upgrade: websocket" di payload di sini cuma trik
+     * supaya CDN mau membuka jalurnya -- datanya sendiri tetap mentah/teks.
+     * Percobaan bungkus WebSocketSocket sebelumnya justru bikin salah baca
+     * (menyangka teks biasa sebagai header frame biner) dan berujung "Read
+     * timed out".
+     *
+     * Penyebab asli error "Tidak menemukan banner SSH setelah 25 baris":
+     * respons Cloudflare (404 DAN 101, dua-duanya) masing-masing bisa punya
+     * banyak header (Content-Type, Server, Date, CF-RAY, Sec-WebSocket-Accept,
+     * dll) -- gabungan keduanya gampang lebih dari 25 baris SEBELUM baris
+     * banner SSH beneran muncul, jadi batas lama keburu habis padahal
+     * bannernya sebenarnya ada, cuma belum ke-scan. Batas dinaikkan jauh
+     * lebih longgar di bawah.
      */
     @Throws(IOException::class)
-    private fun consumeUntilSshBanner(socket: Socket): Socket {
-        val sawSwitchingProtocols = scanLinesForSshBanner(socket.getInputStream())
-        if (!sawSwitchingProtocols) return socket
-
-        StatusBus.log("Terdeteksi 101 Switching Protocols dari payload -- membuka frame WebSocket")
-        val wsSocket = WebSocketSocket(socket)
-        scanLinesForSshBanner(wsSocket.getInputStream())
-        // Timeout khusus fase handshake di-reset di socket ASLI di sini (bukan
-        // di wrapper -- WebSocketSocket tidak meneruskan soTimeout ke socket
-        // asli di dalamnya), supaya trafik SSH yang lewat di atas WebSocket
-        // ini tidak ikut ke-timeout waktu idle, sama seperti jalur WebSocket
-        // formal di bawah.
-        socket.soTimeout = 0
-        return wsSocket
-    }
-
-    /**
-     * @return true kalau ditemukan baris respons "HTTP/x.x 101 ..." SEBELUM
-     * banner SSH ditemukan (menandakan byte sesudahnya perlu dibuka sebagai
-     * frame WebSocket), false kalau banner SSH langsung ditemukan tanpa itu.
-     */
-    @Throws(IOException::class)
-    private fun scanLinesForSshBanner(input: InputStream): Boolean {
+    private fun consumeUntilSshBanner(input: InputStream) {
         val lineBuf = ByteArrayOutputStream()
         var linesSeen = 0
-        var sawSwitchingProtocols = false
-        val maxLines = 25 // batas wajar, hindari loop tanpa akhir kalau server nyeleneh
-        while (linesSeen < maxLines) {
-            val b = input.read()
-            if (b == -1) throw IOException("Koneksi ditutup server sebelum mengirim banner SSH")
-            if (b == '\n'.code) {
-                val line = lineBuf.toByteArray().toString(StandardCharsets.ISO_8859_1).trimEnd('\r')
-                lineBuf.reset()
-                linesSeen++
-                if (line.startsWith("SSH-")) {
-                    StatusBus.log(line)
-                    return sawSwitchingProtocols
+        var totalBytes = 0
+        // Dinaikkan dari 25 -> 200: cukup longgar untuk menampung header
+        // berlapis dari CDN (mis. Cloudflare) di beberapa respons HTTP
+        // pipelined sebelum baris banner SSH asli muncul, tapi tetap ada
+        // batas supaya tidak loop tanpa akhir kalau server memang tidak
+        // pernah mengirim banner SSH sama sekali.
+        val maxLines = 200
+        try {
+            while (linesSeen < maxLines) {
+                val b = input.read()
+                if (b == -1) {
+                    throw IOException(
+                        "Koneksi ditutup server sebelum mengirim banner SSH " +
+                            "(sempat menerima $totalBytes byte sebelum ditutup)"
+                    )
                 }
-                if (line.isNotBlank() && Regex("""^HTTP/\d\.\d\s+\d{3}""").containsMatchIn(line)) {
-                    StatusBus.log("Response: $line")
-                    if (Regex("""^HTTP/\d\.\d\s+101\b""").containsMatchIn(line)) {
-                        sawSwitchingProtocols = true
+                totalBytes++
+                if (b == '\n'.code) {
+                    val line = lineBuf.toByteArray().toString(StandardCharsets.ISO_8859_1).trimEnd('\r')
+                    lineBuf.reset()
+                    linesSeen++
+                    if (line.startsWith("SSH-")) {
+                        StatusBus.log(line)
+                        return
                     }
-                } else if (sawSwitchingProtocols && line.isBlank()) {
-                    // Baris kosong ini menutup blok header respons 101 di atas --
-                    // byte SETELAH ini sudah frame WebSocket, bukan teks lagi.
-                    // Berhenti di sini (JANGAN terus baca sebagai teks) supaya
-                    // pemanggil bisa membungkus socket dengan WebSocketSocket
-                    // sebelum lanjut mencari baris banner dari frame yang dibuka.
-                    return true
+                    if (line.isNotBlank() && Regex("""^HTTP/\d\.\d\s+\d{3}""").containsMatchIn(line)) {
+                        StatusBus.log("Response: $line")
+                    }
+                    // Baris lain (header HTTP seperti "Upgrade: websocket", dll) sengaja
+                    // tidak ditampilkan supaya log tidak penuh sampah, tapi tetap DIBUANG
+                    // dari stream di sini (itu intinya fungsi ini).
+                } else {
+                    lineBuf.write(b)
                 }
-                // Baris lain (header HTTP seperti "Upgrade: websocket", dll) sengaja
-                // tidak ditampilkan supaya log tidak penuh sampah, tapi tetap DIBUANG
-                // dari stream di sini (itu intinya fungsi ini).
-            } else {
-                lineBuf.write(b)
             }
+        } catch (e: java.net.SocketTimeoutException) {
+            throw IOException(
+                if (totalBytes == 0)
+                    "Read timed out (server tidak membalas sama sekali -- 0 byte diterima " +
+                        "setelah payload dikirim, kemungkinan server menutup/menolak koneksi diam-diam)"
+                else
+                    "Read timed out (sempat menerima $totalBytes byte lalu macet setelah $linesSeen baris)"
+            )
         }
-        throw IOException("Tidak menemukan banner SSH setelah $maxLines baris respons non-SSH")
+        throw IOException(
+            "Tidak menemukan banner SSH setelah $maxLines baris respons non-SSH " +
+                "(total $totalBytes byte diterima)"
+        )
     }
 
     private fun readUntilDoubleCrlf(input: InputStream): ByteArray {
