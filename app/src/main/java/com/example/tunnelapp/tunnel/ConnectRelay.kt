@@ -2,9 +2,12 @@ package com.example.tunnelapp.tunnel
 
 import android.util.Log
 import com.example.tunnelapp.model.ServerConfig
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.OutputStream
+import java.io.SequenceInputStream
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -224,7 +227,7 @@ class ConnectRelay(
         // akhir (socket TLS kalau mode-nya pakai TLS, socket mentah kalau
         // tidak) -- persis urutan yang sudah ditampilkan di UI log
         // (buildStepsFor menaruh tahap proxy -> TLS -> payload berurutan).
-        val socket: Socket = if (config.usesTls()) {
+        var socket: Socket = if (config.usesTls()) {
             StatusBus.start(StepId.TLS)
             try {
                 val sniHost = config.sslSni?.takeIf { it.isNotBlank() } ?: config.host
@@ -322,7 +325,23 @@ class ConnectRelay(
             // mencatatnya sebagai log -- baru socket yang bersih (persis mulai dari
             // "SSH-2.0-...") diserahkan ke trilead-ssh2.
             try {
-                consumeUntilSshBanner(socket.getInputStream())
+                // PENTING (bug fix INTI -- ini penyebab asli "handshake SSH gagal"
+                // walau terminal jelas-jelas sudah menerima banner SSH asli):
+                // consumeUntilSshBanner() dulu cuma MEMBACA & MEMBUANG baris
+                // banner dari socket (dicatat ke log doang), byte-nya sendiri
+                // hilang selamanya -- padahal socket ini nantinya diserahkan ke
+                // trilead-ssh2 lewat relay loopback, dan trilead-ssh2 WAJIB
+                // menerima baris identifikasi server itu sebagai byte PERTAMA
+                // yang ia baca (RFC 4253 SS4.2). Begitu baris itu sudah kepakai
+                // duluan di sini, yang trilead-ssh2 baca berikutnya adalah paket
+                // biner KEXINIT SSH asli -- bukan teks "SSH-2.0-...", jadi parser
+                // banner-nya gagal walau proxy/TLS/payload semua sukses (persis
+                // gejala di log: banner keliatan sampai, tapi tahap SSH tetap merah).
+                // Sekarang byte mentah baris banner itu ditangkap balik, lalu
+                // "ditempel" lagi di depan stream lewat PrefixedSocket supaya
+                // trilead-ssh2 tetap melihatnya persis seolah belum pernah dibaca.
+                val bannerLine = consumeUntilSshBanner(socket.getInputStream())
+                socket = PrefixedSocket(socket, bannerLine)
             } catch (e: Exception) {
                 StatusBus.fail(StepId.PAYLOAD, "Server tidak mengirim banner SSH setelah payload: ${e.message}")
                 throw e
@@ -447,9 +466,16 @@ class ConnectRelay(
      * banner SSH beneran muncul, jadi batas lama keburu habis padahal
      * bannernya sebenarnya ada, cuma belum ke-scan. Batas dinaikkan jauh
      * lebih longgar di bawah.
+     *
+     * @return byte MENTAH baris banner SSH ("SSH-2.0-...\r\n" atau "SSH-2.0-...\n",
+     * apa adanya persis seperti yang datang dari server, TERMASUK delimiter akhirnya)
+     * -- WAJIB dikembalikan (bukan cuma di-log) supaya bisa "ditempel balik" di
+     * depan stream yang diserahkan ke trilead-ssh2 lewat [PrefixedSocket]. Lihat
+     * catatan bug fix di titik pemanggilan fungsi ini untuk penjelasan lengkap
+     * kenapa ini penting.
      */
     @Throws(IOException::class)
-    private fun consumeUntilSshBanner(input: InputStream) {
+    private fun consumeUntilSshBanner(input: InputStream): ByteArray {
         val lineBuf = ByteArrayOutputStream()
         var linesSeen = 0
         var totalBytes = 0
@@ -469,22 +495,25 @@ class ConnectRelay(
                     )
                 }
                 totalBytes++
+                lineBuf.write(b) // simpan byte MENTAH-nya juga, termasuk '\n' ini sendiri
                 if (b == '\n'.code) {
-                    val line = lineBuf.toByteArray().toString(StandardCharsets.ISO_8859_1).trimEnd('\r')
+                    val rawLineBytes = lineBuf.toByteArray()
+                    val line = rawLineBytes.toString(StandardCharsets.ISO_8859_1).trimEnd('\r', '\n')
                     lineBuf.reset()
                     linesSeen++
                     if (line.startsWith("SSH-")) {
                         StatusBus.log(line)
-                        return
+                        // Kembalikan byte ASLI (bukan dibuang) -- inilah fix-nya.
+                        return rawLineBytes
                     }
                     if (line.isNotBlank() && Regex("""^HTTP/\d\.\d\s+\d{3}""").containsMatchIn(line)) {
                         StatusBus.log("Response: $line")
                     }
-                    // Baris lain (header HTTP seperti "Upgrade: websocket", dll) sengaja
-                    // tidak ditampilkan supaya log tidak penuh sampah, tapi tetap DIBUANG
-                    // dari stream di sini (itu intinya fungsi ini).
-                } else {
-                    lineBuf.write(b)
+                    // Baris non-SSH lain (header HTTP seperti "Upgrade: websocket", dll)
+                    // sengaja tidak ditampilkan supaya log tidak penuh sampah, dan MEMANG
+                    // dibuang dari stream (bukan bug -- baris ini betul-betul bukan bagian
+                    // dari data SSH, cuma baris banner SSH aslinya yang tidak boleh ikut
+                    // terbuang, itu sebabnya di atas baris itu dikembalikan bukan dibuang).
                 }
             }
         } catch (e: java.net.SocketTimeoutException) {
@@ -533,4 +562,50 @@ class ConnectRelay(
         }
         acceptThread?.interrupt()
     }
+}
+
+/**
+ * Socket pembungkus yang "menempelkan balik" beberapa byte yang sudah
+ * terlanjur dibaca (di-intip) dari socket asli di DEPAN stream bacanya --
+ * seolah-olah byte itu belum pernah dibaca sama sekali.
+ *
+ * Dipakai HANYA untuk mengembalikan baris banner SSH ("SSH-2.0-...") yang
+ * dibaca [ConnectRelay.consumeUntilSshBanner] saat mencari & membuang baris
+ * non-SSH (respons HTTP dari payload/CDN) sebelumnya -- tanpa ini, baris
+ * banner itu hilang permanen dan trilead-ssh2 di ujung relay loopback tidak
+ * pernah melihat baris identifikasi server yang wajib ia baca pertama kali
+ * (RFC 4253 SS4.2), walau baris itu betul-betul sudah diterima dari server.
+ *
+ * Pola delegasinya sama seperti WebSocketSocket di WebSocketTransport.kt:
+ * cuma getInputStream()/getOutputStream() yang dibungkus, sisanya
+ * didelegasikan apa adanya ke socket asli.
+ */
+private class PrefixedSocket(
+    private val delegate: Socket,
+    private val prefix: ByteArray
+) : Socket() {
+    private val prefixedIn: InputStream by lazy {
+        SequenceInputStream(ByteArrayInputStream(prefix), delegate.getInputStream())
+    }
+
+    override fun getInputStream(): InputStream = prefixedIn
+    override fun getOutputStream(): OutputStream = delegate.getOutputStream()
+    override fun close() = delegate.close()
+    override fun isClosed(): Boolean = delegate.isClosed
+    override fun isConnected(): Boolean = delegate.isConnected
+    override fun isInputShutdown(): Boolean = delegate.isInputShutdown
+    override fun isOutputShutdown(): Boolean = delegate.isOutputShutdown
+
+    // PENTING: WAJIB didelegasikan juga -- tanpa override ini, pemanggilan
+    // "socket.soTimeout = 0" di akhir openRealConnection() (mematikan timeout
+    // 8 detik yang cuma dipakai selama fase handshake, lihat
+    // HANDSHAKE_READ_TIMEOUT_MS) akan diam-diam MENGENAI socket dummy internal
+    // milik wrapper ini sendiri (bukan socket asli yang benar-benar dipakai
+    // untuk trafik tunnel lewat delegate.getInputStream()) -- akibatnya socket
+    // asli tetap punya timeout baca 8 detik selamanya, dan tunnel yang lagi
+    // idle sebentar saja langsung dianggap putus (SocketTimeoutException).
+    override fun setSoTimeout(timeout: Int) {
+        delegate.soTimeout = timeout
+    }
+    override fun getSoTimeout(): Int = delegate.soTimeout
 }
