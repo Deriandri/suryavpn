@@ -61,6 +61,48 @@
                     android:layout_height="wrap_content"
                     android:text="Konfigurasi Server" />
 
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilQuickPaste"
+                        style="@style/Field.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="8dp"
+                        android:hint="host:port@username:password">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etQuickPaste"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textUri"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnQuickPasteApply"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Terapkan"
+                        android:textAllCaps="false"
+                        style="@style/Widget.Material3.Button.TonalButton" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Tempel cepat: host:port@username:password, lalu tekan Terapkan"
+                    android:textColor="@color/text_hint"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="12dp" />
+
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/tilHost"
                     style="@style/Field.Outlined"
@@ -400,7 +442,7 @@
                         android:autofillHints="" />
                 </com.google.android.material.textfield.TextInputLayout>
 
-                <!-- Header HTTP custom -- berlaku untuk request CONNECT proxy DAN
+                <!-- Header HTTP custom - berlaku untuk request CONNECT proxy DAN
                      handshake WebSocket genuine (lihat ServerConfig.customHeaders).
                      Selalu ditampilkan (tidak digantung ke mode tertentu) sama
                      seperti field Path WebSocket di atas, karena keduanya independen

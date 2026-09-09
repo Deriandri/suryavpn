@@ -31,6 +31,53 @@ class SshConfigActivity : AppCompatActivity() {
         setupModeChips()
 
         binding.btnSaveSsh.setOnClickListener { onSaveClicked() }
+        binding.btnQuickPasteApply.setOnClickListener { onQuickPasteApplied() }
+    }
+
+    /**
+     * Mem-parsing format tempel cepat "host:port@username:password" dan mengisi
+     * field Host, Port, Username, Password. Port bersifat opsional (default 22).
+     * Contoh valid:
+     *   1.2.3.4:22@user:pass
+     *   1.2.3.4@user:pass
+     *   example.com:2222@user:p@ss:word   (password boleh mengandung ':' atau '@')
+     */
+    private fun onQuickPasteApplied() {
+        val raw = binding.etQuickPaste.text.toString().trim()
+        binding.tilQuickPaste.error = null
+
+        if (raw.isEmpty()) {
+            binding.tilQuickPaste.error = "Tempel dulu string konfigurasinya"
+            return
+        }
+
+        val atIndex = raw.indexOf('@')
+        if (atIndex <= 0 || atIndex == raw.length - 1) {
+            binding.tilQuickPaste.error = "Format harus host:port@username:password"
+            return
+        }
+
+        val hostPortPart = raw.substring(0, atIndex)
+        val userPassPart = raw.substring(atIndex + 1)
+
+        val hostPortSplit = hostPortPart.split(":", limit = 2)
+        val host = hostPortSplit[0].trim()
+        val portText = if (hostPortSplit.size > 1) hostPortSplit[1].trim() else "22"
+        val port = portText.toIntOrNull()
+
+        val userPassSplit = userPassPart.split(":", limit = 2)
+        val username = userPassSplit.getOrNull(0)?.trim().orEmpty()
+        val password = userPassSplit.getOrNull(1).orEmpty()
+
+        if (host.isEmpty() || port == null || username.isEmpty()) {
+            binding.tilQuickPaste.error = "Format harus host:port@username:password"
+            return
+        }
+
+        binding.etHost.setText(host)
+        binding.etPort.setText(port.toString())
+        binding.etUsername.setText(username)
+        binding.etPassword.setText(password)
     }
 
     private fun restoreSavedConfig() {

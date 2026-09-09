@@ -78,7 +78,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Card: Terminal log mentah (real-time, event asli -- lihat StatusBus.log) -->
+        <!-- Card: Terminal log mentah (real-time, event asli - lihat StatusBus.log) -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"
             app:cardBackgroundColor="#0D0F14"

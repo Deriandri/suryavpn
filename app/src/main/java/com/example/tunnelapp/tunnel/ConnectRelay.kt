@@ -224,7 +224,7 @@ class ConnectRelay(
         // akhir (socket TLS kalau mode-nya pakai TLS, socket mentah kalau
         // tidak) -- persis urutan yang sudah ditampilkan di UI log
         // (buildStepsFor menaruh tahap proxy -> TLS -> payload berurutan).
-        val socket: Socket = if (config.usesTls()) {
+        var socket: Socket = if (config.usesTls()) {
             StatusBus.start(StepId.TLS)
             try {
                 val sniHost = config.sslSni?.takeIf { it.isNotBlank() } ?: config.host
@@ -322,7 +322,7 @@ class ConnectRelay(
             // mencatatnya sebagai log -- baru socket yang bersih (persis mulai dari
             // "SSH-2.0-...") diserahkan ke trilead-ssh2.
             try {
-                consumeUntilSshBanner(socket.getInputStream())
+                socket = consumeUntilSshBanner(socket)
             } catch (e: Exception) {
                 StatusBus.fail(StepId.PAYLOAD, "Server tidak mengirim banner SSH setelah payload: ${e.message}")
                 throw e
@@ -427,11 +427,50 @@ class ConnectRelay(
      * seperti baris respons HTTP (diawali "HTTP/"), sama seperti DarkTunnel
      * menampilkan "Response: HTTP/1.1 404 Not Found" / "101 Switching
      * Protocols". Baris SSH banner asli yang ditemukan di akhir juga dicatat.
+     *
+     * PENTING (bug fix -- "Tidak menemukan banner SSH setelah 25 baris" padahal
+     * bannernya ADA): kalau salah satu request di payload custom sendiri
+     * berisi header "Upgrade: websocket" dan server/CDN membalas dengan
+     * "101 Switching Protocols", byte-byte SETELAH balasan itu SUDAH
+     * dibingkai sebagai frame WebSocket biner oleh server -- BUKAN lagi teks
+     * banner SSH polos. Kalau tetap dipindai sebagai teks mentah (perilaku
+     * sebelumnya), pemindaian baris tidak akan PERNAH cocok dengan "SSH-"
+     * (byte biner acak disangka baris terus-menerus) dan selalu gagal walau
+     * bannernya sebenarnya ada, cuma terbungkus frame. Sekarang begitu
+     * terdeteksi respons 101 di antara balasan payload, socket dibungkus
+     * [WebSocketSocket] (pembuka frame WS yang sama dipakai jalur WebSocket
+     * formal) SEBELUM lanjut mencari baris banner -- kali ini dari byte hasil
+     * buka-bungkus frame, bukan byte mentah. @return socket yang harus dipakai
+     * SETERUSNYA (socket asli kalau tidak ada switch, atau [WebSocketSocket]
+     * kalau ada).
      */
     @Throws(IOException::class)
-    private fun consumeUntilSshBanner(input: InputStream) {
+    private fun consumeUntilSshBanner(socket: Socket): Socket {
+        val sawSwitchingProtocols = scanLinesForSshBanner(socket.getInputStream())
+        if (!sawSwitchingProtocols) return socket
+
+        StatusBus.log("Terdeteksi 101 Switching Protocols dari payload -- membuka frame WebSocket")
+        val wsSocket = WebSocketSocket(socket)
+        scanLinesForSshBanner(wsSocket.getInputStream())
+        // Timeout khusus fase handshake di-reset di socket ASLI di sini (bukan
+        // di wrapper -- WebSocketSocket tidak meneruskan soTimeout ke socket
+        // asli di dalamnya), supaya trafik SSH yang lewat di atas WebSocket
+        // ini tidak ikut ke-timeout waktu idle, sama seperti jalur WebSocket
+        // formal di bawah.
+        socket.soTimeout = 0
+        return wsSocket
+    }
+
+    /**
+     * @return true kalau ditemukan baris respons "HTTP/x.x 101 ..." SEBELUM
+     * banner SSH ditemukan (menandakan byte sesudahnya perlu dibuka sebagai
+     * frame WebSocket), false kalau banner SSH langsung ditemukan tanpa itu.
+     */
+    @Throws(IOException::class)
+    private fun scanLinesForSshBanner(input: InputStream): Boolean {
         val lineBuf = ByteArrayOutputStream()
         var linesSeen = 0
+        var sawSwitchingProtocols = false
         val maxLines = 25 // batas wajar, hindari loop tanpa akhir kalau server nyeleneh
         while (linesSeen < maxLines) {
             val b = input.read()
@@ -442,10 +481,20 @@ class ConnectRelay(
                 linesSeen++
                 if (line.startsWith("SSH-")) {
                     StatusBus.log(line)
-                    return
+                    return sawSwitchingProtocols
                 }
                 if (line.isNotBlank() && Regex("""^HTTP/\d\.\d\s+\d{3}""").containsMatchIn(line)) {
                     StatusBus.log("Response: $line")
+                    if (Regex("""^HTTP/\d\.\d\s+101\b""").containsMatchIn(line)) {
+                        sawSwitchingProtocols = true
+                    }
+                } else if (sawSwitchingProtocols && line.isBlank()) {
+                    // Baris kosong ini menutup blok header respons 101 di atas --
+                    // byte SETELAH ini sudah frame WebSocket, bukan teks lagi.
+                    // Berhenti di sini (JANGAN terus baca sebagai teks) supaya
+                    // pemanggil bisa membungkus socket dengan WebSocketSocket
+                    // sebelum lanjut mencari baris banner dari frame yang dibuka.
+                    return true
                 }
                 // Baris lain (header HTTP seperti "Upgrade: websocket", dll) sengaja
                 // tidak ditampilkan supaya log tidak penuh sampah, tapi tetap DIBUANG
