@@ -44,6 +44,44 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- Card: Tahapan Koneksi (dipindahkan dari tab Log, lihat
+             DashboardLogFragment/fragment_dashboard_log.xml lama -- sekarang
+             tampil di Main, tepat di atas "Profil aktif", supaya progres
+             tahapan koneksi terlihat langsung tanpa pindah tab). -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/Card.Section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/SectionTitleText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Tahapan Koneksi" />
+
+                <TextView
+                    android:id="@+id/tvLogEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Belum ada aktivitas koneksi. Tekan Connect di tab Main untuk memulai."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+
+                <LinearLayout
+                    android:id="@+id/llLogSteps"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:animateLayoutChanges="true" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <TextView
             android:id="@+id/tvActiveProfile"
             android:layout_width="match_parent"

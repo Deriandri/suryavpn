@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ProgressBar
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
@@ -16,9 +18,11 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.example.tunnelapp.databinding.FragmentDashboardMainBinding
 import com.example.tunnelapp.model.ConfigStore
 import com.example.tunnelapp.model.ConnectionMode
+import com.example.tunnelapp.tunnel.ConnectionStep
 import com.example.tunnelapp.tunnel.MyVpnService
 import com.example.tunnelapp.tunnel.PingUtil
 import com.example.tunnelapp.tunnel.StatusBus
+import com.example.tunnelapp.tunnel.StepStatus
 import com.example.tunnelapp.tunnel.XrayLinkParser
 import kotlinx.coroutines.launch
 
@@ -106,6 +110,15 @@ class DashboardMainFragment : Fragment() {
                 }
             }
         }
+
+        // Kartu "Tahapan Koneksi" dipindahkan ke sini dari tab Log (lihat
+        // DashboardLogFragment yang lama) -- ditaruh tepat di atas "Profil
+        // aktif" supaya progres tahapan koneksi langsung kelihatan di Main.
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                StatusBus.steps.collect { steps -> renderLogSteps(steps) }
+            }
+        }
     }
 
     override fun onDestroyView() {
@@ -174,6 +187,61 @@ class DashboardMainFragment : Fragment() {
                 binding.btnConnectToggle.backgroundTintList =
                     ContextCompat.getColorStateList(ctx, R.color.brand_primary)
             }
+        }
+    }
+
+    private fun renderLogSteps(steps: List<ConnectionStep>) {
+        val b = _binding ?: return
+        if (steps.isEmpty()) {
+            b.tvLogEmpty.visibility = View.VISIBLE
+            b.llLogSteps.visibility = View.GONE
+            b.llLogSteps.removeAllViews()
+            return
+        }
+        b.tvLogEmpty.visibility = View.GONE
+        b.llLogSteps.visibility = View.VISIBLE
+        b.llLogSteps.removeAllViews()
+        val ctx = requireContext()
+        val inflater = LayoutInflater.from(ctx)
+        steps.forEach { step ->
+            val row = inflater.inflate(R.layout.item_log_step, b.llLogSteps, false)
+            val dot = row.findViewById<View>(R.id.dot)
+            val spinner = row.findViewById<ProgressBar>(R.id.spinner)
+            val tvLabel = row.findViewById<TextView>(R.id.tvLabel)
+            val tvDetail = row.findViewById<TextView>(R.id.tvDetail)
+
+            tvLabel.text = step.label
+
+            if (step.status == StepStatus.RUNNING) {
+                dot.visibility = View.GONE
+                spinner.visibility = View.VISIBLE
+            } else {
+                dot.visibility = View.VISIBLE
+                spinner.visibility = View.GONE
+                val colorRes = when (step.status) {
+                    StepStatus.SUCCESS -> R.color.status_success
+                    StepStatus.ERROR -> R.color.status_error
+                    else -> R.color.status_pending
+                }
+                (dot.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(ctx, colorRes))
+            }
+
+            if (step.status == StepStatus.ERROR && !step.detail.isNullOrEmpty()) {
+                tvDetail.visibility = View.VISIBLE
+                tvDetail.text = step.detail
+                tvDetail.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
+            } else {
+                tvDetail.visibility = View.GONE
+            }
+
+            tvLabel.setTextColor(
+                ContextCompat.getColor(
+                    ctx,
+                    if (step.status == StepStatus.SKIPPED) R.color.text_hint else R.color.text_primary
+                )
+            )
+
+            b.llLogSteps.addView(row)
         }
     }
 
