@@ -45,7 +45,7 @@
         </LinearLayout>
 
         <!-- Card: Tahapan Koneksi (dipindahkan dari tab Log, lihat
-             DashboardLogFragment/fragment_dashboard_log.xml lama -- sekarang
+             DashboardLogFragment/fragment_dashboard_log.xml lama, sekarang
              tampil di Main, tepat di atas "Profil aktif", supaya progres
              tahapan koneksi terlihat langsung tanpa pindah tab). -->
         <com.google.android.material.card.MaterialCardView

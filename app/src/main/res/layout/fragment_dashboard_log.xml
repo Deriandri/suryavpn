@@ -19,7 +19,7 @@
         android:animateLayoutChanges="true">
 
         <!-- Card "Tahapan Koneksi" SUDAH DIPINDAHKAN ke halaman Main, tepat di
-             atas "Profil aktif" -- lihat fragment_dashboard_main.xml &
+             atas "Profil aktif", lihat fragment_dashboard_main.xml &
              DashboardMainFragment.renderLogSteps(). Halaman Log sekarang
              cuma berisi Terminal mentah di bawah ini. -->
 
