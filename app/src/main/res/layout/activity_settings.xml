@@ -173,7 +173,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="TCP Connect: buka-tutup handshake SOCKS5 (ringan). HTTP Request: beneran kirim request HTTP & tunggu balasan server (bukti koneksi lebih kuat)."
+                    android:text="TCP Connect: buka-tutup handshake SOCKS5 (ringan). HTTP Request: beneran kirim request HTTP &amp; tunggu balasan server (bukti koneksi lebih kuat)."
                     android:textColor="@color/text_hint"
                     android:textSize="12sp" />
 
