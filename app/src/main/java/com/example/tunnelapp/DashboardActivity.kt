@@ -5,9 +5,11 @@ import android.graphics.drawable.GradientDrawable
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.GravityCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.tunnelapp.databinding.ActivityDashboardBinding
 import com.example.tunnelapp.model.ConfigStore
@@ -94,6 +96,7 @@ class DashboardActivity : AppCompatActivity() {
         }
 
         setupBottomNav()
+        setupSidebar()
 
         lifecycleScope.launch {
             StatusBus.state.collect { status ->
@@ -123,6 +126,45 @@ class DashboardActivity : AppCompatActivity() {
                 else -> false
             }
         }
+    }
+
+    /**
+     * Sidebar (NavigationDrawer) -- TAMBAHAN di samping bottom nav yang sudah
+     * ada, BUKAN pengganti. Sengaja cuma 2 item (Dashboard & Log, lihat
+     * menu/nav_drawer_menu.xml) -- Konfigurasi SSH/Xray tetap lewat kartu
+     * "Menu" seperti semula, tidak dipindah ke sini.
+     */
+    private fun setupSidebar() {
+        binding.btnOpenDrawer.setOnClickListener {
+            binding.drawerLayout.openDrawer(GravityCompat.START)
+        }
+
+        binding.navDrawer.setCheckedItem(R.id.drawer_dashboard)
+        binding.navDrawer.setNavigationItemSelectedListener { item ->
+            binding.drawerLayout.closeDrawer(GravityCompat.START)
+            when (item.itemId) {
+                R.id.drawer_dashboard -> true
+                R.id.drawer_log -> {
+                    startActivity(Intent(this, LogActivity::class.java))
+                    true
+                }
+                else -> false
+            }
+        }
+
+        // Back ditekan saat sidebar terbuka -> tutup sidebar dulu, JANGAN
+        // langsung keluar activity/app.
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (binding.drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                    binding.drawerLayout.closeDrawer(GravityCompat.START)
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        })
     }
 
     /**

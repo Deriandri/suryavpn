@@ -1,9 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Root diubah dari ScrollView murni jadi LinearLayout vertikal supaya bisa
-     menampung [konten yang bisa di-scroll] + [bilah navigasi bawah] yang
-     harus tetap terpaku di bawah layar (tidak ikut ke-scroll). -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- Root DrawerLayout -- BUNGKUS konten Dashboard yang sudah ada (bottom nav
+     TETAP dipertahankan, TIDAK diganti), ditambah NavigationView (sidebar)
+     yang dibuka lewat ikon hamburger di header. Sidebar cuma berisi
+     Dashboard & Log (lihat menu/nav_drawer_menu.xml) -- item menu lainnya
+     (Konfigurasi SSH/Xray) tetap di kartu "Menu" seperti semula. -->
+<androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/drawerLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+<!-- Konten utama Dashboard (persis struktur lama) -- WAJIB match_parent/match_parent
+     supaya DrawerLayout tahu ini layer konten utama, bukan si drawer. -->
+<LinearLayout
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -22,29 +31,46 @@
         android:padding="16dp"
         android:animateLayoutChanges="true">
 
-        <!-- Header -->
+        <!-- Header: ikon hamburger (buka sidebar) + judul -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingStart="4dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="0dp"
             android:paddingEnd="4dp"
             android:layout_marginBottom="16dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="TunnelApp"
-                android:textColor="@color/text_primary"
-                android:textSize="24sp"
-                android:textStyle="bold" />
+            <ImageButton
+                android:id="@+id/btnOpenDrawer"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_menu_hamburger"
+                android:tint="@color/text_primary"
+                android:contentDescription="Buka menu" />
 
-            <TextView
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Dashboard"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="TunnelApp"
+                    android:textColor="@color/text_primary"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Dashboard"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Status headline -->
@@ -347,3 +373,21 @@
         app:menu="@menu/bottom_nav_menu" />
 
 </LinearLayout>
+<!-- /Konten utama Dashboard -->
+
+<!-- Sidebar: nempel di kiri (start), lebar wrap_content dibatasi lewat
+     android:layout_width standar Material (max 320dp otomatis oleh
+     NavigationView kalau match_parent -- di sini pakai wrap_content dengan
+     minWidth lewat style bawaan komponennya). -->
+<com.google.android.material.navigation.NavigationView
+    android:id="@+id/navDrawer"
+    android:layout_width="wrap_content"
+    android:layout_height="match_parent"
+    android:layout_gravity="start"
+    android:background="@color/card_background"
+    app:itemIconTint="@color/text_primary"
+    app:itemTextColor="@color/text_primary"
+    app:headerLayout="@layout/nav_drawer_header"
+    app:menu="@menu/nav_drawer_menu" />
+
+</androidx.drawerlayout.widget.DrawerLayout>
