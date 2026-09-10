@@ -4,7 +4,7 @@
 
      PERUBAHAN (permintaan user): sebelumnya kartu Terminal punya tinggi
      tetap (260dp) di dalam ScrollView pembungkus, jadi banyak ruang layar
-     terbuang di bawahnya. Sekarang ScrollView luar dibuang -- root langsung
+     terbuang di bawahnya. Sekarang ScrollView luar dibuang, root langsung
      LinearLayout match_parent, dan kartu Terminal diberi layout_height="0dp"
      + layout_weight="1" supaya SELALU mengisi penuh sisa tinggi layar
      (setelah dikurangi tab "Main | Log" & bottom nav di activity_dashboard.xml),
