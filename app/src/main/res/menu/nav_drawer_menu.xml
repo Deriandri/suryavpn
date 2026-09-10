@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Menu untuk sidebar (NavigationDrawer) yang dibuka lewat ikon hamburger di
-     header Dashboard. SENGAJA cuma 2 item (Dashboard & Log); item menu
+     header Dashboard. SENGAJA cuma 2 item (Dashboard & Log) -- item menu
      lain (Konfigurasi SSH/Xray) TETAP di kartu "Menu" halaman Dashboard,
      tidak dipindah ke sini, sesuai permintaan: sidebar cuma tambahan akses
      cepat ke Log, bukan pengganti kartu Menu yang sudah ada. -->

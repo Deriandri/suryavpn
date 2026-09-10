@@ -70,6 +70,10 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
 
+    // --- Dashboard geser-kesamping (swipe) Main <-> Log ---
+    implementation("androidx.viewpager2:viewpager2:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.2")
+
     // --- Modul SSH (tahap 2) ---
     // Engine SSH: trilead-ssh2. PENTING: pakai fork "jenkinsci/trilead-ssh2"
     // (dipelihara aktif, dipakai Jenkins sendiri untuk SSH ke ribuan server

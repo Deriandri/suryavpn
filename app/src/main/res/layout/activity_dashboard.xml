@@ -1,367 +1,97 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Root DrawerLayout: BUNGKUS konten Dashboard yang sudah ada (bottom nav
-     TETAP dipertahankan, TIDAK diganti), ditambah NavigationView (sidebar)
-     yang dibuka lewat ikon hamburger di header. Sidebar cuma berisi
-     Dashboard & Log (lihat menu/nav_drawer_menu.xml); item menu lainnya
-     (Konfigurasi SSH/Xray) tetap di kartu "Menu" seperti semula. -->
+<!-- Root DrawerLayout -- header + tab "Main | Log" TETAP (fixed) di atas,
+     kontennya sekarang ViewPager2 yang bisa DIGESER KE SAMPING antara
+     halaman "Main" (fragment_dashboard_main.xml, dashboard yang sudah ada)
+     dan "Log" (fragment_dashboard_log.xml, dipindahkan dari LogActivity ke
+     bagian kanan Dashboard) -- lihat DashboardPagerAdapter &
+     DashboardActivity.setupPager(). Bottom nav & sidebar (NavigationView)
+     tetap dipertahankan sama seperti sebelumnya. -->
 <androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/drawerLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-<!-- Konten utama Dashboard (persis struktur lama): WAJIB match_parent/match_parent
-     supaya DrawerLayout tahu ini layer konten utama, bukan si drawer. -->
+<!-- Konten utama Dashboard -- WAJIB match_parent/match_parent supaya
+     DrawerLayout tahu ini layer konten utama, bukan si drawer. -->
 <LinearLayout
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/app_background">
 
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true">
-
+    <!-- Header: ikon hamburger (buka sidebar) + judul -- fixed, tidak ikut
+         digeser/discroll oleh ViewPager2 di bawahnya. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp"
-        android:animateLayoutChanges="true">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="4dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="8dp">
 
-        <!-- Header: ikon hamburger (buka sidebar) + judul -->
+        <ImageButton
+            android:id="@+id/btnOpenDrawer"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginEnd="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_menu_hamburger"
+            android:tint="@color/text_primary"
+            android:contentDescription="Buka menu" />
+
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingStart="0dp"
-            android:paddingEnd="4dp"
-            android:layout_marginBottom="16dp">
-
-            <ImageButton
-                android:id="@+id/btnOpenDrawer"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:src="@drawable/ic_menu_hamburger"
-                android:tint="@color/text_primary"
-                android:contentDescription="Buka menu" />
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="TunnelApp"
-                    android:textColor="@color/text_primary"
-                    android:textSize="24sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Dashboard"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- Status headline -->
-        <LinearLayout
-            android:id="@+id/pillStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_status_pill"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="12dp"
-            android:paddingBottom="12dp"
-            android:layout_marginBottom="8dp">
+            android:orientation="vertical">
 
             <TextView
-                android:id="@+id/tvStatus"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Belum tersambung"
+                android:text="TunnelApp"
                 android:textColor="@color/text_primary"
-                android:textSize="14sp"
+                android:textSize="24sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Dashboard"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/tvActiveProfile"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:layout_marginStart="4dp"
-            android:text="Profil aktif: belum ada konfigurasi"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
-
-        <!-- Card: Cek Ping -->
-        <com.google.android.material.card.MaterialCardView
-            style="@style/Card.Section"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:animateLayoutChanges="true">
-
-                <TextView
-                    style="@style/SectionTitleText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Cek Ping Server" />
-
-                <TextView
-                    android:id="@+id/tvPingTarget"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:text="Target: belum ada konfigurasi"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnCheckPing"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="44dp"
-                        android:text="Cek Ping"
-                        android:textAllCaps="false" />
-
-                    <ProgressBar
-                        android:id="@+id/pbPinging"
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:layout_marginStart="12dp"
-                        android:visibility="gone" />
-
-                    <TextView
-                        android:id="@+id/tvPingResult"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="12dp"
-                        android:gravity="end"
-                        android:text=""
-                        android:textColor="@color/text_primary"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Card: Kontrol Koneksi (Connect & Disconnect satu tempat) -->
-        <com.google.android.material.card.MaterialCardView
-            style="@style/Card.Section"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    style="@style/SectionTitleText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Kontrol Koneksi" />
-
-                <!-- Tombol tunggal: Connect/Disconnect digabung jadi satu toggle,
-                     tampilan & aksinya berubah sesuai status tunnel saat ini
-                     (lihat DashboardActivity.applyConnectButtonState). -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnConnectToggle"
-                    style="@style/Button.Primary"
-                    android:layout_width="match_parent"
-                    android:layout_height="52dp"
-                    android:text="Connect"
-                    android:textAllCaps="false"
-                    android:textSize="15sp" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Card: Menu navigasi -->
-        <com.google.android.material.card.MaterialCardView
-            style="@style/Card.Section"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    style="@style/SectionTitleText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Menu" />
-
-                <LinearLayout
-                    android:id="@+id/rowMenuSsh"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingTop="14dp"
-                    android:paddingBottom="14dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:background="?attr/selectableItemBackground">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Konfigurasi SSH"
-                            android:textColor="@color/text_primary"
-                            android:textStyle="bold"
-                            android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="SSH, SSH SSL, SSH TLS Payload Proxy"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="›"
-                        android:textColor="@color/text_hint"
-                        android:textSize="22sp" />
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/divider" />
-
-                <LinearLayout
-                    android:id="@+id/rowMenuXray"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingTop="14dp"
-                    android:paddingBottom="14dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:background="?attr/selectableItemBackground">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Konfigurasi Xray"
-                            android:textColor="@color/text_primary"
-                            android:textStyle="bold"
-                            android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="VMess / VLESS / Trojan"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="›"
-                        android:textColor="@color/text_hint"
-                        android:textSize="22sp" />
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:background="@color/divider" />
-
-                <LinearLayout
-                    android:id="@+id/rowMenuLog"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingTop="14dp"
-                    android:paddingBottom="14dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:background="?attr/selectableItemBackground">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Log Koneksi"
-                            android:textColor="@color/text_primary"
-                            android:textStyle="bold"
-                            android:textSize="14sp" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Lihat tahapan proses koneksi"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="›"
-                        android:textColor="@color/text_hint"
-                        android:textSize="22sp" />
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
     </LinearLayout>
-    </ScrollView>
+
+    <!-- Tab "Main | Log" -- fixed juga, tapi TERHUBUNG ke ViewPager2 lewat
+         TabLayoutMediator (DashboardActivity.setupPager()) supaya: (1) tap
+         tab pindah halaman, dan (2) geser halaman ikut menggerakkan
+         indikator tab, persis seperti video referensi. -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/card_background"
+        app:tabMode="fixed"
+        app:tabGravity="fill"
+        app:tabIndicatorColor="@color/brand_primary"
+        app:tabIndicatorHeight="3dp"
+        app:tabSelectedTextColor="@color/brand_primary"
+        app:tabTextColor="@color/text_secondary"
+        app:tabTextAppearance="@style/TextAppearance.Material3.TitleSmall" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider" />
+
+    <!-- Konten geser-kesamping: halaman 0 = Main, halaman 1 = Log. -->
+    <androidx.viewpager2.widget.ViewPager2
+        android:id="@+id/dashboardPager"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
 
     <!-- Bilah navigasi bawah: Dashboard (layar ini) & Pengaturan (konfigurasi
          SSH/Xray + info app). Lihat DashboardActivity.setupBottomNav(). -->
@@ -377,7 +107,7 @@
 
 <!-- Sidebar: nempel di kiri (start), lebar wrap_content dibatasi lewat
      android:layout_width standar Material (max 320dp otomatis oleh
-     NavigationView kalau match_parent; di sini pakai wrap_content dengan
+     NavigationView kalau match_parent -- di sini pakai wrap_content dengan
      minWidth lewat style bawaan komponennya). -->
 <com.google.android.material.navigation.NavigationView
     android:id="@+id/navDrawer"

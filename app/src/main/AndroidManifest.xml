@@ -42,10 +42,9 @@
             android:exported="false"
             android:label="Konfigurasi Xray" />
 
-        <activity
-            android:name=".LogActivity"
-            android:exported="false"
-            android:label="Log Koneksi" />
+        <!-- LogActivity dihapus: layar Log sekarang jadi halaman kanan
+             Dashboard (geser kesamping / tab "Log") -- lihat
+             DashboardLogFragment & DashboardPagerAdapter. -->
 
         <!-- singleTop: dibuka dari tab "Pengaturan" di bilah navigasi bawah,
              kalau instance-nya sudah di puncak back stack, tap ulang tidak

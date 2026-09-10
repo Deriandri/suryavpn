@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Halaman "Log" dari Dashboard (geser kesamping <-> halaman "Main", lihat
+     activity_dashboard.xml + DashboardPagerAdapter). Isinya sama persis
+     dengan activity_log.xml yang lama, MINUS top bar back-button + judul
+     (sekarang sudah ada tab "Main | Log" + header yang fixed di
+     activity_dashboard.xml, jadi tidak perlu tombol back lagi di sini). -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -12,36 +17,6 @@
         android:orientation="vertical"
         android:padding="16dp"
         android:animateLayoutChanges="true">
-
-        <!-- Top bar -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
-
-            <TextView
-                android:id="@+id/btnBack"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="←"
-                android:textColor="@color/text_primary"
-                android:textSize="22sp"
-                android:padding="6dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:layout_marginEnd="10dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Log Koneksi"
-                android:textColor="@color/text_primary"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-        </LinearLayout>
 
         <!-- Card: Log Koneksi -->
         <com.google.android.material.card.MaterialCardView
@@ -65,7 +40,7 @@
                     android:id="@+id/tvLogEmpty"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Belum ada aktivitas koneksi. Tekan Connect di Dashboard untuk memulai."
+                    android:text="Belum ada aktivitas koneksi. Tekan Connect di tab Main untuk memulai."
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
 
