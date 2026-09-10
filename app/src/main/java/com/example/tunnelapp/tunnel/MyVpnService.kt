@@ -469,9 +469,19 @@ class MyVpnService : VpnService() {
                     updateNotification("SSH tersambung ke ${config.host}")
                 }
 
+                // FIX "status sukses vs koneksi nyata beda": step ini dulu
+                // ditandai success() SEKETIKA setelah startTunEngine() -- padahal
+                // startTunEngine() cuma nge-launch thread native (hev-socks5-tunnel)
+                // yang jalan async & blocking di thread-nya sendiri, TIDAK pernah
+                // ditunggu sampai benar-benar siap. Akibatnya kartu "Tahapan
+                // Koneksi" + log "Connected" sudah tampak 100% hijau/sukses padahal
+                // trafik device belum tentu bisa lewat sama sekali. StepId.TUNNEL_ACTIVE
+                // sekarang cuma START (spinner) di sini -- success()/fail()-nya
+                // dipindah ke SETELAH verifyTunnelReallyWorks() di bawah, supaya
+                // step ini baru hijau kalau memang sudah terbukti ada trafik nyata
+                // yang balik lewat tunnel, bukan asumsi optimistis.
                 StatusBus.start(StepId.TUNNEL_ACTIVE)
                 startTunEngine(config)
-                StatusBus.success(StepId.TUNNEL_ACTIVE)
 
                 // --- Verifikasi tunnel BENERAN tembus ke internet DAN akun/
                 // kredensial-nya masih valid ---
@@ -494,12 +504,17 @@ class MyVpnService : VpnService() {
                 // balasan sama sekali), dan itu baru ketahuan dari sini.
                 val reachable = verifyTunnelReallyWorks(config.socksPort)
                 if (!reachable) {
-                    throw IllegalStateException(
-                        "Tunnel nyala tapi tidak ada trafik nyata yang balik lewat tunnel " +
-                            "-- kemungkinan jaringan device mati, ATAU akun/kredensial server " +
-                            "sudah tidak valid/expired"
-                    )
+                    val reason = "Tunnel nyala tapi tidak ada trafik nyata yang balik lewat tunnel " +
+                        "-- kemungkinan jaringan device mati, ATAU akun/kredensial server " +
+                        "sudah tidak valid/expired"
+                    // Tandai step ini ERROR secara eksplisit -- tanpa ini, step yang
+                    // masih RUNNING (spinner) bakal nyangkut selamanya di layar Log,
+                    // karena skipRemainingPending() di catch block cuma menyentuh
+                    // step yang masih PENDING, bukan yang RUNNING.
+                    StatusBus.fail(StepId.TUNNEL_ACTIVE, reason)
+                    throw IllegalStateException(reason)
                 }
+                StatusBus.success(StepId.TUNNEL_ACTIVE)
 
                 // Reconnect (kalau ada) sukses -- reset hitungan percobaan &
                 // nyalakan ulang watchdog buat siklus berikutnya.
