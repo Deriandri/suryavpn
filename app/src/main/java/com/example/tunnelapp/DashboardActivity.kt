@@ -1,14 +1,21 @@
 package com.example.tunnelapp
 
 import android.content.Intent
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.view.GravityCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.example.tunnelapp.databinding.ActivityDashboardBinding
+import com.example.tunnelapp.tunnel.StatusBus
 import com.google.android.material.tabs.TabLayoutMediator
+import kotlinx.coroutines.launch
 
 /**
  * Dashboard: layar utama & satu-satunya tempat tombol Connect/Disconnect berada.
@@ -40,8 +47,41 @@ class DashboardActivity : AppCompatActivity() {
         }
 
         setupPager()
+        setupStatusPill()
         setupBottomNav()
         setupSidebar()
+    }
+
+    /**
+     * Status headline ("Belum tersambung" / "Tunnel aktif" / dll) -- FIXED
+     * tepat di bawah tab "Main | Log" (lihat pillStatus di
+     * activity_dashboard.xml), jadi tetap terlihat di halaman Main maupun
+     * Log dan tidak ikut ter-scroll. Sumbernya sama seperti sebelumnya
+     * (StatusBus.state), cuma pengisiannya sekarang di Activity, bukan lagi
+     * di DashboardMainFragment.
+     */
+    private fun setupStatusPill() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                StatusBus.state.collect { status ->
+                    binding.tvStatus.text = status
+                    applyStatusPillColor(status)
+                }
+            }
+        }
+    }
+
+    private fun applyStatusPillColor(status: String) {
+        val (bg, text) = when {
+            status.startsWith("Gagal") -> R.color.status_error_bg to R.color.status_error
+            status.contains("Menghubungkan") || status.contains("Membuat") || status.contains("tersambung") ||
+                status.contains("Memutuskan") ->
+                R.color.status_running_bg to R.color.status_running
+            status.contains("aktif", ignoreCase = true) -> R.color.status_success_bg to R.color.status_success
+            else -> R.color.status_pending_bg to R.color.text_primary
+        }
+        (binding.pillStatus.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(this, bg))
+        binding.tvStatus.setTextColor(ContextCompat.getColor(this, text))
     }
 
     /**

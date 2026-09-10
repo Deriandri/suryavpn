@@ -19,30 +19,10 @@
         android:padding="16dp"
         android:animateLayoutChanges="true">
 
-        <!-- Status headline -->
-        <LinearLayout
-            android:id="@+id/pillStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_status_pill"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="12dp"
-            android:paddingBottom="12dp"
-            android:layout_marginBottom="8dp">
-
-            <TextView
-                android:id="@+id/tvStatus"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Belum tersambung"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+        <!-- Status headline dipindahkan ke activity_dashboard.xml, tepat di
+             bawah tab "Main | Log" (fixed, tidak ikut halaman Main/Log yang
+             bisa digeser) -- lihat pillStatus di sana & setupStatusPill()
+             di DashboardActivity. -->
 
         <!-- Card: Tahapan Koneksi (dipindahkan dari tab Log, lihat
              DashboardLogFragment/fragment_dashboard_log.xml lama, sekarang

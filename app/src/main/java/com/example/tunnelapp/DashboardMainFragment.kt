@@ -99,11 +99,13 @@ class DashboardMainFragment : Fragment() {
         // viewLifecycleOwner (bukan Fragment.lifecycleScope) supaya collector
         // berhenti begitu view Fragment ini dihancurkan (mis. ViewPager2
         // membuang halaman ini dari memori saat jauh dari halaman aktif).
+        // pillStatus/tvStatus sudah dipindahkan ke activity_dashboard.xml
+        // (fixed, tepat di bawah tab Main|Log) -- lihat
+        // DashboardActivity.setupStatusPill(). Di sini cukup dengarkan
+        // status untuk state tombol Connect/Disconnect saja.
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 StatusBus.state.collect { status ->
-                    binding.tvStatus.text = status
-                    applyStatusPillColor(status)
                     applyConnectButtonState(status)
                 }
             }
@@ -269,13 +271,13 @@ class DashboardMainFragment : Fragment() {
     private fun onConnectClicked() {
         val saved = ConfigStore.load(requireContext())
         if (saved == null) {
-            binding.tvStatus.text = "Belum ada konfigurasi, buka menu SSH atau Xray dulu"
+            StatusBus.state.value = "Belum ada konfigurasi, buka menu SSH atau Xray dulu"
             return
         }
 
         if (saved.modeIndex == 5) {
             if (saved.xrayLink.isBlank()) {
-                binding.tvStatus.text = "Link Xray belum diisi, buka menu Xray dulu"
+                StatusBus.state.value = "Link Xray belum diisi, buka menu Xray dulu"
                 return
             }
             connectWith(
@@ -291,7 +293,7 @@ class DashboardMainFragment : Fragment() {
         }
 
         if (saved.host.isBlank() || saved.username.isBlank()) {
-            binding.tvStatus.text = "Host/username belum lengkap, buka menu SSH dulu"
+            StatusBus.state.value = "Host/username belum lengkap, buka menu SSH dulu"
             return
         }
 
@@ -308,11 +310,11 @@ class DashboardMainFragment : Fragment() {
         val usesTls = modeIndex == 1 || modeIndex == 2
 
         if (usesProxy && proxyRawMode && saved.proxyHost.isBlank()) {
-            binding.tvStatus.text = "Raw Passthrough butuh host/IP proxy atau CDN diisi"
+            StatusBus.state.value = "Raw Passthrough butuh host/IP proxy atau CDN diisi"
             return
         }
         if (modeIndex == 3 && saved.proxyHost.isBlank()) {
-            binding.tvStatus.text = "Payload + Remote Proxy butuh host/IP proxy diisi, buka menu SSH dulu"
+            StatusBus.state.value = "Payload + Remote Proxy butuh host/IP proxy diisi, buka menu SSH dulu"
             return
         }
 
@@ -387,17 +389,4 @@ class DashboardMainFragment : Fragment() {
         ctx.startForegroundService(intent)
     }
 
-    private fun applyStatusPillColor(status: String) {
-        val ctx = requireContext()
-        val (bg, text) = when {
-            status.startsWith("Gagal") -> R.color.status_error_bg to R.color.status_error
-            status.contains("Menghubungkan") || status.contains("Membuat") || status.contains("tersambung") ||
-                status.contains("Memutuskan") ->
-                R.color.status_running_bg to R.color.status_running
-            status.contains("aktif", ignoreCase = true) -> R.color.status_success_bg to R.color.status_success
-            else -> R.color.status_pending_bg to R.color.text_primary
-        }
-        (binding.pillStatus.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(ctx, bg))
-        binding.tvStatus.setTextColor(ContextCompat.getColor(ctx, text))
-    }
 }
