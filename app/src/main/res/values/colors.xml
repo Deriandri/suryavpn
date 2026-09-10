@@ -25,4 +25,16 @@
     <color name="status_running_bg">#FEF3C7</color>
     <color name="status_pending">#9CA3AF</color>
     <color name="status_pending_bg">#F3F4F6</color>
+
+    <!-- Terminal (kartu "Log") -- tetap gelap ala terminal supaya teks
+         monospace nyaman dibaca, tapi aksennya (judul, tombol, garis
+         pemisah) sengaja ditarik dari brand_secondary/divider yang sama
+         dipakai di seluruh app, bukan abu-abu generik, supaya kartu ini
+         terasa satu tema dengan Dashboard/Konfigurasi/Pengaturan. -->
+    <color name="terminal_background">#0D0F14</color>
+    <color name="terminal_surface">#12151C</color>
+    <color name="terminal_text">#8FE38F</color>
+    <color name="terminal_text_dim">#5D7A8C</color>
+    <color name="terminal_accent">@color/brand_secondary</color>
+    <color name="terminal_divider">#1FFFFFFF</color>
 </resources>
