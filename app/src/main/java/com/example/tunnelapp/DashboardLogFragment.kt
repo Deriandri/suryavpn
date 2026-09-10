@@ -25,6 +25,13 @@ class DashboardLogFragment : Fragment() {
     companion object {
         /** Toleransi (px) untuk anggap posisi scroll "sudah di bawah" -- lihat renderTerminal(). */
         private const val NEAR_BOTTOM_SLOP_PX = 24
+
+        /**
+         * Cocokkan prefix timestamp "[HH:mm:ss]" di awal setiap baris log
+         * (lihat StatusBus.log()) supaya bisa dibungkus warna cyan terpisah
+         * dari sisa baris (permintaan user) -- lihat renderTerminal().
+         */
+        private val TIMESTAMP_PREFIX = Regex("""^(\[\d{2}:\d{2}:\d{2}\])""")
     }
 
     private var _binding: FragmentDashboardLogBinding? = null
@@ -73,11 +80,28 @@ class DashboardLogFragment : Fragment() {
         val wasNearBottom = !sv.canScrollVertically(1) ||
             sv.scrollY + sv.height >= b.tvTerminal.height - NEAR_BOTTOM_SLOP_PX
 
+        // Hex warna timestamp cyan (permintaan user), diambil dari resource
+        // supaya satu sumber kebenaran sama seperti tempat lain di app.
+        val timestampHex = String.format(
+            "#%06X", 0xFFFFFF and androidx.core.content.ContextCompat.getColor(
+                requireContext(), R.color.terminal_timestamp
+            )
+        )
+
         val builder = SpannableStringBuilder()
         lines.forEachIndexed { index, line ->
             if (index > 0) builder.append("\n")
             val sanitized = line.replace(Regex("""color=(['"])##"""), "color=$1#")
-            builder.append(HtmlCompat.fromHtml(sanitized, HtmlCompat.FROM_HTML_MODE_LEGACY))
+            // Bungkus prefix "[HH:mm:ss]" di awal baris dengan warna cyan,
+            // sisa baris (bisa saja sudah punya tag <font> sendiri dari
+            // banner server) dibiarkan apa adanya.
+            val tsMatch = TIMESTAMP_PREFIX.find(sanitized)
+            val withTimestampColor = if (tsMatch != null) {
+                "<font color='$timestampHex'>${tsMatch.value}</font>" + sanitized.substring(tsMatch.value.length)
+            } else {
+                sanitized
+            }
+            builder.append(HtmlCompat.fromHtml(withTimestampColor, HtmlCompat.FROM_HTML_MODE_LEGACY))
         }
         b.tvTerminal.text = builder
 

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Background area isi log (svTerminal), permintaan user: ganti dari
+     hitam pekat ke gradasi putih -> biru muda yang smooth, senada dengan
+     tema terang app secara umum. angle=270 -> gradasi berjalan dari ATAS
+     (putih) ke BAWAH (biru muda), lewat warna tengah supaya transisinya
+     halus (tidak langsung loncat dari putih ke biru). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="270"
+        android:startColor="#FFFFFF"
+        android:centerColor="#F1F6FD"
+        android:endColor="#E2EBFB" />
+</shape>
