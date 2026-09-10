@@ -46,6 +46,14 @@
              Dashboard (geser kesamping / tab "Log") — lihat
              DashboardLogFragment & DashboardPagerAdapter. -->
 
+        <!-- singleTop: dibuka dari tab "Konfigurasi" (tab tengah, baru) di
+             bilah navigasi bawah — lihat ConfigActivity & bottom_nav_menu.xml. -->
+        <activity
+            android:name=".ConfigActivity"
+            android:exported="false"
+            android:label="Konfigurasi"
+            android:launchMode="singleTop" />
+
         <!-- singleTop: dibuka dari tab "Pengaturan" di bilah navigasi bawah,
              kalau instance-nya sudah di puncak back stack, tap ulang tidak
              numpuk instance baru. -->

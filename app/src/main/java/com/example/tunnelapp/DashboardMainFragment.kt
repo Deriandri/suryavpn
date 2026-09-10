@@ -89,18 +89,10 @@ class DashboardMainFragment : Fragment() {
         binding.btnConnectToggle.setOnClickListener { onConnectToggleClicked() }
         binding.btnCheckPing.setOnClickListener { onCheckPingClicked() }
 
-        binding.rowMenuSsh.setOnClickListener {
-            startActivity(Intent(requireContext(), SshConfigActivity::class.java))
-        }
-        binding.rowMenuXray.setOnClickListener {
-            startActivity(Intent(requireContext(), XrayConfigActivity::class.java))
-        }
-        // "Log Koneksi" TIDAK LAGI membuka layar baru -- sekarang cuma pindah
-        // ke tab/halaman "Log" di sebelah kanan Dashboard (sama seperti geser
-        // layar ke kiri), lewat host Activity (lihat DashboardPagerHost).
-        binding.rowMenuLog.setOnClickListener {
-            (activity as? DashboardActivity)?.goToLogPage()
-        }
+        // Kartu "Menu" (Konfigurasi SSH/Xray & Log Koneksi) sudah dihapus
+        // seluruhnya dari halaman ini -- akses Konfigurasi lewat tab
+        // "Konfigurasi" di bilah navigasi bawah (lihat ConfigActivity), akses
+        // Log Koneksi lewat tab "Log" di atas / geser layar ke kanan.
 
         // viewLifecycleOwner (bukan Fragment.lifecycleScope) supaya collector
         // berhenti begitu view Fragment ini dihancurkan (mis. ViewPager2

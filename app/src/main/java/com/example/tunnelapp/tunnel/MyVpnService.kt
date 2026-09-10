@@ -940,35 +940,61 @@ class MyVpnService : VpnService() {
 
                 if (stoppingIntentionally) break
                 val (targetHost, targetPort) = parseKeepAliveTarget(settings.keepAliveTarget)
-                val keepAliveMs = keepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
-                if (keepAliveMs != null) {
-                    StatusBus.log("Keep-alive: handshake ke $targetHost:$targetPort lewat tunnel sukses (${keepAliveMs}ms)")
+                val useHttp = settings.keepAliveMethod == com.example.tunnelapp.model.GeneralSettings.METHOD_HTTP
+                val methodLabel = if (useHttp) "HTTP" else "TCP"
+                val keepAliveMs = if (useHttp) {
+                    httpKeepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
                 } else {
-                    StatusBus.log("Keep-alive: gagal membuka handshake ke $targetHost:$targetPort lewat tunnel")
+                    keepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
+                }
+                if (keepAliveMs != null) {
+                    StatusBus.log("Keep-alive ($methodLabel): $targetHost:$targetPort lewat tunnel sukses (${keepAliveMs}ms)")
+                } else {
+                    StatusBus.log("Keep-alive ($methodLabel): $targetHost:$targetPort lewat tunnel gagal")
                 }
             }
         }
     }
 
     /**
-     * Parse input user "host:port" ([GeneralSettings.keepAliveTarget]) jadi
-     * pasangan (host, port). Ambil bagian SETELAH titik dua TERAKHIR sebagai
-     * port -- supaya hostname yang aneh-aneh tetap kepisah dengan benar --
-     * lalu validasi port-nya harus angka 1-65535. Kalau kosong, format salah
-     * (tidak ada titik dua, host kosong), atau port invalid, fallback diam-
-     * diam ke [GeneralSettings.DEFAULT_KEEP_ALIVE_TARGET] supaya keep-alive
-     * tetap jalan walau user salah ketik, bukan malah mati total.
+     * Parse input user "host:port" ATAU cuma "host" ([GeneralSettings.keepAliveTarget])
+     * jadi pasangan (host, port). Ambil bagian SETELAH titik dua TERAKHIR
+     * sebagai port -- supaya hostname yang aneh-aneh tetap kepisah dengan
+     * benar.
+     *
+     * FIX (permintaan user "bisa tanpa port?"): dulu kalau tidak ada titik
+     * dua SAMA SEKALI, fungsi ini membuang HOST YANG SUDAH DIKETIK USER juga
+     * (bukan cuma port-nya) dan diam-diam ganti KEDUANYA ke default Google --
+     * jadi user yang sengaja isi host custom tanpa port merasa settingnya
+     * "tidak ke-save"/diabaikan. Sekarang: tidak ada titik dua = anggap
+     * SELURUH input sebagai host apa adanya, port otomatis
+     * [GeneralSettings.DEFAULT_KEEP_ALIVE_PORT] (443) -- host user TETAP
+     * DIPAKAI. Fallback PENUH ke default Google cuma terjadi kalau memang
+     * tidak ada host yang bisa dipakai sama sekali (input kosong) ATAU user
+     * secara eksplisit mengetik titik dua tapi port setelahnya rusak/di luar
+     * jangkauan (mis. "host:abc" atau "host:99999") -- itu jelas typo yang
+     * disengaja, beda kasus dari "memang tidak mau isi port".
      */
     private fun parseKeepAliveTarget(raw: String): Pair<String, Int> {
         val fallbackHost = "www.google.com"
-        val fallbackPort = 443
+        val fallbackPort = com.example.tunnelapp.model.GeneralSettings.DEFAULT_KEEP_ALIVE_PORT
         val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return fallbackHost to fallbackPort
+
         val sepIndex = trimmed.lastIndexOf(':')
-        if (sepIndex <= 0 || sepIndex == trimmed.length - 1) return fallbackHost to fallbackPort
+        if (sepIndex <= 0 || sepIndex == trimmed.length - 1) {
+            // Tidak ada ":port" sama sekali -- pakai host user apa adanya + port default.
+            return trimmed to fallbackPort
+        }
 
         val host = trimmed.substring(0, sepIndex).trim()
         val port = trimmed.substring(sepIndex + 1).trim().toIntOrNull()
-        if (host.isEmpty() || port == null || port !in 1..65535) return fallbackHost to fallbackPort
+        if (host.isEmpty()) return fallbackHost to fallbackPort
+        if (port == null || port !in 1..65535) {
+            // Ada titik dua tapi port-nya rusak -- host user tetap dipakai,
+            // cuma port-nya yang di-fallback (bukan dua-duanya).
+            return host to fallbackPort
+        }
 
         return host to port
     }
@@ -1165,6 +1191,102 @@ class MyVpnService : VpnService() {
             }
             if (addrLen > 0) din.skipBytes(addrLen)
             din.skipBytes(2)
+
+            System.currentTimeMillis() - start
+        }
+    } catch (e: Exception) {
+        null
+    }
+
+    /**
+     * Metode keep-alive KEDUA (permintaan user: "tambahkan metode ping yang
+     * lain") -- beda dari [keepAliveThroughTunnel] yang cuma buka-tutup
+     * handshake SOCKS5 CONNECT, ini BENERAN mengirim request HTTP GET ke
+     * [targetHost]:[targetPort] lewat SOCKS5 lokal (jadi tetap lewat channel
+     * SSH/outbound Xray yang aktif -- efek anti-idle ke firewall/NAT operator
+     * SAMA seperti [keepAliveThroughTunnel]) dan menunggu baris status HTTP
+     * ASLI dibalas.
+     *
+     * Semangatnya mirip [verifyTunnelReallyWorks], tapi SENGAJA target-nya
+     * ikut [targetHost]/[targetPort] yang diatur user di Pengaturan (bukan
+     * hardcode connectivitycheck.gstatic.com) -- verifyTunnelReallyWorks
+     * TETAP hardcode apa adanya, TIDAK diubah/dipanggil dari sini, supaya
+     * verifikasi "tunnel valid & akun tidak expired" saat connect/watchdog
+     * tetap konsisten & tidak kepengaruh target keep-alive yang bisa
+     * diketik bebas oleh user.
+     *
+     * Diterima status HTTP APA PUN (1xx-5xx) sebagai "hidup" -- beda dari
+     * verifyTunnelReallyWorks yang mensyaratkan 2xx/3xx -- karena tujuan di
+     * sini murni "server ini benar-benar membalas lewat tunnel" (anti-idle),
+     * bukan "akun valid" (itu sudah tugas verifyTunnelReallyWorks/watchdog).
+     * Kalau [targetHost] kebetulan cuma listen HTTPS di [targetPort] (paling
+     * umum kalau port 443), request HTTP polos ini wajar gagal di-parse
+     * sebagai HTTP (server balas handshake TLS, bukan teks HTTP) -- itu
+     * dianggap gagal (null), sama seperti kegagalan lain di sini.
+     *
+     * Return elapsed ms (waktu sampai baris status HTTP pertama diterima)
+     * kalau berhasil, null kalau gagal di tahap mana pun -- SAMA POLA dengan
+     * [keepAliveThroughTunnel], TIDAK memicu reconnect (murni informatif).
+     */
+    private fun httpKeepAliveThroughTunnel(socksPort: Int, targetHost: String, targetPort: Int): Long? = try {
+        Socket().use { socket ->
+            socket.connect(InetSocketAddress("127.0.0.1", socksPort), KEEP_ALIVE_TIMEOUT_MS)
+            socket.soTimeout = KEEP_ALIVE_TIMEOUT_MS
+            val out = socket.getOutputStream()
+            val din = DataInputStream(socket.getInputStream())
+
+            val start = System.currentTimeMillis()
+
+            // Greeting + request CONNECT SOCKS5 -- persis pola yang sama
+            // dengan keepAliveThroughTunnel/verifyTunnelReallyWorks.
+            out.write(byteArrayOf(0x05, 0x01, 0x00))
+            out.flush()
+            val greeting = ByteArray(2)
+            din.readFully(greeting)
+            if (greeting[0] != 0x05.toByte() || greeting[1] != 0x00.toByte()) {
+                return@use null
+            }
+
+            val hostBytes = targetHost.toByteArray(Charsets.US_ASCII)
+            if (hostBytes.size > 255) return@use null // ATYP domain SOCKS5 cuma muat panjang 1 byte
+            val request = ByteArrayOutputStream().apply {
+                write(byteArrayOf(0x05, 0x01, 0x00, 0x03))
+                write(hostBytes.size)
+                write(hostBytes)
+                write((targetPort shr 8) and 0xFF)
+                write(targetPort and 0xFF)
+            }
+            out.write(request.toByteArray())
+            out.flush()
+
+            val replyHeader = ByteArray(4)
+            din.readFully(replyHeader)
+            if (replyHeader[1] != 0x00.toByte()) return@use null
+
+            val addrLen = when (replyHeader[3].toInt()) {
+                0x01 -> 4
+                0x04 -> 16
+                0x03 -> din.readUnsignedByte()
+                else -> 0
+            }
+            if (addrLen > 0) din.skipBytes(addrLen)
+            din.skipBytes(2)
+
+            // BENERAN kirim request HTTP & tunggu balasan asli -- inilah
+            // bedanya dari keepAliveThroughTunnel (yang cuma sampai sini).
+            val httpRequest = "GET / HTTP/1.1\r\nHost: $targetHost\r\nConnection: close\r\n\r\n"
+            out.write(httpRequest.toByteArray(Charsets.US_ASCII))
+            out.flush()
+
+            val statusLine = ByteArrayOutputStream()
+            while (statusLine.size() < 128) {
+                val b = din.read()
+                if (b == -1 || b == '\n'.code) break
+                if (b != '\r'.code) statusLine.write(b)
+            }
+            val line = statusLine.toByteArray().toString(Charsets.US_ASCII)
+            val gotHttpStatus = Regex("""^HTTP/1\.\d\s+\d{3}""").containsMatchIn(line)
+            if (!gotHttpStatus) return@use null
 
             System.currentTimeMillis() - start
         }

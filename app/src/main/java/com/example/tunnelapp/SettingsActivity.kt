@@ -26,8 +26,8 @@ import com.example.tunnelapp.model.VpnSettingsStore
  * [VpnSettingsStore]), plus info versi aplikasi.
  *
  * Catatan: kartu "Konfigurasi Server" (SSH & Xray) yang dulu ada di sini
- * SUDAH DIHAPUS -- akses ke Konfigurasi SSH/Xray tetap ada lewat kartu
- * "Menu" di Dashboard (lihat DashboardActivity.rowMenuSsh/rowMenuXray),
+ * SUDAH DIHAPUS -- akses ke Konfigurasi SSH/Xray sekarang lewat tab
+ * "Konfigurasi" tersendiri di bilah navigasi bawah (lihat [ConfigActivity]),
  * jadi tidak ada fungsi yang hilang, cuma tidak didobelkan di sini.
  */
 class SettingsActivity : AppCompatActivity() {
@@ -61,6 +61,13 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchAutoPing.isChecked = settings.autoPingEnabled
         binding.etPingInterval.setText(settings.pingIntervalSeconds.toString())
         binding.etKeepAliveTarget.setText(settings.keepAliveTarget)
+        binding.toggleKeepAliveMethod.check(
+            if (settings.keepAliveMethod == GeneralSettings.METHOD_HTTP) {
+                R.id.btnMethodHttp
+            } else {
+                R.id.btnMethodTcp
+            }
+        )
     }
 
     /**
@@ -84,9 +91,16 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         val keepAliveTarget = binding.etKeepAliveTarget.text.toString().trim()
-        if (!isValidHostPort(keepAliveTarget)) {
-            binding.etKeepAliveTarget.error = "Format harus host:port (mis. www.google.com:443)"
+        if (!isValidKeepAliveTarget(keepAliveTarget)) {
+            binding.etKeepAliveTarget.error =
+                "Isi host saja (port otomatis 443), atau host:port (mis. www.google.com:443)"
             return
+        }
+
+        val keepAliveMethod = if (binding.toggleKeepAliveMethod.checkedButtonId == R.id.btnMethodHttp) {
+            GeneralSettings.METHOD_HTTP
+        } else {
+            GeneralSettings.METHOD_TCP
         }
 
         GeneralSettingsStore.save(
@@ -94,16 +108,29 @@ class SettingsActivity : AppCompatActivity() {
             GeneralSettings(
                 autoPingEnabled = binding.switchAutoPing.isChecked,
                 pingIntervalSeconds = interval,
-                keepAliveTarget = keepAliveTarget
+                keepAliveTarget = keepAliveTarget,
+                keepAliveMethod = keepAliveMethod
             )
         )
         Toast.makeText(this, "Pengaturan Dasar disimpan", Toast.LENGTH_SHORT).show()
     }
 
-    /** Cek format "host:port": host tidak kosong, port angka 1-65535. */
-    private fun isValidHostPort(value: String): Boolean {
+    /**
+     * Cek target keep-alive -- SEKARANG port opsional (permintaan user):
+     * boleh "host" saja (host tidak boleh kosong, tidak boleh mengandung
+     * titik dua tapi kosong di kanan/kiri-nya), ATAU "host:port" lengkap
+     * dengan port 1-65535 kalau memang diisi.
+     *
+     * Konsisten dengan parseKeepAliveTarget() di MyVpnService -- fungsi itu
+     * jadi jaring pengaman kedua (data lama/aneh di SharedPreferences), yang
+     * ini validasi pertama biar user langsung tahu salah ketik di layar
+     * Pengaturan.
+     */
+    private fun isValidKeepAliveTarget(value: String): Boolean {
+        if (value.isEmpty()) return false
         val sepIndex = value.lastIndexOf(':')
-        if (sepIndex <= 0 || sepIndex == value.length - 1) return false
+        if (sepIndex < 0) return true // cuma host, tanpa port sama sekali -- valid
+        if (sepIndex == 0 || sepIndex == value.length - 1) return false
         val host = value.substring(0, sepIndex).trim()
         val port = value.substring(sepIndex + 1).trim().toIntOrNull()
         return host.isNotEmpty() && port != null && port in 1..65535
@@ -257,9 +284,10 @@ class SettingsActivity : AppCompatActivity() {
 
     /**
      * Sama seperti [DashboardActivity.setupBottomNav], tapi tab yang aktif di
-     * layar ini "Pengaturan". Tap "Dashboard" cukup finish() (Dashboard sudah
-     * ada di bawah SettingsActivity di back stack -- selalu benar karena
-     * SettingsActivity hanya bisa dibuka dari Dashboard, exported="false").
+     * layar ini "Pengaturan". Tap "Dashboard" cukup finish() (Dashboard selalu
+     * ada tepat di bawah di back stack -- lihat catatan navigasi 3-tab di
+     * [ConfigActivity]). Tap "Konfigurasi" pindah ke sibling [ConfigActivity]:
+     * start lalu finish() diri sendiri, supaya back stack tidak numpuk.
      */
     private fun setupBottomNav() {
         binding.bottomNav.selectedItemId = R.id.nav_settings
@@ -267,6 +295,11 @@ class SettingsActivity : AppCompatActivity() {
             when (item.itemId) {
                 R.id.nav_settings -> true
                 R.id.nav_dashboard -> {
+                    finish()
+                    true
+                }
+                R.id.nav_config -> {
+                    startActivity(Intent(this, ConfigActivity::class.java))
                     finish()
                     true
                 }

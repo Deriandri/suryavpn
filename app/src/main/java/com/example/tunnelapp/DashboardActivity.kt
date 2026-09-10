@@ -75,17 +75,24 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     /**
-     * Bilah navigasi bawah: tab "Dashboard" (layar ini, sudah aktif dari awal)
-     * & "Pengaturan" (buka [SettingsActivity] yang berisi Konfigurasi
-     * SSH/Xray + info app). SettingsActivity di-launch dengan
-     * launchMode="singleTop" (lihat AndroidManifest) supaya tap "Pengaturan"
-     * berkali-kali tidak numpuk banyak instance di back stack.
+     * Bilah navigasi bawah, sekarang TIGA tab: "Dashboard" (layar ini, sudah
+     * aktif dari awal), "Konfigurasi" (buka [ConfigActivity] -- jalan pintas
+     * ke Konfigurasi SSH/Xray) di TENGAH, & "Pengaturan" (buka
+     * [SettingsActivity] yang berisi VPN Setting + info app) di kanan.
+     * ConfigActivity & SettingsActivity di-launch dengan launchMode="singleTop"
+     * (lihat AndroidManifest) supaya tap berkali-kali tidak numpuk banyak
+     * instance di back stack. DashboardActivity sendiri adalah ROOT: tetap
+     * di dasar back stack, tidak pernah finish() dirinya sendiri di sini.
      */
     private fun setupBottomNav() {
         binding.bottomNav.selectedItemId = R.id.nav_dashboard
         binding.bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_dashboard -> true
+                R.id.nav_config -> {
+                    startActivity(Intent(this, ConfigActivity::class.java))
+                    true
+                }
                 R.id.nav_settings -> {
                     startActivity(Intent(this, SettingsActivity::class.java))
                     true
