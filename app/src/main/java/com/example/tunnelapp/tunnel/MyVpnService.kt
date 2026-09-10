@@ -608,6 +608,28 @@ class MyVpnService : VpnService() {
                 // kalau ada, baru fallback ke pesan exception generik.
                 val reason = StatusBus.firstErrorDetail() ?: e.message ?: e.javaClass.simpleName
 
+                // FIX BUG "banner reconnect otomatis nongol duluan / state korup
+                // & crash saat connect ulang": sshTunnelManager.disconnect() di
+                // bawah memanggil connection.close(), yang SINKRON memicu
+                // ConnectionMonitor.connectionLost() -> onUnexpectedDisconnect()
+                // -> handleTunnelDeath() -- padahal ini cuma cleanup attempt yang
+                // gagal, BUKAN tunnel mati sendiri. Tanpa guard ini,
+                // handleTunnelDeath() ikut jalan DI TENGAH cleanup kita sendiri
+                // (reentrant), menjadwalkan reconnect otomatis yang balapan
+                // dengan scheduleReconnectOrGiveUp()/stopVpn() yang beberapa
+                // baris di bawah -- itulah sumber status/log yang "loncat"
+                // (reconnect keluar duluan sebelum status final), dan sisa
+                // thread teardown yang masih menulis ke connection/socks5Server/
+                // tunEngine belakangan bisa menabrak siklus connect berikutnya.
+                // Klaim gerbang handlingDeath DI SINI (sebelum disconnect()
+                // dipanggil) supaya connectionLost() yang datang dari close()
+                // kita sendiri otomatis diabaikan (lihat guard di awal
+                // handleTunnelDeath()). Direset balik ke false oleh
+                // scheduleReconnectOrGiveUp() (sebelum retry) atau tetap true
+                // sampai stopVpn() kalau memang menyerah -- konsisten dengan
+                // pola reset yang sudah dipakai di tempat lain.
+                handlingDeath.set(true)
+
                 // FIX BUG UTAMA ("bind failed: EADDRINUSE" di percobaan
                 // reconnect berikutnya): kalau attempt ini gagal di tahap
                 // SETELAH SSH+SOCKS5 sempat berhasil (mis. verifyTunnelReallyWorks()
