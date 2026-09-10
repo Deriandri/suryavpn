@@ -91,7 +91,7 @@
          "Log" dan membuat area Terminal terasa sempit. Sekarang dipindahkan
          SEPENUHNYA ke dalam halaman "Main" saja (lihat pillStatus di
          fragment_dashboard_main.xml, paling atas, & DashboardMainFragment.
-         setupStatusPill()) -- halaman "Log" jadi penuh satu layar untuk
+         setupStatusPill()): halaman "Log" jadi penuh satu layar untuk
          Terminal, dan status cuma terlihat waktu ada di tab Main. -->
 
     <!-- Konten geser-kesamping: halaman 0 = Main, halaman 1 = Log. -->

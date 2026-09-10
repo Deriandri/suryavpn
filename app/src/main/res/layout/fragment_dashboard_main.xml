@@ -19,7 +19,7 @@
         android:padding="16dp"
         android:animateLayoutChanges="true">
 
-        <!-- Status headline ("Belum tersambung" / "Tunnel aktif" / dll) --
+        <!-- Status headline ("Belum tersambung" / "Tunnel aktif" / dll):
              DIPINDAHKAN KE SINI dari activity_dashboard.xml (permintaan
              user): sebelumnya fixed di bawah tab Main|Log sehingga ikut
              tampil juga di halaman "Log" (bikin area Terminal sempit).

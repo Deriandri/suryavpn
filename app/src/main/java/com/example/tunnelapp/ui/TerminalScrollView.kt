@@ -8,20 +8,22 @@ import android.widget.ScrollView
 /**
  * ScrollView khusus untuk kotak "Terminal" di LogActivity.
  *
- * PENTING (bug fix): layout aslinya menaruh ScrollView ini (svTerminal) DI
- * DALAM ScrollView lain yang membungkus seluruh layar (dua ScrollView
- * bersarang, sama-sama arah vertikal). Pada ScrollView bawaan Android, kalau
- * ada dua ScrollView bersarang begini, ScrollView LUAR hampir selalu yang
- * "menang" duluan menangkap gesture drag vertikal sebelum ScrollView DALAM
- * sempat memprosesnya -- akibatnya area Terminal terlihat seperti tidak bisa
- * di-scroll sendiri (drag di area itu malah menggerakkan seluruh halaman).
+ * BUG FIX (update): versi sebelumnya langsung memanggil
+ * requestDisallowInterceptTouchEvent(true) begitu jari MENYENTUH
+ * (ACTION_DOWN), sebelum tahu arah geserannya. Itu dibuat untuk kasus lama
+ * (ScrollView di dalam ScrollView, dua-duanya arah vertikal) yang sekarang
+ * sudah tidak ada lagi (ScrollView pembungkus luar sudah dibuang di
+ * fragment_dashboard_log.xml). Masalahnya, halaman Log ini juga ada DI DALAM
+ * ViewPager2 (tab "Main | Log", lihat activity_dashboard.xml +
+ * DashboardPagerAdapter) -- karena disallow-intercept dipanggil dari
+ * ACTION_DOWN, ViewPager2 ikut "dikunci" dan jadi tidak bisa membaca gesture
+ * geser horizontal selama jari masih berada di area Terminal, sehingga tab
+ * tidak bisa digeser dari Log ke Main (harus tap tulisan "Main").
  *
- * Perbaikannya: begitu jari mulai menyentuh (ACTION_DOWN) di dalam area ini,
- * langsung minta parent (ScrollView luar) untuk TIDAK ikut campur
- * (requestDisallowInterceptTouchEvent(true)), supaya semua event drag
- * selanjutnya benar-benar diproses ScrollView ini sendiri. Begitu jari
- * diangkat/dibatalkan, izin itu dikembalikan supaya scroll halaman luar tetap
- * normal di luar area Terminal.
+ * Perbaikannya: tunggu sampai ACTION_MOVE dan baru kunci parent kalau
+ * geserannya memang lebih vertikal daripada horizontal (dy > dx). Kalau jari
+ * geser ke samping (mau pindah tab), parent (ViewPager2) tetap dibiarkan
+ * menangkap gesture itu seperti biasa.
  */
 class TerminalScrollView @JvmOverloads constructor(
     context: Context,
@@ -29,18 +31,26 @@ class TerminalScrollView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : ScrollView(context, attrs, defStyleAttr) {
 
-    override fun onTouchEvent(ev: MotionEvent): Boolean {
-        when (ev.action) {
-            MotionEvent.ACTION_DOWN -> parent?.requestDisallowInterceptTouchEvent(true)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
-                parent?.requestDisallowInterceptTouchEvent(false)
-        }
-        return super.onTouchEvent(ev)
-    }
+    private var downX = 0f
+    private var downY = 0f
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-        if (ev.action == MotionEvent.ACTION_DOWN) {
-            parent?.requestDisallowInterceptTouchEvent(true)
+        when (ev.action) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = ev.x
+                downY = ev.y
+                // Belum tahu arah geseran jari, jangan kunci parent dulu
+                // supaya ViewPager2 masih bisa mendeteksi swipe horizontal.
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = Math.abs(ev.x - downX)
+                val dy = Math.abs(ev.y - downY)
+                if (dy > dx) {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                parent?.requestDisallowInterceptTouchEvent(false)
         }
         return super.onInterceptTouchEvent(ev)
     }
