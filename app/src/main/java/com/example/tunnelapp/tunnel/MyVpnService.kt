@@ -518,6 +518,42 @@ class MyVpnService : VpnService() {
      * ulang untuk reconnect otomatis TANPA perlu builder.establish() lagi
      * (yang berarti tanpa perlu minta izin VPN ke user lagi).
      */
+    /**
+     * FIX BUG "batal connect tapi tetap 'Connected' / kelihatan reconnect
+     * sendiri": establishTunnel() ini isinya panggilan BLOCKING berurutan
+     * (SSH/Xray connect -> startTunEngine -> verifyTunnelReallyWorks) tanpa
+     * satu pun suspension point di antaranya. serviceJob.cancel() yang
+     * dipanggil stopVpn() TIDAK BISA menghentikan coroutine yang sedang di
+     * tengah menjalankan kode sinkron seperti itu -- cancellation Kotlin
+     * coroutine sifatnya kooperatif, cuma diperiksa di titik-titik tertentu.
+     * Tanpa pengecekan manual, coroutine lama ini tetap jalan sampai
+     * selesai SETELAH stopVpn()/shutdownScope sudah menutup semuanya --
+     * lalu balik menimpa tunEngine, StatusBus, dan menyalakan
+     * watchdog/ping loop baru, persis seperti "reconnect sendiri" padahal
+     * itu proses connect pertama yang tidak pernah benar-benar dibatalkan.
+     * checkStoppedMidway() dipanggil di tiap titik transisi tahap di bawah
+     * -- kalau true, method ini SENDIRI yang membongkar apa pun yang baru
+     * saja dibuat (bukan cuma `return`), supaya tidak ada tunnel yang
+     * bocor tetap hidup walau UI sudah bilang "Terputus".
+     */
+    private fun checkStoppedMidway(engineJustStarted: TunEngine?): Boolean {
+        if (!stoppingIntentionally) return false
+        Log.w(TAG, "Stop diminta di tengah proses connect -- membatalkan & membongkar hasil parsial")
+        if (engineJustStarted != null && tunEngine === engineJustStarted) {
+            tunEngine = null
+        }
+        if (engineJustStarted != null) {
+            runBlockingWithTimeout("tunEngine.stop() (dibatalkan di tengah connect)") { engineJustStarted.stop() }
+        }
+        runBlockingWithTimeout("sshTunnelManager.disconnect() (dibatalkan di tengah connect)") {
+            sshTunnelManager.disconnect()
+        }
+        runBlockingWithTimeout("xrayTunnelManager.disconnect() (dibatalkan di tengah connect)") {
+            xrayTunnelManager.disconnect()
+        }
+        return true
+    }
+
     private fun establishTunnel(config: ServerConfig, isReconnect: Boolean) {
         serviceScope.launch {
             try {
@@ -526,6 +562,8 @@ class MyVpnService : VpnService() {
                     StatusBus.start(StepId.TUN)
                     StatusBus.success(StepId.TUN)
                 }
+
+                if (checkStoppedMidway(null)) return@launch
 
                 if (config.usesXray()) {
                     // libXray protect socket beroperasi di level fd mentah (Go/gomobile),
@@ -544,6 +582,8 @@ class MyVpnService : VpnService() {
                     updateNotification("SSH tersambung ke ${config.host}")
                 }
 
+                if (checkStoppedMidway(null)) return@launch
+
                 // FIX "status sukses vs koneksi nyata beda": step ini dulu
                 // ditandai success() SEKETIKA setelah startTunEngine() -- padahal
                 // startTunEngine() cuma nge-launch thread native (hev-socks5-tunnel)
@@ -557,6 +597,7 @@ class MyVpnService : VpnService() {
                 // yang balik lewat tunnel, bukan asumsi optimistis.
                 StatusBus.start(StepId.TUNNEL_ACTIVE)
                 startTunEngine(config)
+                if (checkStoppedMidway(tunEngine)) return@launch
 
                 // --- Verifikasi tunnel BENERAN tembus ke internet DAN akun/
                 // kredensial-nya masih valid ---
@@ -590,6 +631,7 @@ class MyVpnService : VpnService() {
                     throw IllegalStateException(reason)
                 }
                 StatusBus.success(StepId.TUNNEL_ACTIVE)
+                if (checkStoppedMidway(tunEngine)) return@launch
 
                 // Reconnect (kalau ada) sukses -- reset hitungan percobaan &
                 // nyalakan ulang watchdog buat siklus berikutnya.
@@ -602,6 +644,13 @@ class MyVpnService : VpnService() {
                 StatusBus.state.value = "Tunnel aktif — semua trafik device lewat SSH"
                 updateNotification("Tunnel aktif (${config.host})")
             } catch (e: Exception) {
+                // Kalau exception ini muncul GARA-GARA kita sendiri sedang
+                // membatalkan (mis. verifyTunnelReallyWorks gagal karena
+                // sshTunnelManager.disconnect() dari checkStoppedMidway/stopVpn
+                // baru saja menutup socketnya), jangan lanjut ke
+                // scheduleReconnectOrGiveUp()/stopVpn() lagi -- stopVpn() asli
+                // sudah/sedang menangani teardown & status "Terputus".
+                if (stoppingIntentionally) return@launch
                 Log.e(TAG, "Gagal menyalakan tunnel", e)
                 StatusBus.skipRemainingPending()
                 // Pakai pesan dari tahap yang benar-benar gagal (lebih akurat)

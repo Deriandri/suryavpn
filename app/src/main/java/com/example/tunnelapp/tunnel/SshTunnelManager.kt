@@ -151,7 +151,14 @@ class SshTunnelManager {
         }
         socks5Server = socks
         StatusBus.success(StepId.SOCKS5)
-        StatusBus.log("Connected")
+        // FIX (log Terminal menyesatkan): dulu baris ini cuma "Connected" --
+        // kedengarannya seperti seluruh proses sudah kelar, padahal di titik
+        // ini baru SSH handshake + SOCKS5 lokal yang siap. TUN engine belum
+        // dinyalakan dan verifyTunnelReallyWorks() (di MyVpnService) belum
+        // membuktikan trafik device beneran lewat tunnel -- StepId.TUNNEL_ACTIVE
+        // baru sukses SETELAH itu. Teks di sini diperjelas supaya tidak
+        // disalahartikan sebagai "sudah connect sepenuhnya".
+        StatusBus.log("Mengaktifkan tunnel ke seluruh trafik device...")
 
         Log.i(TAG, "SSH (trilead-ssh2) tersambung via relay lokal. SOCKS5 di 127.0.0.1:${config.socksPort}")
     }
