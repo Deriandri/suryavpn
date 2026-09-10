@@ -86,35 +86,13 @@
         android:layout_height="1dp"
         android:background="@color/divider" />
 
-    <!-- Status headline, dipindahkan ke sini (dari fragment_dashboard_main.xml)
-         supaya FIXED tepat di bawah tab "Main | Log", tidak ikut halaman Main
-         yang di-scroll, dan tetap terlihat sekalipun pindah ke halaman "Log".
-         Diisi lewat StatusBus.state, lihat DashboardActivity.setupStatusPill(). -->
-    <LinearLayout
-        android:id="@+id/pillStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:background="@drawable/bg_status_pill"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="12dp"
-        android:paddingBottom="12dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginTop="12dp">
-
-        <TextView
-            android:id="@+id/tvStatus"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Belum tersambung"
-            android:textColor="@color/text_primary"
-            android:textSize="14sp"
-            android:textStyle="bold" />
-    </LinearLayout>
+    <!-- Status headline card DIHAPUS dari sini (permintaan user): sebelumnya
+         fixed di bawah tab Main|Log sehingga ikut tampil juga di halaman
+         "Log" dan membuat area Terminal terasa sempit. Sekarang dipindahkan
+         SEPENUHNYA ke dalam halaman "Main" saja (lihat pillStatus di
+         fragment_dashboard_main.xml, paling atas, & DashboardMainFragment.
+         setupStatusPill()) -- halaman "Log" jadi penuh satu layar untuk
+         Terminal, dan status cuma terlihat waktu ada di tab Main. -->
 
     <!-- Konten geser-kesamping: halaman 0 = Main, halaman 1 = Log. -->
     <androidx.viewpager2.widget.ViewPager2

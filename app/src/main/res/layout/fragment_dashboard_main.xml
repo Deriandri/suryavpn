@@ -19,48 +19,36 @@
         android:padding="16dp"
         android:animateLayoutChanges="true">
 
-        <!-- Status headline dipindahkan ke activity_dashboard.xml, tepat di
-             bawah tab "Main | Log" (fixed, tidak ikut halaman Main/Log yang
-             bisa digeser), lihat pillStatus di sana & setupStatusPill()
-             di DashboardActivity. -->
-
-        <!-- Card: Tahapan Koneksi (dipindahkan dari tab Log, lihat
-             DashboardLogFragment/fragment_dashboard_log.xml lama, sekarang
-             tampil di Main, tepat di atas "Profil aktif", supaya progres
-             tahapan koneksi terlihat langsung tanpa pindah tab). -->
-        <com.google.android.material.card.MaterialCardView
-            style="@style/Card.Section"
+        <!-- Status headline ("Belum tersambung" / "Tunnel aktif" / dll) --
+             DIPINDAHKAN KE SINI dari activity_dashboard.xml (permintaan
+             user): sebelumnya fixed di bawah tab Main|Log sehingga ikut
+             tampil juga di halaman "Log" (bikin area Terminal sempit).
+             Sekarang jadi bagian dari konten halaman "Main" saja, paling
+             atas, jadi tidak lagi tampil di halaman "Log". Diisi lewat
+             StatusBus.state, lihat DashboardMainFragment.setupStatusPill(). -->
+        <LinearLayout
+            android:id="@+id/pillStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_status_pill"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"
             android:layout_marginBottom="16dp">
 
-            <LinearLayout
-                android:layout_width="match_parent"
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    style="@style/SectionTitleText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Tahapan Koneksi" />
-
-                <TextView
-                    android:id="@+id/tvLogEmpty"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Belum ada aktivitas koneksi. Tekan Connect di tab Main untuk memulai."
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
-
-                <LinearLayout
-                    android:id="@+id/llLogSteps"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:animateLayoutChanges="true" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+                android:layout_weight="1"
+                android:text="Belum tersambung"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tvActiveProfile"
@@ -101,6 +89,46 @@
                     android:text="Connect"
                     android:textAllCaps="false"
                     android:textSize="15sp" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Card: Tahapan Koneksi (dipindahkan dari tab Log, lihat
+             DashboardLogFragment/fragment_dashboard_log.xml lama). PERMINTAAN
+             USER (update): sebelumnya di atas "Profil aktif", sekarang
+             dipindah ke BAWAH card "Kontrol Koneksi" supaya tombol
+             Connect/Disconnect langsung terlihat duluan tanpa perlu scroll
+             lewat progres tahapan koneksi dulu. -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/Card.Section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/SectionTitleText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Tahapan Koneksi" />
+
+                <TextView
+                    android:id="@+id/tvLogEmpty"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Belum ada aktivitas koneksi. Tekan Connect di tab Main untuk memulai."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+
+                <LinearLayout
+                    android:id="@+id/llLogSteps"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:animateLayoutChanges="true" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

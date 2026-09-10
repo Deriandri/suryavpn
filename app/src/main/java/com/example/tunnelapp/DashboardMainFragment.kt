@@ -99,13 +99,15 @@ class DashboardMainFragment : Fragment() {
         // viewLifecycleOwner (bukan Fragment.lifecycleScope) supaya collector
         // berhenti begitu view Fragment ini dihancurkan (mis. ViewPager2
         // membuang halaman ini dari memori saat jauh dari halaman aktif).
-        // pillStatus/tvStatus sudah dipindahkan ke activity_dashboard.xml
-        // (fixed, tepat di bawah tab Main|Log) -- lihat
-        // DashboardActivity.setupStatusPill(). Di sini cukup dengarkan
-        // status untuk state tombol Connect/Disconnect saja.
+        // pillStatus/tvStatus DIPINDAHKAN KE SINI dari DashboardActivity
+        // (permintaan user: kartu status sekarang cuma bagian halaman
+        // "Main", tidak lagi fixed & ikut tampil di halaman "Log") --
+        // sekalian juga dengarkan status untuk state tombol Connect/Disconnect.
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 StatusBus.state.collect { status ->
+                    binding.tvStatus.text = status
+                    applyStatusPillColor(status)
                     applyConnectButtonState(status)
                 }
             }
@@ -187,6 +189,21 @@ class DashboardMainFragment : Fragment() {
                     ContextCompat.getColorStateList(ctx, R.color.brand_primary)
             }
         }
+    }
+
+    /** Dipindahkan dari DashboardActivity.applyStatusPillColor() -- logikanya sama persis. */
+    private fun applyStatusPillColor(status: String) {
+        val (bg, text) = when {
+            status.startsWith("Gagal") -> R.color.status_error_bg to R.color.status_error
+            status.contains("Menghubungkan") || status.contains("Membuat") || status.contains("tersambung") ||
+                status.contains("Memutuskan") ->
+                R.color.status_running_bg to R.color.status_running
+            status.contains("aktif", ignoreCase = true) -> R.color.status_success_bg to R.color.status_success
+            else -> R.color.status_pending_bg to R.color.text_primary
+        }
+        val ctx = requireContext()
+        (binding.pillStatus.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(ctx, bg))
+        binding.tvStatus.setTextColor(ContextCompat.getColor(ctx, text))
     }
 
     private fun renderLogSteps(steps: List<ConnectionStep>) {
