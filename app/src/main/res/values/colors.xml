@@ -28,15 +28,17 @@
 
     <!-- Terminal (kartu "Log"). PERUBAHAN (permintaan user): sebelumnya
          gelap ala terminal klasik (background hitam + teks hijau terang).
-         Sekarang diganti tema terang "putih ke biruan" yang smooth supaya
-         senada dengan tampilan app secara keseluruhan (header/bottom nav
-         ungu, kartu putih) -- lihat drawable/bg_terminal_log.xml untuk
-         gradasinya. Warna teks & divider ikut disesuaikan supaya tetap
-         kontras/kebaca di atas background terang, aksennya tetap ditarik
-         dari brand_secondary sama seperti sebelumnya. -->
+         Sekarang background diganti tema terang "putih ke biruan" yang
+         smooth, senada dengan tampilan app secara keseluruhan (header/
+         bottom nav ungu, kartu putih); lihat drawable/bg_terminal_log.xml
+         untuk gradasinya. Teks log tetap HIJAU seperti semula (permintaan
+         user), cuma diganti ke hijau yang lebih gelap/pekat supaya tetap
+         kontras di atas background terang (hijau lama #8FE38F kalau
+         dipakai di atas putih jadi nyaris tidak kebaca). Aksennya tetap
+         ditarik dari brand_secondary sama seperti sebelumnya. -->
     <color name="terminal_background">#FFFFFF</color>
     <color name="terminal_surface">#FFFFFF</color>
-    <color name="terminal_text">#1E293B</color>
+    <color name="terminal_text">#15803D</color>
     <color name="terminal_text_dim">#64748B</color>
     <color name="terminal_accent">@color/brand_secondary</color>
     <color name="terminal_divider">#E1E8F5</color>
