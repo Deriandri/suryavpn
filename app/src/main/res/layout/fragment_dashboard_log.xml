@@ -17,16 +17,24 @@
     android:layout_height="match_parent"
     android:background="@color/app_background"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:paddingTop="16dp"
+    android:paddingBottom="16dp">
 
     <!-- Card "Tahapan Koneksi" SUDAH DIPINDAHKAN ke halaman Main, tepat di
          atas "Profil aktif", lihat fragment_dashboard_main.xml &
          DashboardMainFragment.renderLogSteps(). Halaman Log sekarang
          cuma berisi Terminal mentah di bawah ini, penuh satu layar. -->
 
-    <!-- Card: Terminal log mentah (real-time, event asli - lihat StatusBus.log) -->
+    <!-- Card: Terminal log mentah (real-time, event asli - lihat StatusBus.log).
+         PERUBAHAN (permintaan user): kartu ini sekarang full-bleed kiri-kanan
+         (nempel ke tepi layar, tanpa margin horizontal) supaya area log tidak
+         terlihat sempit, makanya padding horizontal di root LinearLayout di
+         atas dihapus (paddingTop/paddingBottom masih ada, cuma sisi kiri-kanan
+         yang dibuang), dan sudut kartu diratakan jadi 0dp di sini biar rapi
+         nempel ke tepi (bukan rounded corner yang kepotong tanggung). -->
     <com.google.android.material.card.MaterialCardView
         style="@style/Card.Section"
+        app:cardCornerRadius="0dp"
         app:cardBackgroundColor="@color/terminal_background"
         android:layout_width="match_parent"
         android:layout_height="0dp"

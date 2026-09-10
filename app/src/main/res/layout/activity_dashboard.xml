@@ -86,7 +86,7 @@
         android:layout_height="1dp"
         android:background="@color/divider" />
 
-    <!-- Status headline -- dipindahkan ke sini (dari fragment_dashboard_main.xml)
+    <!-- Status headline, dipindahkan ke sini (dari fragment_dashboard_main.xml)
          supaya FIXED tepat di bawah tab "Main | Log", tidak ikut halaman Main
          yang di-scroll, dan tetap terlihat sekalipun pindah ke halaman "Log".
          Diisi lewat StatusBus.state, lihat DashboardActivity.setupStatusPill(). -->
