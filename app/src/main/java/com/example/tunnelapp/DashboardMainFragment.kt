@@ -20,7 +20,6 @@ import com.example.tunnelapp.model.ConfigStore
 import com.example.tunnelapp.model.ConnectionMode
 import com.example.tunnelapp.tunnel.ConnectionStep
 import com.example.tunnelapp.tunnel.MyVpnService
-import com.example.tunnelapp.tunnel.PingUtil
 import com.example.tunnelapp.tunnel.StatusBus
 import com.example.tunnelapp.tunnel.StepStatus
 import com.example.tunnelapp.tunnel.XrayLinkParser
@@ -28,7 +27,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Halaman "Main" dari Dashboard (lihat [DashboardPagerAdapter]) -- persis
- * logika [DashboardActivity] yang lama (tombol Connect/Disconnect, cek ping,
+ * logika [DashboardActivity] yang lama (tombol Connect/Disconnect,
  * ringkasan profil aktif, baris menu SSH/Xray/Log), dipindahkan ke Fragment
  * supaya bisa jadi salah satu halaman ViewPager2 yang digeser-geser dengan
  * halaman "Log" ([DashboardLogFragment]).
@@ -91,7 +90,6 @@ class DashboardMainFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         binding.btnConnectToggle.setOnClickListener { onConnectToggleClicked() }
-        binding.btnCheckPing.setOnClickListener { onCheckPingClicked() }
 
         // Kartu "Menu" (Konfigurasi SSH/Xray & Log Koneksi) sudah dihapus
         // seluruhnya dari halaman ini -- akses Konfigurasi lewat tab
@@ -129,9 +127,8 @@ class DashboardMainFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         // Profil bisa saja baru saja diubah di SshConfigActivity/XrayConfigActivity --
-        // refresh ringkasan & target ping setiap kali halaman Main kembali ditampilkan.
+        // refresh ringkasan profil aktif setiap kali halaman Main kembali ditampilkan.
         refreshActiveProfileSummary()
-        binding.tvPingResult.text = ""
     }
 
     private enum class ConnectButtonState { IDLE, CONNECTING, CONNECTED }
@@ -249,17 +246,14 @@ class DashboardMainFragment : Fragment() {
         val saved = ConfigStore.load(requireContext())
         if (saved == null) {
             binding.tvActiveProfile.text = "Profil aktif: belum ada konfigurasi"
-            binding.tvPingTarget.text = "Target: belum ada konfigurasi"
             return
         }
         if (saved.modeIndex == 5) {
             val parsed = runCatching { XrayLinkParser.parse(saved.xrayLink) }.getOrNull()
             if (parsed != null) {
                 binding.tvActiveProfile.text = "Profil aktif: Xray — ${parsed.address}:${parsed.port}"
-                binding.tvPingTarget.text = "Target: ${parsed.address}:${parsed.port} (Xray)"
             } else {
                 binding.tvActiveProfile.text = "Profil aktif: Xray — link belum valid"
-                binding.tvPingTarget.text = "Target: link Xray belum valid"
             }
         } else {
             val modeName = when (saved.modeIndex) {
@@ -269,43 +263,6 @@ class DashboardMainFragment : Fragment() {
                 else -> "SSH"
             }
             binding.tvActiveProfile.text = "Profil aktif: $modeName — ${saved.host}:${saved.port}"
-            binding.tvPingTarget.text = "Target: ${saved.host}:${saved.port} ($modeName)"
-        }
-    }
-
-    private fun onCheckPingClicked() {
-        val saved = ConfigStore.load(requireContext())
-        if (saved == null) {
-            binding.tvPingResult.text = "Belum ada konfigurasi"
-            return
-        }
-        val (host, port) = if (saved.modeIndex == 5) {
-            val parsed = runCatching { XrayLinkParser.parse(saved.xrayLink) }.getOrNull()
-                ?: run {
-                    binding.tvPingResult.text = "Link Xray tidak valid"
-                    return
-                }
-            parsed.address to parsed.port
-        } else {
-            saved.host to saved.port
-        }
-
-        binding.btnCheckPing.isEnabled = false
-        binding.pbPinging.visibility = View.VISIBLE
-        binding.tvPingResult.text = ""
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            val result = PingUtil.tcpPing(host, port)
-            val b = _binding ?: return@launch
-            b.btnCheckPing.isEnabled = true
-            b.pbPinging.visibility = View.GONE
-            if (result.success) {
-                b.tvPingResult.text = "${result.latencyMs} ms"
-                b.tvPingResult.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_success))
-            } else {
-                b.tvPingResult.text = "Gagal"
-                b.tvPingResult.setTextColor(ContextCompat.getColor(requireContext(), R.color.status_error))
-            }
         }
     }
 
