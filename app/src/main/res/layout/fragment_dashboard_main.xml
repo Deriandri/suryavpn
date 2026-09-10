@@ -3,7 +3,7 @@
      activity_dashboard.xml + DashboardPagerAdapter). Ini persis isi Dashboard
      lama, MINUS header (hamburger+judul, sekarang tetap/fixed di
      activity_dashboard.xml) dan MINUS baris menu "Log Koneksi" (sekarang jadi
-     tab "Log" di sebelah kanan, bukan lagi item menu yang buka layar baru --
+     tab "Log" di sebelah kanan, bukan lagi item menu yang buka layar baru —
      lihat DashboardMainFragment.rowMenuLog). -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -262,7 +262,7 @@
                     android:layout_height="1dp"
                     android:background="@color/divider" />
 
-                <!-- Log Koneksi: BUKAN lagi buka layar baru -- sekarang cuma
+                <!-- Log Koneksi: BUKAN lagi buka layar baru — sekarang cuma
                      jalan pintas untuk pindah ke tab "Log" di sebelah kanan
                      (sama seperti geser layar ke kiri). Lihat
                      DashboardMainFragment.rowMenuLog & DashboardActivity.goToLogPage(). -->

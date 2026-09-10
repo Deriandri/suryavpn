@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.net.InetSocketAddress
@@ -187,8 +188,21 @@ class MyVpnService : VpnService() {
     // deep sleep (WAJIB PARTIAL_WAKE_LOCK, bukan varian yang menyalakan layar)
     // supaya tunnel/reconnect otomatis tetap jalan mulus walau layar mati.
     private var wakeLock: PowerManager.WakeLock? = null
-    private val serviceJob = Job()
-    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    // FIX (dipakai bareng fix race "EADDRINUSE saat connect cepat" di
+    // startVpn()): dulu ini `val` -- aman selama asumsi "satu instance
+    // Service = satu siklus hidup start->stop" selalu benar (stopVpn()
+    // manggil serviceJob.cancel(), lalu stopSelf() memang menghancurkan
+    // instance ini, jadi start berikutnya otomatis dapat instance BARU
+    // dengan serviceJob baru). TAPI stopSelf() TIDAK instan -- kalau user
+    // menekan connect lagi SEBELUM Android benar-benar menghancurkan
+    // instance lama, onStartCommand() berikutnya bisa saja mendarat di
+    // instance yang SAMA, dengan serviceJob yang SUDAH di-cancel oleh
+    // stopVpn() sebelumnya. Coroutine baru yang di-launch lewat scope
+    // dengan parent job yang sudah cancelled itu diam-diam gagal jalan.
+    // Makanya sekarang `var`, dan startVpn() mengecek+membuat ulang
+    // keduanya kalau job lama sudah tidak aktif lagi.
+    private var serviceJob = Job()
+    private var serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private val sshTunnelManager = SshTunnelManager()
     private val xrayTunnelManager by lazy { XrayTunnelManager(this) }
     private var tunEngine: TunEngine? = null
@@ -198,6 +212,14 @@ class MyVpnService : VpnService() {
     // sudah establish() dibiarkan hidup selama proses reconnect).
     private var lastConfig: ServerConfig? = null
     private var reconnectAttempt = 0
+    // FIX (permintaan user): sebelum benar-benar menyerah setelah
+    // MAX_RECONNECT_ATTEMPTS kali reconnect "ringan" (yang sengaja
+    // mempertahankan TUN interface tetap hidup) gagal semua, coba SATU KALI
+    // reset total -- termasuk bongkar & bikin ulang TUN interface dari nol --
+    // sebagai upaya terakhir sebelum stopVpn(). Direset ke false tiap kali
+    // startVpn() baru ATAU reconnect/hard-reset berhasil, supaya siklus
+    // gagal berikutnya tetap dapat satu jatah hard reset lagi.
+    private var hardResetAttempted = false
     // true selama proses stop yang memang DIMINTA (user disconnect, atau kita
     // sendiri lagi membongkar tunnel di tengah reconnect) -- dicek di
     // handleTunnelDeath supaya penutupan socket yang kita sengaja tidak
@@ -277,6 +299,28 @@ class MyVpnService : VpnService() {
     // DAN onRevoke hampir bersamaan).
     private val stopping = AtomicBoolean(false)
 
+    // FIX (race "EADDRINUSE saat user buru-buru connect lagi"): stopVpn()
+    // membongkar SSH/SOCKS5/TUN lama secara ASYNC di shutdownScope, sementara
+    // vpnInterface (penanda "boleh start baru") sudah di-null-kan SINKRON di
+    // awal stopVpn(). Kalau startVpn() berikutnya dipanggil di antara dua
+    // momen itu, dia bisa mulai bind() SOCKS5 baru SEBELUM socket lama
+    // benar-benar ditutup di background -- bentrok lagi persis seperti bug
+    // utama di atas, tapi dari sisi "stop lalu connect cepat" alih-alih
+    // "reconnect otomatis". Job ini dipegang supaya startVpn() bisa
+    // menunggunya (dengan batas waktu) sebelum lanjut, bukan cuma
+    // mengandalkan vpnInterface == null.
+    @Volatile
+    private var shutdownJob: Job? = null
+
+    // FIX (celah baru akibat startVpn() sekarang async menunggu shutdownJob):
+    // vpnInterface baru terisi SETELAH builder.establish() selesai di dalam
+    // coroutine -- ada jeda singkat sebelum itu. Tanpa flag ini, user yang
+    // menekan tombol Connect dua kali sangat cepat bisa lolos dari pengecekan
+    // "vpnInterface != null" dua-duanya dan memicu dua proses connect
+    // paralel. Flag ini di-set begitu startVpn() diterima, dan direset kalau
+    // gagal di tahap TUN (supaya user bisa coba lagi).
+    private val startInProgress = AtomicBoolean(false)
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_DISCONNECT -> {
@@ -325,11 +369,26 @@ class MyVpnService : VpnService() {
             Log.w(TAG, "VPN sudah berjalan, abaikan permintaan start kedua")
             return
         }
+        if (!startInProgress.compareAndSet(false, true)) {
+            Log.w(TAG, "Permintaan connect sudah sedang diproses, abaikan permintaan kedua")
+            return
+        }
 
         lastConfig = config
         reconnectAttempt = 0
+        hardResetAttempted = false
         stoppingIntentionally = false
         handlingDeath.set(false)
+        stopping.set(false)
+        // Lihat catatan di deklarasi serviceJob/serviceScope: kalau instance
+        // Service ini sempat menjalani stopVpn() sebelumnya (job lama sudah
+        // cancelled), buat job+scope baru di sini supaya serviceScope.launch()
+        // di bawah maupun di establishTunnel()/scheduleReconnectOrGiveUp()
+        // benar-benar jalan, bukan diam-diam ter-drop.
+        if (!serviceJob.isActive) {
+            serviceJob = Job()
+            serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+        }
 
         val vpnSettings = VpnSettingsStore.load(this)
         currentMtu = vpnSettings.mtu
@@ -340,32 +399,48 @@ class MyVpnService : VpnService() {
         StatusBus.clearLog()
         StatusBus.initSteps(buildStepsFor(config))
         StatusBus.state.value = "Membuat antarmuka VPN (TUN)..."
-        StatusBus.start(StepId.TUN)
 
-        val builder = Builder()
-            .setSession("TunnelApp")
-            .addAddress(TUN_ADDRESS, 32)
-            .addRoute("0.0.0.0", 0)
-            .setMtu(currentMtu)
-        applyDnsServers(builder, config, vpnSettings)
+        // FIX (race di atas): kalau masih ada shutdownJob dari stopVpn()
+        // sebelumnya yang belum kelar, tunggu dulu (maks TEARDOWN_STEP_TIMEOUT_MS)
+        // di coroutine -- BUKAN blocking main thread -- sebelum bikin TUN
+        // interface baru & connect. Kalau memang tidak ada shutdown yang
+        // sedang berjalan, pendingShutdown null/sudah selesai dan bagian ini
+        // langsung lanjut tanpa delay sama sekali.
+        val pendingShutdown = shutdownJob
+        serviceScope.launch {
+            if (pendingShutdown != null && pendingShutdown.isActive) {
+                StatusBus.log("Menunggu proses disconnect sebelumnya selesai...")
+                withTimeoutOrNull(TEARDOWN_STEP_TIMEOUT_MS) { pendingShutdown.join() }
+            }
 
-        vpnInterface = try {
-            builder.establish()
-        } catch (e: Exception) {
-            Log.e(TAG, "Gagal membuat TUN interface", e)
-            StatusBus.fail(StepId.TUN, e.message ?: e.javaClass.simpleName)
-            StatusBus.skipRemainingPending()
-            StatusBus.state.value = "Gagal membuat TUN interface: ${e.message}"
-            stopSelf()
-            return
+            StatusBus.start(StepId.TUN)
+
+            val builder = Builder()
+                .setSession("TunnelApp")
+                .addAddress(TUN_ADDRESS, 32)
+                .addRoute("0.0.0.0", 0)
+                .setMtu(currentMtu)
+            applyDnsServers(builder, config, vpnSettings)
+
+            vpnInterface = try {
+                builder.establish()
+            } catch (e: Exception) {
+                Log.e(TAG, "Gagal membuat TUN interface", e)
+                StatusBus.fail(StepId.TUN, e.message ?: e.javaClass.simpleName)
+                StatusBus.skipRemainingPending()
+                StatusBus.state.value = "Gagal membuat TUN interface: ${e.message}"
+                startInProgress.set(false)
+                stopSelf()
+                return@launch
+            }
+            StatusBus.success(StepId.TUN)
+
+            Log.i(TAG, "TUN interface berhasil dibuat")
+            registerNetworkWatcher()
+            StatusBus.state.value = "Menghubungkan ke ${config.host}:${config.port}..."
+
+            establishTunnel(config, isReconnect = false)
         }
-        StatusBus.success(StepId.TUN)
-
-        Log.i(TAG, "TUN interface berhasil dibuat")
-        registerNetworkWatcher()
-        StatusBus.state.value = "Menghubungkan ke ${config.host}:${config.port}..."
-
-        establishTunnel(config, isReconnect = false)
     }
 
     /**
@@ -519,6 +594,7 @@ class MyVpnService : VpnService() {
                 // Reconnect (kalau ada) sukses -- reset hitungan percobaan &
                 // nyalakan ulang watchdog buat siklus berikutnya.
                 reconnectAttempt = 0
+                hardResetAttempted = false
                 handlingDeath.set(false)
                 startWatchdog(config)
                 startPingLoop(config)
@@ -531,6 +607,28 @@ class MyVpnService : VpnService() {
                 // Pakai pesan dari tahap yang benar-benar gagal (lebih akurat)
                 // kalau ada, baru fallback ke pesan exception generik.
                 val reason = StatusBus.firstErrorDetail() ?: e.message ?: e.javaClass.simpleName
+
+                // FIX BUG UTAMA ("bind failed: EADDRINUSE" di percobaan
+                // reconnect berikutnya): kalau attempt ini gagal di tahap
+                // SETELAH SSH+SOCKS5 sempat berhasil (mis. verifyTunnelReallyWorks()
+                // gagal, atau tun engine gagal start), sshTunnelManager/
+                // xrayTunnelManager masih memegang koneksi SSH + ServerSocket
+                // SOCKS5 yang SUDAH ke-bind ke config.socksPort dari attempt
+                // ini -- dan sebelumnya TIDAK PERNAH ditutup di sini sebelum
+                // scheduleReconnectOrGiveUp()/stopVpn() dipanggil. Akibatnya
+                // port itu bocor (masih dipegang instance lama di proses yang
+                // sama), dan attempt reconnect BERIKUTNYA gagal bind() ke port
+                // yang sama persis. disconnect() di sini aman dipanggil
+                // walau connect() gagal di awal sekali (sebelum SOCKS5 sempat
+                // dibuat) -- kedua manager sudah no-op kalau memang belum ada
+                // apa-apa yang aktif.
+                runBlockingWithTimeout("sshTunnelManager.disconnect() (cleanup gagal connect)") {
+                    sshTunnelManager.disconnect()
+                }
+                runBlockingWithTimeout("xrayTunnelManager.disconnect() (cleanup gagal connect)") {
+                    xrayTunnelManager.disconnect()
+                }
+
                 if (isReconnect) {
                     scheduleReconnectOrGiveUp("Reconnect gagal: $reason")
                 } else {
@@ -606,9 +704,13 @@ class MyVpnService : VpnService() {
 
         reconnectAttempt++
         if (reconnectAttempt > MAX_RECONNECT_ATTEMPTS) {
-            StatusBus.log("Tunnel terputus ($reason) -- reconnect otomatis gagal setelah $MAX_RECONNECT_ATTEMPTS percobaan")
-            StatusBus.state.value = "Gagal: tunnel terputus, reconnect otomatis gagal ($reason)"
-            stopVpn()
+            if (!hardResetAttempted) {
+                hardResetAndRetry(config, reason)
+            } else {
+                StatusBus.log("Tunnel terputus ($reason) -- reconnect otomatis gagal setelah $MAX_RECONNECT_ATTEMPTS percobaan + 1x reset penuh, menyerah")
+                StatusBus.state.value = "Gagal: tunnel terputus, reconnect otomatis gagal ($reason)"
+                stopVpn()
+            }
             return
         }
 
@@ -620,6 +722,87 @@ class MyVpnService : VpnService() {
         serviceScope.launch {
             delay(delayMs)
             if (stoppingIntentionally || vpnInterface == null) return@launch
+            handlingDeath.set(false)
+            establishTunnel(config, isReconnect = true)
+        }
+    }
+
+    /**
+     * Upaya TERAKHIR sebelum benar-benar menyerah (dipanggil PERSIS SEKALI per
+     * siklus gagal, dijaga [hardResetAttempted]): beda dari reconnect biasa
+     * di [handleTunnelDeath] yang SENGAJA membiarkan TUN interface tetap
+     * hidup, di sini SEMUANYA dibongkar total termasuk TUN interface itu
+     * sendiri, lalu dibuat ulang dari nol dan dicoba connect sekali lagi.
+     *
+     * PENTING (trade-off yang harus disadari): selama TUN interface mati di
+     * sini (dari titik ini sampai builder.establish() baru selesai lagi di
+     * bawah), trafik device TIDAK lewat tunnel sama sekali (balik ke jalur
+     * normal device, sebentar) -- beda dari reconnect biasa yang TUN-nya
+     * tidak pernah turun. Makanya ini SENGAJA tidak dijadikan perilaku
+     * default tiap reconnect, cuma dipakai sebagai jalan terakhir kalau
+     * reconnect ringan berkali-kali sudah gagal semua (kemungkinan ada
+     * state internal TUN/engine yang nyangkut & butuh benar-benar dari nol).
+     */
+    private fun hardResetAndRetry(config: ServerConfig, reason: String) {
+        Log.w(TAG, "Reconnect ringan gagal $MAX_RECONNECT_ATTEMPTS kali ($reason) -- melakukan reset penuh (termasuk TUN interface)")
+        StatusBus.log("Reconnect otomatis gagal $MAX_RECONNECT_ATTEMPTS kali ($reason) -- mencoba reset penuh (termasuk antarmuka VPN) sebagai upaya terakhir")
+        StatusBus.state.value = "Reset penuh tunnel, mencoba sekali lagi..."
+        updateNotification("Reset penuh, mencoba sekali lagi...")
+
+        hardResetAttempted = true
+        watchdogJob?.cancel()
+        watchdogJob = null
+        pingJob?.cancel()
+        pingJob = null
+        unregisterNetworkWatcher()
+
+        // Bongkar SEMUANYA, termasuk TUN interface -- beda dari
+        // handleTunnelDeath() yang sengaja membiarkan vpnInterface hidup.
+        val engine = tunEngine
+        val vpnIf = vpnInterface
+        tunEngine = null
+        vpnInterface = null
+        if (engine != null) {
+            runBlockingWithTimeout("tunEngine.stop() (hard reset)") { engine.stop() }
+        }
+        runBlockingWithTimeout("sshTunnelManager.disconnect() (hard reset)") { sshTunnelManager.disconnect() }
+        runBlockingWithTimeout("xrayTunnelManager.disconnect() (hard reset)") { xrayTunnelManager.disconnect() }
+        try {
+            vpnIf?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saat menutup TUN interface (hard reset)", e)
+        }
+
+        // Jeda sebentar (biar OS/network settle) sebelum bikin ulang TUN
+        // interface dari nol dan coba connect lagi seperti awal.
+        serviceScope.launch {
+            delay(2000L)
+            if (stoppingIntentionally) return@launch
+
+            StatusBus.log("Membuat ulang antarmuka VPN (TUN) dari nol...")
+            StatusBus.initSteps(buildStepsFor(config))
+            StatusBus.start(StepId.TUN)
+
+            val vpnSettings = VpnSettingsStore.load(this@MyVpnService)
+            val builder = Builder()
+                .setSession("TunnelApp")
+                .addAddress(TUN_ADDRESS, 32)
+                .addRoute("0.0.0.0", 0)
+                .setMtu(currentMtu)
+            applyDnsServers(builder, config, vpnSettings)
+
+            vpnInterface = try {
+                builder.establish()
+            } catch (e: Exception) {
+                Log.e(TAG, "Hard reset: gagal membuat ulang TUN interface", e)
+                StatusBus.fail(StepId.TUN, e.message ?: e.javaClass.simpleName)
+                StatusBus.skipRemainingPending()
+                StatusBus.state.value = "Gagal: reset penuh juga gagal membuat antarmuka VPN (${e.message})"
+                stopVpn()
+                return@launch
+            }
+            StatusBus.success(StepId.TUN)
+            registerNetworkWatcher()
             handlingDeath.set(false)
             establishTunnel(config, isReconnect = true)
         }
@@ -988,6 +1171,7 @@ class MyVpnService : VpnService() {
         // bukan cuma optimisasi, ini WAJIB supaya tunEngine/vpnInterface yang
         // sudah di-null-kan di bawah tidak "dibongkar dua kali".
         if (!stopping.compareAndSet(false, true)) return
+        startInProgress.set(false)
 
         // Tandai dulu SEBELUM membongkar apa pun -- sshTunnelManager.disconnect()
         // di bawah bakal manggil conn.close(), yang otomatis memicu
@@ -1036,7 +1220,7 @@ class MyVpnService : VpnService() {
         // baris-baris ini jalan langsung di badan stopVpn(), yang dipanggil
         // dari onStartCommand()/onDestroy() di MAIN THREAD -- itulah
         // sumber dialog "TunnelApp isn't responding".
-        shutdownScope.launch {
+        shutdownJob = shutdownScope.launch {
             // Urutan penting: matikan tun engine dulu (masih pakai fd TUN &
             // SOCKS5), baru SSH/Xray, baru TUN interface-nya sendiri.
             //

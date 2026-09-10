@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Root DrawerLayout -- header + tab "Main | Log" TETAP (fixed) di atas,
+<!-- Root DrawerLayout — header + tab "Main | Log" TETAP (fixed) di atas,
      kontennya sekarang ViewPager2 yang bisa DIGESER KE SAMPING antara
      halaman "Main" (fragment_dashboard_main.xml, dashboard yang sudah ada)
      dan "Log" (fragment_dashboard_log.xml, dipindahkan dari LogActivity ke
-     bagian kanan Dashboard) -- lihat DashboardPagerAdapter &
+     bagian kanan Dashboard) — lihat DashboardPagerAdapter &
      DashboardActivity.setupPager(). Bottom nav & sidebar (NavigationView)
      tetap dipertahankan sama seperti sebelumnya. -->
 <androidx.drawerlayout.widget.DrawerLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -12,7 +12,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-<!-- Konten utama Dashboard -- WAJIB match_parent/match_parent supaya
+<!-- Konten utama Dashboard — WAJIB match_parent/match_parent supaya
      DrawerLayout tahu ini layer konten utama, bukan si drawer. -->
 <LinearLayout
     android:layout_width="match_parent"
@@ -20,7 +20,7 @@
     android:orientation="vertical"
     android:background="@color/app_background">
 
-    <!-- Header: ikon hamburger (buka sidebar) + judul -- fixed, tidak ikut
+    <!-- Header: ikon hamburger (buka sidebar) + judul — fixed, tidak ikut
          digeser/discroll oleh ViewPager2 di bawahnya. -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -64,7 +64,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Tab "Main | Log" -- fixed juga, tapi TERHUBUNG ke ViewPager2 lewat
+    <!-- Tab "Main | Log" — fixed juga, tapi TERHUBUNG ke ViewPager2 lewat
          TabLayoutMediator (DashboardActivity.setupPager()) supaya: (1) tap
          tab pindah halaman, dan (2) geser halaman ikut menggerakkan
          indikator tab, persis seperti video referensi. -->
@@ -107,7 +107,7 @@
 
 <!-- Sidebar: nempel di kiri (start), lebar wrap_content dibatasi lewat
      android:layout_width standar Material (max 320dp otomatis oleh
-     NavigationView kalau match_parent -- di sini pakai wrap_content dengan
+     NavigationView kalau match_parent — di sini pakai wrap_content dengan
      minWidth lewat style bawaan komponennya). -->
 <com.google.android.material.navigation.NavigationView
     android:id="@+id/navDrawer"

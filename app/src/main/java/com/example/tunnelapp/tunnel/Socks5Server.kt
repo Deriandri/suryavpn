@@ -69,6 +69,16 @@ class Socks5Server(private val sshConnection: Connection) {
 
     fun start(port: Int) {
         val ss = ServerSocket()
+        // FIX (bug "bind failed: EADDRINUSE" saat reconnect): tanpa ini, OS
+        // bisa menahan port sebentar dalam state TIME_WAIT setelah socket
+        // sebelumnya ditutup, dan bind() baru langsung ditolak walau socket
+        // lamanya sudah benar-benar mati. reuseAddress = true mengizinkan
+        // bind ulang ke port yang masih dalam TIME_WAIT. Ini TIDAK menutupi
+        // bug utama (socket lama yang masih benar-benar hidup/belum
+        // di-close() -- itu dibereskan di MyVpnService, lihat catatan di
+        // establishTunnel()), tapi tetap perlu sebagai lapisan pertahanan
+        // kedua.
+        ss.reuseAddress = true
         ss.bind(InetSocketAddress("127.0.0.1", port))
         serverSocket = ss
         running = true
