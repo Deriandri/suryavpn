@@ -5,7 +5,7 @@ import android.view.View
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doOnTextChanged
 import com.example.tunnelapp.databinding.ActivityXrayConfigBinding
-import com.example.tunnelapp.model.ConfigStore
+import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
 import com.example.tunnelapp.tunnel.XrayLinkBuilder
 import com.example.tunnelapp.tunnel.XrayLinkParser
@@ -27,13 +27,23 @@ import com.example.tunnelapp.tunnel.XrayProtocol
  * lewat [XrayLinkBuilder] -- user tidak perlu menyusun ulang seluruh link secara
  * manual.
  *
- * Menyimpan modeIndex 5 supaya Dashboard tahu profil Xray ini yang aktif dipakai
- * kalau Connect ditekan -- field-field milik profil SSH TETAP dipertahankan
- * (tidak ditimpa) supaya kedua profil bisa disimpan berdampingan.
+ * FITUR MULTI-AKUN (permintaan user): sama seperti [SshConfigActivity], layar
+ * ini beroperasi lewat [ProfileStore] -- tanpa extra [EXTRA_PROFILE_ID] berarti
+ * menambah profil Xray baru (tidak menyentuh akun lain apa pun), dengan extra
+ * itu berarti mengedit profil Xray yang sudah ada (menimpa profil yang sama).
  */
 class XrayConfigActivity : AppCompatActivity() {
 
+    companion object {
+        /** Extra Intent opsional: id [com.example.tunnelapp.model.SavedProfile]
+         *  yang sedang di-edit. Kosong/tidak ada = mode tambah akun baru. */
+        const val EXTRA_PROFILE_ID = "profile_id"
+    }
+
     private lateinit var binding: ActivityXrayConfigBinding
+
+    /** null = mode tambah akun baru. Terisi = mode edit, menimpa profil ini. */
+    private var editingProfileId: String? = null
 
     /** Hasil urai terakhir, dipakai sebagai basis .copy() supaya field lanjutan
      *  yang tidak ada di form (headerType, seed, xhttpMode, dst) tidak hilang. */
@@ -48,9 +58,11 @@ class XrayConfigActivity : AppCompatActivity() {
         binding = ActivityXrayConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        editingProfileId = intent.getStringExtra(EXTRA_PROFILE_ID)
+
         binding.btnBack.setOnClickListener { finish() }
 
-        ConfigStore.load(this)?.let { saved ->
+        editingProfileId?.let { ProfileStore.get(this, it)?.config }?.let { saved ->
             binding.etXrayLink.setText(saved.xrayLink)
             // Kalau sudah ada akun tersimpan sebelumnya, langsung urai saat layar
             // dibuka juga -- tidak perlu tunggu tempel/ketik baru dulu.
@@ -256,26 +268,28 @@ class XrayConfigActivity : AppCompatActivity() {
             xrayLink = raw
         }
 
-        // Pertahankan profil SSH yang mungkin sudah tersimpan sebelumnya --
-        // menyimpan dari layar Xray ini TIDAK boleh menghapus konfigurasi SSH yang ada.
-        val previous = ConfigStore.load(this)
-
-        ConfigStore.save(
+        // FIX (multi-akun): dulu di sini ada logika "pertahankan field SSH
+        // profil lain sebelum menyimpan" karena SSH & Xray berbagi SATU slot
+        // penyimpanan. Sekarang profil Xray ini berdiri sendiri di
+        // [ProfileStore] -- tidak perlu lagi membaca/mempertahankan field
+        // profil lain sama sekali.
+        editingProfileId = ProfileStore.upsert(
             this,
+            editingProfileId,
             SavedConfig(
-                host = previous?.host.orEmpty(),
-                port = previous?.port ?: 22,
-                username = previous?.username.orEmpty(),
-                password = previous?.password.orEmpty(),
+                host = "",
+                port = 22,
+                username = "",
+                password = "",
                 modeIndex = 5,
-                sni = previous?.sni.orEmpty(),
-                payload = previous?.payload.orEmpty(),
-                proxyHost = previous?.proxyHost.orEmpty(),
-                proxyPort = previous?.proxyPort.orEmpty(),
-                tlsVersion = previous?.tlsVersion.orEmpty(),
-                useWebSocket = previous?.useWebSocket ?: false,
-                wsPath = previous?.wsPath.orEmpty(),
-                proxyRawMode = previous?.proxyRawMode ?: false,
+                sni = "",
+                payload = "",
+                proxyHost = "",
+                proxyPort = "",
+                tlsVersion = "",
+                useWebSocket = false,
+                wsPath = "",
+                proxyRawMode = false,
                 xrayLink = xrayLink
             )
         )

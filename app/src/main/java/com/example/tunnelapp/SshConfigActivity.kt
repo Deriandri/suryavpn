@@ -3,7 +3,7 @@ package com.example.tunnelapp
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.example.tunnelapp.databinding.ActivitySshConfigBinding
-import com.example.tunnelapp.model.ConfigStore
+import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
 
 /**
@@ -12,18 +12,36 @@ import com.example.tunnelapp.model.SavedConfig
  * Terpisah dari Xray ([XrayConfigActivity]) & dari Dashboard ([DashboardActivity])
  * yang sekarang jadi satu-satunya tempat tombol Connect/Disconnect berada.
  *
- * Menyimpan modeIndex 0/1/2/3 ke [ConfigStore] supaya Dashboard tahu profil SSH ini
- * yang aktif dipakai kalau Connect ditekan -- xrayLink milik profil Xray TETAP
- * dipertahankan (tidak ditimpa) supaya kedua profil bisa disimpan berdampingan.
+ * FITUR MULTI-AKUN (permintaan user): layar ini sekarang beroperasi lewat
+ * [ProfileStore], bukan lagi [com.example.tunnelapp.model.ConfigStore] single-
+ * slot. Dua mode:
+ *   - TAMBAH akun baru: dibuka tanpa extra [EXTRA_PROFILE_ID] (mis. dari
+ *     shortcut "Konfigurasi SSH" di kartu "Konfigurasi Server") -- form
+ *     kosong, Simpan akan membuat profil SSH baru berdiri sendiri, TIDAK
+ *     menyentuh akun SSH/Xray lain yang sudah ada.
+ *   - EDIT akun yang sudah ada: dibuka DENGAN extra [EXTRA_PROFILE_ID] (dari
+ *     tombol Edit di kartu "Akun Tersimpan") -- form diisi dari profil itu,
+ *     Simpan menimpa profil yang SAMA (id tidak berubah), bukan membuat baru.
  */
 class SshConfigActivity : AppCompatActivity() {
 
+    companion object {
+        /** Extra Intent opsional: id [com.example.tunnelapp.model.SavedProfile]
+         *  yang sedang di-edit. Kosong/tidak ada = mode tambah akun baru. */
+        const val EXTRA_PROFILE_ID = "profile_id"
+    }
+
     private lateinit var binding: ActivitySshConfigBinding
+
+    /** null = mode tambah akun baru. Terisi = mode edit, menimpa profil ini. */
+    private var editingProfileId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySshConfigBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        editingProfileId = intent.getStringExtra(EXTRA_PROFILE_ID)
 
         binding.btnBack.setOnClickListener { finish() }
 
@@ -81,7 +99,8 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     private fun restoreSavedConfig() {
-        val saved: SavedConfig = ConfigStore.load(this) ?: run {
+        val id = editingProfileId
+        val saved: SavedConfig = (if (id != null) ProfileStore.get(this, id)?.config else null) ?: run {
             binding.etPort.setText("22")
             return
         }
@@ -302,12 +321,15 @@ class SshConfigActivity : AppCompatActivity() {
         val tlsVersion = if (usesTls) selectedTlsVersion() else null
         val ignoreCertErrors = usesTls && binding.chipIgnoreCertErrors.isChecked
 
-        // Pertahankan profil Xray yang mungkin sudah tersimpan sebelumnya --
-        // menyimpan dari layar SSH ini TIDAK boleh menghapus link Xray yang ada.
-        val previousXrayLink = ConfigStore.load(this)?.xrayLink.orEmpty()
-
-        ConfigStore.save(
+        // FIX (multi-akun): dulu di sini ada logika "pertahankan xrayLink
+        // profil lain sebelum menyimpan" karena SSH & Xray berbagi SATU slot
+        // penyimpanan. Sekarang tiap akun (SSH maupun Xray) adalah profil
+        // [ProfileStore] sendiri-sendiri -- menyimpan profil SSH ini TIDAK
+        // pernah menyentuh profil lain sama sekali, jadi tidak perlu lagi
+        // baca+pertahankan field profil lain di sini.
+        editingProfileId = ProfileStore.upsert(
             this,
+            editingProfileId,
             SavedConfig(
                 host = host,
                 port = port,
@@ -322,7 +344,7 @@ class SshConfigActivity : AppCompatActivity() {
                 useWebSocket = true,
                 wsPath = wsPath,
                 proxyRawMode = proxyRawMode,
-                xrayLink = previousXrayLink,
+                xrayLink = "",
                 customHeaders = customHeaders,
                 ignoreCertErrors = ignoreCertErrors,
                 dns1 = dns1,

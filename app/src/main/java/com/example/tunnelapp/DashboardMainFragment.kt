@@ -16,7 +16,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.tunnelapp.databinding.FragmentDashboardMainBinding
-import com.example.tunnelapp.model.ConfigStore
+import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.ConnectionMode
 import com.example.tunnelapp.tunnel.ConnectionStep
 import com.example.tunnelapp.tunnel.MyVpnService
@@ -262,7 +262,9 @@ class DashboardMainFragment : Fragment() {
     }
 
     private fun refreshActiveProfileSummary() {
-        val saved = ConfigStore.load(requireContext())
+        // FIX (multi-akun): sekarang baca akun AKTIF dari ProfileStore, bukan
+        // lagi satu-satunya konfigurasi tersimpan -- lihat ProfileStore.kt.
+        val saved = ProfileStore.getActive(requireContext())?.config
         if (saved == null) {
             binding.tvActiveProfile.text = "Profil aktif: belum ada konfigurasi"
             return
@@ -286,7 +288,7 @@ class DashboardMainFragment : Fragment() {
     }
 
     private fun onConnectClicked() {
-        val saved = ConfigStore.load(requireContext())
+        val saved = ProfileStore.getActive(requireContext())?.config
         if (saved == null) {
             StatusBus.state.value = "Belum ada konfigurasi, buka menu SSH atau Xray dulu"
             return
