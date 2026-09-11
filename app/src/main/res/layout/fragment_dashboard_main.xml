@@ -101,6 +101,45 @@
                 android:text="Profil aktif: belum ada konfigurasi"
                 android:textColor="@color/text_on_hero_secondary"
                 android:textSize="12.5sp" />
+
+            <!-- FITUR BARU (permintaan user): pemilih akun tersimpan langsung
+                 dari Dashboard — cuma tampil kalau ada LEBIH DARI SATU akun
+                 (lihat DashboardMainFragment.refreshAccountPickerVisibility),
+                 supaya tidak ramai tanpa guna kalau cuma ada satu/nol akun.
+                 Tap membuka BottomSheetDialog "Pilih Akun"
+                 (DashboardMainFragment.showAccountPicker). -->
+            <LinearLayout
+                android:id="@+id/rowSwitchAccount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:layout_gravity="center_horizontal"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_pill_ghost_on_hero"
+                android:paddingStart="14dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Ganti Akun"
+                    android:textColor="@color/text_on_hero"
+                    android:textStyle="bold"
+                    android:textSize="12sp" />
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_marginStart="2dp"
+                    android:src="@drawable/ic_chevron_right"
+                    android:contentDescription="@null" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- Card: Kontrol Koneksi (Connect & Disconnect satu tempat) -->

@@ -69,6 +69,32 @@
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
 
+                <!-- FITUR BARU (permintaan user): nama akun custom, murni buat
+                     tampilan (daftar "Akun Tersimpan" & pemilih akun di
+                     Dashboard) — BEDA dari "Remark" di bawah (bagian dari
+                     link Xray itu sendiri, ikut tersimpan/terkirim di link
+                     share). Kosong = tetap tampil pakai remark/address:port
+                     seperti sebelumnya. -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilAccountName"
+                    style="@style/Field.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="0dp"
+                    android:layout_marginBottom="10dp"
+                    android:hint="Nama Akun (opsional)">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etAccountName"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textCapWords"
+                        android:maxLines="1"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:autofillHints="" />
+                </com.google.android.material.textfield.TextInputLayout>
+
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/tilXrayLink"
                     style="@style/Field.Outlined"

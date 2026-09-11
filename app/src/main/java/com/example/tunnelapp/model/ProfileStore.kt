@@ -186,6 +186,7 @@ object ProfileStore {
         editor.putBoolean(k(id, "ignoreCertErrors"), c.ignoreCertErrors)
         editor.putString(k(id, "dns1"), c.dns1)
         editor.putString(k(id, "dns2"), c.dns2)
+        editor.putString(k(id, "accountName"), c.accountName)
     }
 
     private fun readConfig(prefs: android.content.SharedPreferences, id: String): SavedConfig? {
@@ -208,7 +209,8 @@ object ProfileStore {
             customHeaders = prefs.getString(k(id, "customHeaders"), "").orEmpty(),
             ignoreCertErrors = prefs.getBoolean(k(id, "ignoreCertErrors"), false),
             dns1 = prefs.getString(k(id, "dns1"), "").orEmpty(),
-            dns2 = prefs.getString(k(id, "dns2"), "").orEmpty()
+            dns2 = prefs.getString(k(id, "dns2"), "").orEmpty(),
+            accountName = prefs.getString(k(id, "accountName"), "").orEmpty()
         )
     }
 
@@ -216,7 +218,8 @@ object ProfileStore {
         for (field in listOf(
             "host", "port", "username", "password", "modeIndex", "sni", "payload",
             "proxyHost", "proxyPort", "tlsVersion", "useWebSocket", "wsPath",
-            "proxyRawMode", "xrayLink", "customHeaders", "ignoreCertErrors", "dns1", "dns2"
+            "proxyRawMode", "xrayLink", "customHeaders", "ignoreCertErrors", "dns1", "dns2",
+            "accountName"
         )) {
             editor.remove(k(id, field))
         }

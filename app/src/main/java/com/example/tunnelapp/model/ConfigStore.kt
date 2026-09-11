@@ -45,7 +45,13 @@ data class SavedConfig(
     // DNS custom untuk TUN interface. Kosong = pakai default "1.1.1.1" di MyVpnService.
     // Lihat ServerConfig.dns1/dns2.
     val dns1: String = "",
-    val dns2: String = ""
+    val dns2: String = "",
+    // FITUR BARU (permintaan user): nama akun custom, murni tampilan (daftar
+    // "Akun Tersimpan" di ConfigActivity & pemilih akun di Dashboard) --
+    // TIDAK memengaruhi logika koneksi sama sekali. Kosong = fallback ke
+    // host:port (SSH) atau remark/address:port (Xray), sama seperti perilaku
+    // sebelum fitur ini ada.
+    val accountName: String = ""
 )
 
 object ConfigStore {
@@ -68,6 +74,7 @@ object ConfigStore {
     private const val KEY_IGNORE_CERT_ERRORS = "ignore_cert_errors"
     private const val KEY_DNS1 = "dns1"
     private const val KEY_DNS2 = "dns2"
+    private const val KEY_ACCOUNT_NAME = "account_name"
 
     fun save(context: Context, config: SavedConfig) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -90,6 +97,7 @@ object ConfigStore {
             .putBoolean(KEY_IGNORE_CERT_ERRORS, config.ignoreCertErrors)
             .putString(KEY_DNS1, config.dns1)
             .putString(KEY_DNS2, config.dns2)
+            .putString(KEY_ACCOUNT_NAME, config.accountName)
             .apply()
     }
 
@@ -114,7 +122,8 @@ object ConfigStore {
             customHeaders = prefs.getString(KEY_CUSTOM_HEADERS, "").orEmpty(),
             ignoreCertErrors = prefs.getBoolean(KEY_IGNORE_CERT_ERRORS, false),
             dns1 = prefs.getString(KEY_DNS1, "").orEmpty(),
-            dns2 = prefs.getString(KEY_DNS2, "").orEmpty()
+            dns2 = prefs.getString(KEY_DNS2, "").orEmpty(),
+            accountName = prefs.getString(KEY_ACCOUNT_NAME, "").orEmpty()
         )
     }
 

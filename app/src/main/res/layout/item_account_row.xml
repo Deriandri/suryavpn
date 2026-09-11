@@ -63,7 +63,40 @@
                 android:textSize="14sp"
                 android:maxLines="1"
                 android:ellipsize="end" />
+
+            <!-- FITUR BARU (permintaan user, nama akun): cuma ditampilkan
+                 kalau akun ini punya nama custom — di keadaan itu
+                 tvRowTitle di atas menampilkan NAMA-nya, dan baris ini
+                 menampilkan host:port sebagai keterangan tambahan.
+                 Kalau tidak ada nama custom, baris ini tetap disembunyikan
+                 (tvRowTitle sendiri sudah cukup, persis perilaku lama). -->
+            <TextView
+                android:id="@+id/tvRowSubtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:text="host:port"
+                android:textColor="@color/text_secondary"
+                android:textSize="11.5sp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:visibility="gone" />
         </LinearLayout>
+
+        <!-- FITUR BARU (permintaan user): Bagikan akun ini sebagai kode
+             teks singkat (lihat ConfigActivity.onShareRowClicked &
+             model/ConfigIO.buildShareCode). Ditaruh SEBELUM Edit/Hapus
+             (urutan tindakan makin "berat" dari kiri ke kanan). -->
+        <ImageView
+            android:id="@+id/btnRowShare"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="8dp"
+            android:src="@drawable/ic_share"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="Bagikan" />
 
         <ImageView
             android:id="@+id/btnRowEdit"

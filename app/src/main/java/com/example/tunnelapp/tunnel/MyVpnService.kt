@@ -112,7 +112,38 @@ class MyVpnService : VpnService() {
         // sebenarnya baik-baik saja. Sekarang interval diperjarang & threshold
         // dinaikkan supaya butuh kegagalan yang jauh lebih konsisten (bukan
         // cuma jitter sesaat) sebelum benar-benar dianggap putus.
-        private const val WATCHDOG_INTERVAL_MS = 20_000L
+        // FIX (laporan user: "reconnect sendiri tiap beberapa menit walau
+        // Auto Ping sudah dimatikan"): akar masalahnya BUKAN cuma Auto Ping --
+        // watchdog INI SENDIRI (selalu jalan, tidak ada saklarnya) yang tiap
+        // siklus buka channel SSH baru (keepAliveThroughTunnel/
+        // verifyTunnelReallyWorks) buat probe reachability. Server "bug host"
+        // yang ketat bisa menganggap pola buka-tutup channel identik tiap
+        // 20 detik nonstop sebagai penyalahgunaan lalu memutus sesi -- watchdog
+        // yang seharusnya MENJAGA tunnel malah jadi PENYEBAB tunnel putus.
+        //
+        // Fix-nya: pisahkan dua hal yang sebelumnya digabung dalam satu
+        // interval yang sama:
+        //  1. Cek LOKAL (isSocksPortAlive) -- 100% di dalam device, TIDAK
+        //     pernah menyentuh tunnel/channel SSH sama sekali. Ini boleh
+        //     sesering apa pun karena tidak menghasilkan trafik/channel ke
+        //     server sama sekali. Tetap tiap WATCHDOG_LOCAL_CHECK_INTERVAL_MS.
+        //  2. Probe JARAK JAUH lewat tunnel (yang BENERAN buka channel SSH
+        //     baru) -- ini yang harus DIJARANGKAN drastis, bukan dihilangkan
+        //     total (tetap perlu buat menangkap kasus "tersambung tapi akun
+        //     invalid/mati diam-diam"). Sekarang cuma dilakukan sekali per
+        //     WATCHDOG_REMOTE_PROBE_INTERVAL_MS (+ jitter lebar & acak, BUKAN
+        //     kelipatan genap dari interval lokal) -- dari tadinya ~180x per
+        //     jam (tiap 20s) jadi ~6-8x per jam. Ini jauh lebih mirip pola
+        //     "keep-alive sewajarnya", bukan health-check bot yang textbook.
+        private const val WATCHDOG_LOCAL_CHECK_INTERVAL_MS = 15_000L
+        // Dinaikkan 2x lipat dari versi sebelumnya (8 menit -> 16 menit) atas
+        // permintaan user, buat cari titik paling jarang yang masih aman --
+        // makin jarang channel SSH probe dibuka, makin kecil kemungkinan
+        // server menganggapnya pola mencurigakan. Trade-off: deteksi "akun
+        // invalid/tunnel mati" jadi lebih lambat (lihat WATCHDOG_REACHABILITY_
+        // FAIL_THRESHOLD di bawah, worst-case sekarang ~32-38 menit).
+        private const val WATCHDOG_REMOTE_PROBE_INTERVAL_MS = 16 * 60_000L // ~16 menit
+        private const val WATCHDOG_REMOTE_PROBE_JITTER_MS = 90_000L // +0..90s acak, biar tidak jadi kelipatan genap
         private const val WATCHDOG_PROBE_TIMEOUT_MS = 5000
         // --- FIX "status tetap Terhubung walau data/WiFi device dimatikan" ---
         // isSocksPortAlive() SAJA TIDAK CUKUP (lihat catatan panjang di
@@ -122,11 +153,25 @@ class MyVpnService : VpnService() {
         // (keepAliveThroughTunnel) -- baru dianggap "tunnel mati" kalau probe
         // itu gagal berturut-turut sebanyak ini (bukan cuma sekali, supaya
         // satu paket yang kebetulan telat/drop tidak langsung memicu reconnect).
-        // Dinaikkan dari 2 -> 4 (lihat catatan WATCHDOG_INTERVAL_MS di atas):
-        // dengan interval 20s, 4x gagal berturut-turut = ~80s kondisi benar-
-        // benar tidak ada trafik balik lewat tunnel, jauh lebih jarang salah
-        // tangkap jitter/lag sesaat sebagai "tunnel mati".
-        private const val WATCHDOG_REACHABILITY_FAIL_THRESHOLD = 4
+        // CATATAN: probe jarak jauh sekarang jalan tiap ~16 menit (lihat
+        // WATCHDOG_REMOTE_PROBE_INTERVAL_MS), threshold tetap 2x gagal
+        // berturut-turut -- waktu deteksi "akun invalid/tunnel benar-benar
+        // mati" jadi ~32-38 menit terburuk (naik 2x dari versi sebelumnya,
+        // konsekuensi wajar dari interval yang juga dinaikkan 2x).
+        private const val WATCHDOG_REACHABILITY_FAIL_THRESHOLD = 2
+
+        // FIX (laporan user, lihat catatan panjang di verifyTunnelReallyWorks):
+        // jeda antar percobaan ulang di dalam SATU pemeriksaan verifikasi --
+        // BEDA dari jeda antar probe jarak jauh (WATCHDOG_REMOTE_PROBE_INTERVAL_MS).
+        private const val VERIFY_RETRY_DELAY_MS = 1500L
+
+        // FIX (sama seperti di atas): dari setiap N probe jarak jauh, cuma 1
+        // yang pakai cek "berat" (HTTP asli, verifyTunnelReallyWorks) --
+        // sisanya pakai cek ringan (keepAliveThroughTunnel, TCP-only). Dengan
+        // probe jarak jauh yang sudah jarang (~8 menit), N=3 di sini berarti
+        // heavy check HTTP asli cuma ~2-3x per jam -- jauh lebih jarang dari
+        // versi lama yang bisa sampai puluhan kali per jam.
+        private const val HEAVY_CHECK_EVERY_N_CYCLES = 3
 
         // --- "Auto Ping" (Pengaturan Dasar, terpisah dari VPN Setting) ---
         private const val PING_TIMEOUT_MS = 5000
@@ -1168,13 +1213,40 @@ class MyVpnService : VpnService() {
         watchdogJob?.cancel()
         watchdogJob = serviceScope.launch {
             var consecutiveReachabilityFailures = 0
+            var cycleCount = 0
+            // FIX (laporan user: "reconnect sendiri tiap beberapa menit
+            // walau Auto Ping sudah dimatikan"): sebelumnya SETIAP siklus
+            // watchdog (tiap ~20s) buka channel SSH baru lewat tunnel buat
+            // probe reachability -- ternyata watchdog INI SENDIRI (bukan
+            // cuma Auto Ping) sudah cukup menghasilkan pola buka-tutup
+            // channel identik berulang yang dicurigai server "bug host"
+            // ketat sebagai penyalahgunaan, lalu sesi diputus/throttle --
+            // gejalanya persis "reconnect sendiri tiap beberapa menit".
+            //
+            // Sekarang dipisah jadi dua siklus dengan interval BEDA JAUH:
+            //  - Cek lokal (isSocksPortAlive) tiap WATCHDOG_LOCAL_CHECK_INTERVAL_MS
+            //    -- ini TIDAK membuka channel SSH sama sekali (murni cek
+            //    port di 127.0.0.1 di dalam device sendiri), jadi boleh
+            //    sesering apa pun tanpa menambah "sidik jari" trafik ke server.
+            //  - Probe jarak jauh (yang BENERAN buka channel SSH) cuma
+            //    dilakukan sekali setiap WATCHDOG_REMOTE_PROBE_INTERVAL_MS
+            //    (+ jitter lebar acak) -- dari ~180x/jam jadi ~6-8x/jam.
+            var nextRemoteProbeAtMs = System.currentTimeMillis() +
+                WATCHDOG_REMOTE_PROBE_INTERVAL_MS +
+                java.util.concurrent.ThreadLocalRandom.current().nextLong(0, WATCHDOG_REMOTE_PROBE_JITTER_MS + 1)
+
             while (isActive) {
-                delay(WATCHDOG_INTERVAL_MS)
+                // Jitter kecil di cek lokal juga -- murah, tapi tetap dibuat
+                // tidak identik persis biar tidak ada dua timer yang selalu
+                // rebound bareng.
+                val localJitterMs = java.util.concurrent.ThreadLocalRandom.current().nextLong(0, 3001)
+                delay(WATCHDOG_LOCAL_CHECK_INTERVAL_MS + localJitterMs)
                 if (stoppingIntentionally) break
 
-                // 1) Cek port lokal dulu (murah) -- kalau ini saja sudah mati,
-                //    Xray-core/SSH proxy-nya sendiri yang crash, tidak perlu
-                //    tunggu probe reachability segala.
+                // 1) Cek port lokal dulu (murah, TIDAK menyentuh channel SSH
+                //    sama sekali) -- kalau ini saja sudah mati, Xray-core/SSH
+                //    proxy-nya sendiri yang crash, tidak perlu tunggu probe
+                //    reachability segala.
                 if (!isSocksPortAlive(config.socksPort)) {
                     Log.w(TAG, "Watchdog: SOCKS5 lokal (127.0.0.1:${config.socksPort}) tidak merespons")
                     handleTunnelDeath("SOCKS5 lokal tidak merespons")
@@ -1182,17 +1254,23 @@ class MyVpnService : VpnService() {
                 }
 
                 // 2) Port lokal hidup TIDAK BERARTI tunnel benar-benar tembus
-                //    ke internet DENGAN AKUN YANG MASIH VALID -- itu murni
-                //    socket di dalam device sendiri. Pakai
-                //    verifyTunnelReallyWorks() (BENERAN kirim & tunggu balasan
-                //    HTTP lewat tunnel, lihat catatan panjang di definisinya)
-                //    supaya DUA kasus ini kepakai: (a) data/WiFi device
-                //    dimatikan tapi Xray-core lokal tetap nyala, DAN (b) akun/
-                //    kredensial server tiba-tiba invalid/dicabut di tengah
-                //    sesi (server proxy remote-nya sendiri masih hidup, jadi
-                //    TCP tetap connect, tapi tidak ada trafik nyata yang balik).
+                //    ke internet DENGAN AKUN YANG MASIH VALID -- tapi probe
+                //    ini BENERAN buka channel SSH baru, jadi HANYA dilakukan
+                //    kalau sudah waktunya (lihat nextRemoteProbeAtMs di atas),
+                //    bukan setiap siklus lokal.
+                if (System.currentTimeMillis() < nextRemoteProbeAtMs) continue
+                nextRemoteProbeAtMs = System.currentTimeMillis() +
+                    WATCHDOG_REMOTE_PROBE_INTERVAL_MS +
+                    java.util.concurrent.ThreadLocalRandom.current().nextLong(0, WATCHDOG_REMOTE_PROBE_JITTER_MS + 1)
+
                 if (stoppingIntentionally) break
-                val reachable = verifyTunnelReallyWorks(config.socksPort)
+                cycleCount++
+                val useHeavyCheck = cycleCount % HEAVY_CHECK_EVERY_N_CYCLES == 0
+                val reachable = if (useHeavyCheck) {
+                    verifyTunnelReallyWorks(config.socksPort)
+                } else {
+                    keepAliveThroughTunnel(config.socksPort, "connectivitycheck.gstatic.com", 80) != null
+                }
 
                 if (reachable) {
                     consecutiveReachabilityFailures = 0
@@ -1380,8 +1458,31 @@ class MyVpnService : VpnService() {
      * benar-benar diterima lewat tunnel; false untuk semua kegagalan lain
      * (tidak ada jaringan, TCP gagal connect, SOCKS5 ditolak, timeout
      * menunggu balasan HTTP -- termasuk kasus akun invalid di atas).
+     *
+     * FIX (laporan user: "reconnect sendiri tiap beberapa menit padahal
+     * sinyal lancar, DarkTunnel dengan akun sama stabil"): dulu fungsi ini
+     * SATU KALI percobaan -- satu request yang kebetulan telat/drop
+     * (jitter jaringan seluler biasa, ATAU server tunnel yang dipakai
+     * sedang sedikit sibuk) langsung dianggap "tunnel mati", padahal
+     * detik berikutnya sebenarnya sudah normal lagi. Sekarang retry
+     * [attempts] kali dengan jeda [VERIFY_RETRY_DELAY_MS] SEBELUM
+     * benar-benar menyerah -- baru gagal kalau SEMUA percobaan gagal
+     * berturut-turut, jauh lebih toleran terhadap satu blip sesaat.
      */
-    private fun verifyTunnelReallyWorks(socksPort: Int): Boolean = try {
+    private fun verifyTunnelReallyWorks(socksPort: Int, attempts: Int = 2): Boolean {
+        repeat(attempts) { attemptIndex ->
+            if (verifyTunnelReallyWorksOnce(socksPort)) return true
+            if (attemptIndex < attempts - 1) {
+                try {
+                    Thread.sleep(VERIFY_RETRY_DELAY_MS)
+                } catch (_: InterruptedException) {
+                }
+            }
+        }
+        return false
+    }
+
+    private fun verifyTunnelReallyWorksOnce(socksPort: Int): Boolean = try {
         Socket().use { socket ->
             socket.connect(InetSocketAddress("127.0.0.1", socksPort), KEEP_ALIVE_TIMEOUT_MS)
             socket.soTimeout = KEEP_ALIVE_TIMEOUT_MS

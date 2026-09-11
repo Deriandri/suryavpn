@@ -63,6 +63,7 @@ class XrayConfigActivity : AppCompatActivity() {
         binding.btnBack.setOnClickListener { finish() }
 
         editingProfileId?.let { ProfileStore.get(this, it)?.config }?.let { saved ->
+            binding.etAccountName.setText(saved.accountName)
             binding.etXrayLink.setText(saved.xrayLink)
             // Kalau sudah ada akun tersimpan sebelumnya, langsung urai saat layar
             // dibuka juga -- tidak perlu tunggu tempel/ketik baru dulu.
@@ -242,6 +243,7 @@ class XrayConfigActivity : AppCompatActivity() {
     }
 
     private fun onSaveClicked() {
+        val accountName = binding.etAccountName.text.toString().trim()
         val xrayLink: String
 
         if (binding.cardXrayDetails.visibility == View.VISIBLE && lastParsedConfig != null) {
@@ -290,7 +292,8 @@ class XrayConfigActivity : AppCompatActivity() {
                 useWebSocket = false,
                 wsPath = "",
                 proxyRawMode = false,
-                xrayLink = xrayLink
+                xrayLink = xrayLink,
+                accountName = accountName
             )
         )
 

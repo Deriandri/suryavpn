@@ -95,6 +95,7 @@ class DashboardMainFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         binding.btnConnectToggle.setOnClickListener { onConnectToggleClicked() }
+        binding.rowSwitchAccount.setOnClickListener { showAccountPicker() }
 
         // Kartu "Menu" (Konfigurasi SSH/Xray & Log Koneksi) sudah dihapus
         // seluruhnya dari halaman ini -- akses Konfigurasi lewat tab
@@ -274,22 +275,94 @@ class DashboardMainFragment : Fragment() {
             binding.tvActiveProfile.text = "Profil aktif: belum ada konfigurasi"
             return
         }
-        if (saved.modeIndex == 5) {
-            val parsed = runCatching { XrayLinkParser.parse(saved.xrayLink) }.getOrNull()
-            if (parsed != null) {
-                binding.tvActiveProfile.text = "Profil aktif: Xray — ${parsed.address}:${parsed.port}"
-            } else {
-                binding.tvActiveProfile.text = "Profil aktif: Xray — link belum valid"
-            }
-        } else {
-            val modeName = when (saved.modeIndex) {
-                1 -> "SSH SSL"
-                2 -> "SSH TLS Payload Proxy"
-                3 -> "Payload + Remote Proxy"
-                else -> "SSH"
-            }
-            binding.tvActiveProfile.text = "Profil aktif: $modeName — ${saved.host}:${saved.port}"
+        // FITUR BARU (nama akun custom): kalau accountName diisi, tampilkan
+        // itu sebagai identitas utama profil aktif -- lebih personal & mudah
+        // dikenali dibanding host:port mentah, terutama kalau user punya
+        // banyak akun. Kosong = fallback persis seperti sebelumnya.
+        val label = accountLabel(saved)
+        binding.tvActiveProfile.text = "Profil aktif: $label"
+        refreshAccountPickerVisibility()
+    }
+
+    /** Label ringkas satu akun buat ditampilkan di UI (ringkasan Dashboard
+     *  maupun daftar pemilih akun) -- nama custom kalau ada, kalau tidak
+     *  fallback ke tipe + host:port (SSH) atau tipe + address:port (Xray). */
+    private fun accountLabel(config: com.example.tunnelapp.model.SavedConfig): String {
+        if (config.accountName.isNotBlank()) return config.accountName
+        if (config.modeIndex == 5) {
+            val parsed = runCatching { XrayLinkParser.parse(config.xrayLink) }.getOrNull()
+            return if (parsed != null) "Xray — ${parsed.address}:${parsed.port}" else "Xray — link belum valid"
         }
+        val modeName = when (config.modeIndex) {
+            1 -> "SSH SSL"
+            2 -> "SSH TLS Payload Proxy"
+            3 -> "Payload + Remote Proxy"
+            else -> "SSH"
+        }
+        return "$modeName — ${config.host}:${config.port}"
+    }
+
+    /** Baris "Ganti Akun" cuma masuk akal & ditampilkan kalau ada LEBIH DARI
+     *  SATU akun tersimpan -- kalau cuma satu (atau nol), tidak ada apa pun
+     *  buat dipilih, jadi disembunyikan supaya tidak bikin UI ramai tanpa guna. */
+    private fun refreshAccountPickerVisibility() {
+        val count = ProfileStore.getAll(requireContext()).size
+        binding.rowSwitchAccount.visibility = if (count > 1) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * FITUR BARU (permintaan user): pemilih akun tersimpan langsung dari
+     * Dashboard, tanpa perlu pindah ke tab "Konfigurasi" dulu -- pakai
+     * BottomSheetDialog (Material) supaya transisinya smooth/modern,
+     * konsisten dengan gaya visual (kartu rounded, warna brand) di seluruh
+     * app. Cuma MENGUBAH POINTER akun aktif ([ProfileStore.setActiveId]) --
+     * TIDAK memutus/menyambungkan ulang tunnel yang sedang berjalan (sama
+     * seperti tombol "Jadikan Aktif" di ConfigActivity), supaya perilakunya
+     * konsisten & tidak mengejutkan user yang sedang connect.
+     */
+    private fun showAccountPicker() {
+        val ctx = requireContext()
+        val profiles = ProfileStore.getAll(ctx)
+        if (profiles.isEmpty()) return
+        val activeId = ProfileStore.getActiveId(ctx)
+
+        val dialog = com.google.android.material.bottomsheet.BottomSheetDialog(ctx)
+        val sheetView = layoutInflater.inflate(R.layout.dialog_account_picker, null)
+        dialog.setContentView(sheetView)
+
+        val container = sheetView.findViewById<android.widget.LinearLayout>(R.id.llPickerAccounts)
+        val inflater = LayoutInflater.from(ctx)
+        profiles.forEachIndexed { index, profile ->
+            val itemView = inflater.inflate(R.layout.item_account_picker_row, container, false)
+            val ivIcon = itemView.findViewById<android.widget.ImageView>(R.id.ivPickerIcon)
+            val ivIconBg = itemView.findViewById<View>(R.id.ivPickerIconBg)
+            val tvName = itemView.findViewById<TextView>(R.id.tvPickerName)
+            val tvBadge = itemView.findViewById<TextView>(R.id.tvPickerBadge)
+            val ivCheck = itemView.findViewById<android.widget.ImageView>(R.id.ivPickerCheck)
+            val divider = itemView.findViewById<View>(R.id.dividerPickerRow)
+
+            val config = profile.config
+            val isXray = config.modeIndex == 5
+            ivIconBg.setBackgroundResource(if (isXray) R.drawable.bg_avatar_xray else R.drawable.bg_avatar_ssh)
+            ivIcon.setImageResource(if (isXray) R.drawable.ic_account_xray else R.drawable.ic_account_ssh)
+            tvBadge.text = if (isXray) "XRAY" else "SSH"
+            tvName.text = accountLabel(config)
+
+            val isActive = profile.id == activeId
+            ivCheck.visibility = if (isActive) View.VISIBLE else View.INVISIBLE
+            if (index == profiles.lastIndex) divider.visibility = View.GONE
+
+            itemView.setOnClickListener {
+                if (!isActive) {
+                    ProfileStore.setActiveId(ctx, profile.id)
+                    refreshActiveProfileSummary()
+                }
+                dialog.dismiss()
+            }
+            container.addView(itemView)
+        }
+
+        dialog.show()
     }
 
     private fun onConnectClicked() {

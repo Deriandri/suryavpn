@@ -61,6 +61,29 @@
                     android:layout_height="wrap_content"
                     android:text="Konfigurasi Server" />
 
+                <!-- FITUR BARU (permintaan user): nama akun custom, murni buat
+                     tampilan (daftar "Akun Tersimpan" & pemilih akun di
+                     Dashboard) — tidak memengaruhi koneksi sama sekali.
+                     Kosong = tetap tampil sebagai host:port seperti sebelumnya. -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilAccountName"
+                    style="@style/Field.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="0dp"
+                    android:hint="Nama Akun (opsional)">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etAccountName"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textCapWords"
+                        android:maxLines="1"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:autofillHints="" />
+                </com.google.android.material.textfield.TextInputLayout>
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

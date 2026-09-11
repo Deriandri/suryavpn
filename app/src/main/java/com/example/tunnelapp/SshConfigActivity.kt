@@ -104,6 +104,7 @@ class SshConfigActivity : AppCompatActivity() {
             binding.etPort.setText("22")
             return
         }
+        binding.etAccountName.setText(saved.accountName)
         binding.etHost.setText(saved.host)
         binding.etPort.setText(if (saved.port > 0) saved.port.toString() else "22")
         binding.etUsername.setText(saved.username)
@@ -269,6 +270,7 @@ class SshConfigActivity : AppCompatActivity() {
     private fun onSaveClicked() {
         val modeIndex = currentModeIndex()
 
+        val accountName = binding.etAccountName.text.toString().trim()
         val host = binding.etHost.text.toString().trim()
         val port = binding.etPort.text.toString().trim().toIntOrNull() ?: 22
         val username = binding.etUsername.text.toString().trim()
@@ -348,7 +350,8 @@ class SshConfigActivity : AppCompatActivity() {
                 customHeaders = customHeaders,
                 ignoreCertErrors = ignoreCertErrors,
                 dns1 = dns1,
-                dns2 = dns2
+                dns2 = dns2,
+                accountName = accountName
             )
         )
 
