@@ -728,23 +728,29 @@ class MyVpnService : VpnService() {
                 // pola reset yang sudah dipakai di tempat lain.
                 handlingDeath.set(true)
 
-                // FIX BUG UTAMA ("bind failed: EADDRINUSE" di percobaan
-                // reconnect berikutnya): kalau attempt ini gagal di tahap
-                // SETELAH SSH+SOCKS5 sempat berhasil (mis. verifyTunnelReallyWorks()
-                // gagal, atau tun engine gagal start), sshTunnelManager/
-                // xrayTunnelManager masih memegang koneksi SSH + ServerSocket
-                // SOCKS5 yang SUDAH ke-bind ke config.socksPort dari attempt
-                // ini -- dan sebelumnya TIDAK PERNAH ditutup di sini sebelum
-                // scheduleReconnectOrGiveUp()/stopVpn() dipanggil. Akibatnya
-                // port itu bocor (masih dipegang instance lama di proses yang
-                // sama), dan attempt reconnect BERIKUTNYA gagal bind() ke port
-                // yang sama persis. disconnect() di sini aman dipanggil
-                // walau connect() gagal di awal sekali (sebelum SOCKS5 sempat
-                // dibuat) -- kedua manager sudah no-op kalau memang belum ada
-                // apa-apa yang aktif.
+                // FIX ARSITEKTUR EADDRINUSE (dulu "FIX BUG UTAMA bind failed:
+                // EADDRINUSE di percobaan reconnect berikutnya" -- ditambal
+                // dengan disconnect() penuh di sini; sekarang ditutup di akar
+                // masalahnya lewat SshTunnelManager.disconnectForReconnect()):
+                // kalau attempt ini adalah RECONNECT yang gagal, SOCKS5 lokal
+                // SENGAJA dibiarkan hidup (port tidak dilepas) -- attempt
+                // berikutnya cuma perlu Connection SSH baru, tidak pernah
+                // bind() ulang port sama sekali, jadi race EADDRINUSE yang
+                // lama tidak mungkin terjadi lagi secara struktural. Kalau ini
+                // justru percobaan connect AWAL (bukan reconnect) yang gagal,
+                // belum ada sesi yang perlu dipertahankan -- aman dibongkar
+                // total lewat disconnect() biasa. xrayTunnelManager tetap
+                // pakai disconnect() penuh di kedua kasus (jalurnya beda,
+                // tidak punya local proxy persisten seperti SshTunnelManager).
                 stopHttpProxyServer()
-                runBlockingWithTimeout("sshTunnelManager.disconnect() (cleanup gagal connect)") {
-                    sshTunnelManager.disconnect()
+                if (isReconnect) {
+                    runBlockingWithTimeout("sshTunnelManager.disconnectForReconnect() (cleanup reconnect gagal)") {
+                        sshTunnelManager.disconnectForReconnect()
+                    }
+                } else {
+                    runBlockingWithTimeout("sshTunnelManager.disconnect() (cleanup gagal connect awal)") {
+                        sshTunnelManager.disconnect()
+                    }
                 }
                 runBlockingWithTimeout("xrayTunnelManager.disconnect() (cleanup gagal connect)") {
                     xrayTunnelManager.disconnect()
@@ -812,7 +818,13 @@ class MyVpnService : VpnService() {
         if (engine != null) {
             runBlockingWithTimeout("tunEngine.stop()") { engine.stop() }
         }
-        runBlockingWithTimeout("sshTunnelManager.disconnect()") { sshTunnelManager.disconnect() }
+        // FIX ARSITEKTUR EADDRINUSE: pakai disconnectForReconnect() (bukan
+        // disconnect() penuh) -- SOCKS5 lokal SENGAJA dibiarkan hidup & tetap
+        // mendengarkan di port yang sama, cuma referensi Connection SSH yang
+        // matinya dilepas. Reconnect berikutnya (establishTunnel isReconnect
+        // = true) jadi tidak pernah perlu bind() ulang port sama sekali.
+        // Lihat catatan arsitektur lengkap di SshTunnelManager & Socks5Server.
+        runBlockingWithTimeout("sshTunnelManager.disconnectForReconnect()") { sshTunnelManager.disconnectForReconnect() }
         runBlockingWithTimeout("xrayTunnelManager.disconnect()") { xrayTunnelManager.disconnect() }
 
         scheduleReconnectOrGiveUp(reason)

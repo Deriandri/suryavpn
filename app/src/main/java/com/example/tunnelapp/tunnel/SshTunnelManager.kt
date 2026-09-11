@@ -29,6 +29,21 @@ import java.net.Socket
  * seperti HTTP Custom. Bagian "lem" di sekitarnya (relay + SOCKS5 server)
  * ditulis sendiri karena API pasangannya (jsocks) terlalu tidak terdokumentasi
  * untuk dipastikan benar tanpa risiko salah tebak.
+ *
+ * PERUBAHAN ARSITEKTUR (meniru DarkTunnel/HTTP Custom -- FIX bug "bind
+ * failed: EADDRINUSE" yang berulang tiap reconnect): [socks5Server] SEKARANG
+ * PERSISTEN untuk seluruh umur satu sesi VPN. Dulu instance Socks5Server
+ * baru dibuat & bind() ulang di SETIAP kali connect() dipanggil (termasuk
+ * tiap reconnect) -- itu membuka celah race di mana port lama belum
+ * benar-benar dilepas OS saat port baru dicoba di-bind lagi, apalagi kalau
+ * teardown sebelumnya (connection.close() ke jaringan yang sedang tidak
+ * stabil) lambat. Sekarang bind() ke config.socksPort cuma pernah terjadi
+ * SEKALI per sesi (connect() pertama); reconnect berikutnya cuma mengganti
+ * referensi Connection yang dipakai server itu lewat
+ * [Socks5Server.attachConnection]/[Socks5Server.detachConnection] -- port
+ * lokal tidak pernah disentuh lagi sampai sesi VPN benar-benar berakhir
+ * ([disconnect]) atau hard reset. Kelas bug EADDRINUSE saat reconnect jadi
+ * tidak mungkin terjadi lagi secara struktural.
  */
 class SshTunnelManager {
 
@@ -39,17 +54,23 @@ class SshTunnelManager {
 
     private var connection: Connection? = null
     private var connectRelay: ConnectRelay? = null
+
+    // Lihat catatan arsitektur di atas -- field ini SENGAJA bukan `val` yang
+    // dibuat di connect(): dipertahankan lintas reconnect() lewat instance
+    // yang sama, hanya benar-benar di-null-kan (port dilepas) di
+    // [disconnect] (stop total) atau saat gagal connect AWAL (belum pernah
+    // ada sesi yang perlu dipertahankan).
     private var socks5Server: Socks5Server? = null
 
-    // --- Defense-in-depth, konsisten dengan fix serupa di XrayTunnelManager ---
-    // trilead-ssh2 Connection.close() sendiri dirancang aman dipanggil
-    // berulang/dari thread lain, jadi risikonya jauh lebih rendah daripada
-    // invoke() native ke libXray -- tapi tetap dijaga di sini supaya
-    // disconnect() tidak pernah membongkar socks5Server/connectRelay dua kali
-    // secara bersamaan kalau handleTunnelDeath() (dipicu watchdog/jaringan
-    // mati) dan stopVpn() (disconnect manual) kebetulan datang nyaris
-    // bersamaan.
-    private val disconnecting = java.util.concurrent.atomic.AtomicBoolean(false)
+    // Semua operasi teardown (disconnectForReconnect/disconnect) dikunci di
+    // sini supaya tidak ada dua thread yang membongkar connection/relay yang
+    // sama secara bersamaan (mis. handleTunnelDeath() dari ConnectionMonitor
+    // trilead-ssh2 vs stopVpn() manual yang datang nyaris berbarengan).
+    // synchronized (BUKAN compareAndSet-lalu-diamkan seperti sebelumnya)
+    // supaya caller kedua tetap MENUNGGU teardown pertama selesai, bukan
+    // diam-diam di-skip -- skip diam-diam itulah yang dulu bisa
+    // meninggalkan connection/relay lama setengah-tertutup.
+    private val teardownLock = Any()
 
     @Throws(Exception::class)
     fun connect(
@@ -125,47 +146,46 @@ class SshTunnelManager {
 
         connection = conn
 
-        // (b) SOCKS5 server sendiri, menggantikan peran jsocks
+        // (b) SOCKS5 server -- lihat catatan arsitektur di header class ini.
+        // Bind() ke port cuma terjadi kalau memang belum ada server yang
+        // hidup dari sesi sebelumnya (connect awal, atau setelah hard
+        // reset/disconnect penuh); kalau sudah ada & masih hidup (reconnect
+        // biasa), cukup ganti Connection yang dipakainya.
         StatusBus.start(StepId.SOCKS5)
-        val socks = Socks5Server(conn)
+        val existing = socks5Server
         try {
-            socks.start(config.socksPort)
+            if (existing != null && existing.isRunning()) {
+                existing.attachConnection(conn)
+                StatusBus.log("SOCKS5 lokal sudah aktif di 127.0.0.1:${config.socksPort} (dipakai ulang, tidak bind ulang)")
+            } else {
+                val fresh = Socks5Server()
+                fresh.start(config.socksPort)
+                fresh.attachConnection(conn)
+                socks5Server = fresh
+            }
         } catch (e: Exception) {
             StatusBus.fail(StepId.SOCKS5, e.message ?: e.javaClass.simpleName)
             conn.close()
             relay.stop()
             throw e
         }
-        socks5Server = socks
         StatusBus.success(StepId.SOCKS5)
 
-        // PENTING (deteksi "tunnel mati sendiri" -- FIX bug reentrancy/EADDRINUSE):
-        // ConnectionMonitor SEKARANG BARU dipasang DI SINI, SETELAH SOCKS5 lokal
-        // benar-benar berhasil dinyalakan -- BUKAN sesaat setelah handshake SSH
-        // seperti sebelumnya.
-        //
-        // Alasan: trilead-ssh2 memanggil connectionLost() SECARA SINKRON di
-        // thread yang sama begitu conn.close() dipanggil (bahkan kalau close()
-        // itu dipanggil oleh kode kita sendiri, dari DALAM connect() ini, saat
-        // membersihkan kegagalan auth/SOCKS5 di atas). Kalau monitor sudah
-        // aktif SEBELUM titik itu, conn.close() pada baris "auth gagal"/"SOCKS5
-        // gagal bind" di atas ikut memicu onUnexpectedDisconnect() ->
+        // PENTING (deteksi "tunnel mati sendiri"): ConnectionMonitor dipasang
+        // DI SINI, SETELAH SOCKS5 lokal benar-benar siap -- BUKAN sesaat
+        // setelah handshake SSH. Alasan: trilead-ssh2 memanggil
+        // connectionLost() SECARA SINKRON di thread yang sama begitu
+        // conn.close() dipanggil (bahkan kalau close() itu dipanggil oleh
+        // kode kita sendiri, dari DALAM connect() ini, saat membersihkan
+        // kegagalan auth/SOCKS5 di atas). Kalau monitor sudah aktif SEBELUM
+        // titik itu, conn.close() pada baris "auth gagal"/"SOCKS5 gagal
+        // bind" di atas ikut memicu onUnexpectedDisconnect() ->
         // MyVpnService.handleTunnelDeath() SECARA REENTRANT -- padahal
         // exception dari connect() ini sendiri BELUM SEMPAT sampai ke blok
         // catch establishTunnel() yang MEMANG bertugas menangani kegagalan
-        // tersebut. Akibatnya DUA alur reconnect berjalan hampir bersamaan
-        // untuk satu kegagalan yang sama, saling balapan connect()/Socks5Server.start()
-        // ke socksPort yang sama -- salah satunya kalah bind() -> persis
-        // error "bind failed: EADDRINUSE" yang berulang terus-menerus walau
-        // sudah reconnect berkali-kali, karena penyebabnya race, bukan port
-        // yang benar-benar dipakai proses lain.
-        //
-        // Sekarang: kegagalan auth/SOCKS5 di atas (SEBELUM baris ini) murni
-        // dilaporkan lewat exception biasa ke establishTunnel() -- SATU alur
-        // penanganan kegagalan, tidak ada lagi jalur kedua yang menyusup.
-        // connectionLost() cuma relevan/aktif SETELAH tunnel benar-benar
-        // berdiri penuh, yang memang semestinya jadi definisi "tunnel mati
-        // sendiri" (bukan "tunnel gagal terbentuk").
+        // tersebut. connectionLost() cuma relevan/aktif SETELAH tunnel
+        // benar-benar berdiri penuh, yang memang semestinya jadi definisi
+        // "tunnel mati sendiri" (bukan "tunnel gagal terbentuk").
         conn.addConnectionMonitor(object : ConnectionMonitor {
             override fun connectionLost(reason: Throwable?) {
                 onUnexpectedDisconnect(reason?.message ?: reason?.javaClass?.simpleName ?: "koneksi SSH terputus")
@@ -173,7 +193,7 @@ class SshTunnelManager {
         })
 
         // FIX (jaring pengaman): kalau justru koneksi mati TEPAT di antara
-        // socks.start() sukses dan addConnectionMonitor() barusan terpasang
+        // socks5Server siap dan addConnectionMonitor() barusan terpasang
         // (jendela race yang sangat sempit), trilead-ssh2 TIDAK akan pernah
         // memanggil connectionLost() untuk kejadian itu (monitor belum ada
         // saat kejadian). isAuthenticationComplete berubah false begitu
@@ -183,8 +203,10 @@ class SshTunnelManager {
         if (!conn.isAuthenticationComplete) {
             val msg = "Koneksi SSH terputus tepat setelah SOCKS5 disiapkan"
             StatusBus.fail(StepId.SOCKS5, msg)
-            socks.stop()
-            socks5Server = null
+            // socks5Server SENGAJA TIDAK di-stop() di sini (lihat catatan
+            // arsitektur) -- cukup lepas referensi koneksi matinya, biar
+            // reconnect berikutnya tidak perlu bind ulang port.
+            socks5Server?.detachConnection()
             relay.stop()
             throw IOException(msg)
         }
@@ -309,12 +331,43 @@ class SshTunnelManager {
         null
     }
 
-    fun disconnect() {
-        if (!disconnecting.compareAndSet(false, true)) {
-            Log.w(TAG, "disconnect() SSH sudah sedang diproses panggilan lain, diabaikan")
-            return
+    /**
+     * Dipanggil saat tunnel mati & AKAN dicoba reconnect (dari
+     * MyVpnService.handleTunnelDeath()/establishTunnel() saat reconnect
+     * gagal): tutup koneksi SSH + relay yang mati, TAPI [socks5Server]
+     * SENGAJA DIBIARKAN HIDUP -- port TIDAK dilepas sama sekali. Inilah
+     * inti fix EADDRINUSE, lihat catatan arsitektur di header class ini.
+     * Client SOCKS5 yang kebetulan masuk selagi belum ada koneksi SSH aktif
+     * cukup dijawab "connection refused" oleh Socks5Server sendiri.
+     */
+    fun disconnectForReconnect() {
+        synchronized(teardownLock) {
+            socks5Server?.detachConnection()
+            try {
+                connection?.close()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error close SSH", e)
+            }
+            try {
+                connectRelay?.stop()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stop relay", e)
+            }
+            connection = null
+            connectRelay = null
         }
-        try {
+    }
+
+    /**
+     * Dipanggil saat sesi VPN BENAR-BENAR berakhir (stopVpn() manual, atau
+     * hard reset penuh): bongkar SEMUANYA termasuk [socks5Server] -- port
+     * dilepas. connect() berikutnya (baik sesi baru maupun setelah hard
+     * reset) akan bind() dari nol lagi, dan itu memang seharusnya aman
+     * karena titik ini adalah batas sesi yang jelas, bukan reconnect
+     * di-tengah-sesi.
+     */
+    fun disconnect() {
+        synchronized(teardownLock) {
             try {
                 socks5Server?.stop()
             } catch (e: Exception) {
@@ -333,8 +386,6 @@ class SshTunnelManager {
             socks5Server = null
             connection = null
             connectRelay = null
-        } finally {
-            disconnecting.set(false)
         }
     }
 

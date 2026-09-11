@@ -25,14 +25,25 @@ import java.net.Socket
  *    TIDAK BISA forward UDP mentah (hanya TCP), jadi query DNS-nya
  *    di-relay sebagai DNS-over-TCP (RFC 1035 -- prefix panjang 2 byte)
  *    lewat direct-tcpip channel yang sama, lalu hasilnya dibungkus balik
- *    jadi paket UDP ke pemanggil. Ini kenapa sebelumnya tunnel "connect"
- *    sukses (semua step hijau) tapi device tidak bisa browsing sama
- *    sekali -- device gagal resolve domain apapun karena request UDP-nya
- *    dulu langsung ditolak (cmd != 0x01 -> connection ditutup).
- *    UDP non-DNS (port != 53) tetap tidak bisa diteruskan lewat SSH biasa,
- *    ini batasan protokol SSH itu sendiri, bukan bug.
+ *    jadi paket UDP ke pemanggil. UDP non-DNS (port != 53) tetap tidak
+ *    bisa diteruskan lewat SSH biasa, ini batasan protokol SSH itu
+ *    sendiri, bukan bug.
+ *
+ * PERUBAHAN ARSITEKTUR (meniru pola DarkTunnel/HTTP Custom -- FIX bug
+ * "bind failed: EADDRINUSE" yang berulang tiap reconnect): server ini
+ * SEKARANG hanya bind() ke port SEKALI per sesi VPN, lalu HIDUP TERUS
+ * selama proses reconnect SSH terjadi berkali-kali di belakangnya.
+ * Sebelumnya instance baru dibuat & bind() ulang di SETIAP reconnect --
+ * itu yang membuka celah race "port lama belum benar-benar dilepas saat
+ * port baru dicoba di-bind lagi". Sekarang koneksi SSH yang dipakai
+ * (`sshConnection`) adalah state yang BISA berubah-ubah/null (di-attach
+ * saat reconnect sukses, di-detach saat SSH putus) SELAMA server tetap
+ * mendengarkan di port yang sama -- persis seperti "kabel di belakang
+ * proxy diganti", bukan "proxy-nya dibongkar lalu dibangun ulang". Kelas
+ * bug EADDRINUSE saat reconnect jadi TIDAK MUNGKIN terjadi lagi secara
+ * struktural, karena bind() cuma pernah dipanggil sekali per sesi.
  */
-class Socks5Server(private val sshConnection: Connection) {
+class Socks5Server {
 
     companion object {
         private const val TAG = "Socks5Server"
@@ -53,31 +64,48 @@ class Socks5Server(private val sshConnection: Connection) {
     @Volatile
     private var running = false
 
-    // PENTING (fix bug "semua situs ERR_CONNECTION_RESET" setelah DNS relay
-    // ditambahkan): sshConnection dipakai bersama oleh banyak thread (thread
-    // CONNECT per tab/resource browser, DITAMBAH beberapa thread relay DNS
-    // yang jalan paralel). trilead-ssh2 TIDAK dijamin aman kalau
-    // createLocalStreamForwarder() (operasi "buka channel baru" di level
-    // protokol SSH) dipanggil dari beberapa thread SECARA BERSAMAAN --
-    // permintaan buka channel yang nyelonong bareng bisa saling menabrak di
-    // level protokol dan merusak koneksi SSH itu sendiri (dampaknya: SEMUA
-    // request lain di koneksi yang sama ikut ke-reset, bukan cuma yang
-    // nabrak). Kunci ini memastikan "buka channel" selalu antre satu-satu;
-    // transfer data SETELAH channel terbuka tetap jalan paralel seperti
-    // biasa (lock ini cuma dipegang sebentar, bukan selama koneksi hidup).
+    // Koneksi SSH yang sedang aktif untuk melayani client SOCKS5 yang masuk.
+    // @Volatile + di-attach/detach dari luar (SshTunnelManager) tanpa pernah
+    // menyentuh serverSocket/port sama sekali -- inilah inti perubahan
+    // arsitektur di atas. Kalau null (persis di antara SSH lama putus dan
+    // SSH baru berhasil connect saat reconnect), client yang kebetulan masuk
+    // di jendela itu cukup dijawab "connection refused" oleh SOCKS5, BUKAN
+    // bikin seluruh server mati/gagal bind.
+    @Volatile
+    private var sshConnection: Connection? = null
+
+    // PENTING (defense-in-depth, konsisten dengan sebelumnya): trilead-ssh2
+    // TIDAK dijamin aman kalau createLocalStreamForwarder() (operasi "buka
+    // channel baru" di level protokol SSH) dipanggil dari beberapa thread
+    // SECARA BERSAMAAN -- permintaan buka channel yang nyelonong bareng bisa
+    // saling menabrak di level protokol dan merusak koneksi SSH itu sendiri
+    // (dampaknya: SEMUA request lain di koneksi yang sama ikut ke-reset,
+    // bukan cuma yang nabrak). Kunci ini memastikan "buka channel" selalu
+    // antre satu-satu; transfer data SETELAH channel terbuka tetap jalan
+    // paralel seperti biasa (lock ini cuma dipegang sebentar, bukan selama
+    // koneksi hidup).
     private val channelOpenLock = Any()
+
+    fun isRunning(): Boolean = running
+
+    /** Pasang koneksi SSH yang baru berhasil connect/reconnect. Port TIDAK disentuh. */
+    fun attachConnection(conn: Connection) {
+        sshConnection = conn
+    }
+
+    /** Lepas koneksi SSH yang mati (mau reconnect). Port TIDAK disentuh, server tetap mendengarkan. */
+    fun detachConnection() {
+        sshConnection = null
+    }
 
     fun start(port: Int) {
         val ss = ServerSocket()
-        // FIX (bug "bind failed: EADDRINUSE" saat reconnect): tanpa ini, OS
-        // bisa menahan port sebentar dalam state TIME_WAIT setelah socket
-        // sebelumnya ditutup, dan bind() baru langsung ditolak walau socket
-        // lamanya sudah benar-benar mati. reuseAddress = true mengizinkan
-        // bind ulang ke port yang masih dalam TIME_WAIT. Ini TIDAK menutupi
-        // bug utama (socket lama yang masih benar-benar hidup/belum
-        // di-close() -- itu dibereskan di MyVpnService, lihat catatan di
-        // establishTunnel()), tapi tetap perlu sebagai lapisan pertahanan
-        // kedua.
+        // reuseAddress = true mengizinkan bind ulang ke port yang masih
+        // dalam TIME_WAIT (mis. setelah app di-force-close lalu dibuka
+        // lagi) -- lapisan pertahanan kedua. Pertahanan UTAMA terhadap
+        // EADDRINUSE saat reconnect adalah arsitektur baru di atas: bind()
+        // ini sekarang cuma dipanggil SEKALI per sesi VPN, bukan di tiap
+        // reconnect.
         ss.reuseAddress = true
         ss.bind(InetSocketAddress("127.0.0.1", port))
         serverSocket = ss
@@ -98,8 +126,10 @@ class Socks5Server(private val sshConnection: Connection) {
         }, "socks5-accept").apply { start() }
     }
 
+    /** Stop TOTAL -- port dilepas. Hanya dipanggil saat sesi VPN benar-benar berakhir (bukan reconnect biasa). */
     fun stop() {
         running = false
+        sshConnection = null
         try {
             serverSocket?.close()
         } catch (_: Exception) {
@@ -166,7 +196,7 @@ class Socks5Server(private val sshConnection: Connection) {
         }
     }
 
-    /** CONNECT (TCP) -- sama seperti sebelumnya, lewat direct-tcpip channel SSH. */
+    /** CONNECT (TCP) -- lewat direct-tcpip channel SSH pada koneksi yang SEDANG aktif. */
     private fun handleConnect(
         client: Socket,
         input: DataInputStream,
@@ -174,10 +204,27 @@ class Socks5Server(private val sshConnection: Connection) {
         targetHost: String,
         targetPort: Int
     ) {
+        // Ambil snapshot koneksi SAAT INI -- bisa null kalau persis sedang di
+        // antara reconnect (SSH lama sudah detach, SSH baru belum attach).
+        // FIX bug lama: dulu field ini non-null tetap (dipegang di
+        // constructor), jadi kondisi ini tidak pernah dicek sama sekali --
+        // sekarang dijawab bersih sebagai "connection refused" SOCKS5 (kode
+        // 0x01 general failure), bukan NPE atau bind() ulang.
+        val conn = sshConnection
+        if (conn == null) {
+            try {
+                output.write(byteArrayOf(0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
+                output.flush()
+            } catch (_: Exception) {
+            }
+            try { client.close() } catch (_: Exception) {}
+            return
+        }
+
         var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
         try {
             forwarder = synchronized(channelOpenLock) {
-                sshConnection.createLocalStreamForwarder(targetHost, targetPort)
+                conn.createLocalStreamForwarder(targetHost, targetPort)
             }
 
             // --- Reply sukses (alamat bind di-nol-kan, umum untuk server SOCKS5 minimal) ---
@@ -244,7 +291,7 @@ class Socks5Server(private val sshConnection: Connection) {
      * UDP ASSOCIATE -- dipakai hev-socks5-tunnel untuk relay DNS device.
      * Buka UDP relay socket lokal, kasih tahu alamatnya ke client lewat
      * reply, lalu setiap paket UDP yang masuk (isinya query DNS) di-relay
-     * sebagai DNS-over-TCP lewat channel SSH yang sama.
+     * sebagai DNS-over-TCP lewat channel SSH yang SEDANG aktif.
      */
     private fun handleUdpAssociate(tcpClient: Socket, output: java.io.OutputStream) {
         val udpSocket = DatagramSocket(InetSocketAddress("127.0.0.1", 0))
@@ -335,13 +382,19 @@ class Socks5Server(private val sshConnection: Connection) {
             return
         }
 
+        // Snapshot koneksi SAAT INI -- kalau persis lagi reconnect (null),
+        // query DNS ini dijatuhkan diam-diam; device/hev-socks5-tunnel akan
+        // mengirim ulang query DNS-nya sendiri sebentar lagi begitu tunnel
+        // baru aktif, jadi tidak perlu ditangani khusus di sini.
+        val conn = sshConnection ?: return
+
         Thread({
             var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
             val done = java.util.concurrent.atomic.AtomicBoolean(false)
             var timeoutGuard: Thread? = null
             try {
                 forwarder = synchronized(channelOpenLock) {
-                    sshConnection.createLocalStreamForwarder(destHost, 53)
+                    conn.createLocalStreamForwarder(destHost, 53)
                 }
                 val forwarderRef = forwarder
 
