@@ -235,6 +235,30 @@ class SettingsActivity : AppCompatActivity() {
         binding.etVpnMtu.setText(settings.mtu.toString())
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
         binding.switchAutoReconnect.isChecked = settings.autoReconnect
+        // 0 berarti "tidak diisi" -- tampilkan field kosong, bukan "0",
+        // supaya konsisten dengan makna kosong = pakai default/nonaktif.
+        binding.etVpnSocksPort.setText(if (settings.socksPort > 0) settings.socksPort.toString() else "")
+        binding.etVpnHttpPort.setText(if (settings.httpPort > 0) settings.httpPort.toString() else "")
+        binding.etVpnUdpgwPort.setText(if (settings.udpgwPort > 0) settings.udpgwPort.toString() else "")
+    }
+
+    /**
+     * Validasi satu field port opsional: kosong -> 0 (nonaktif/default),
+     * atau angka 1-65535. Mengembalikan null kalau isinya bukan salah satu
+     * dari dua kondisi itu (dan menandai [field] dengan pesan error).
+     */
+    private fun parseOptionalPort(
+        field: com.google.android.material.textfield.TextInputEditText,
+        label: String
+    ): Int? {
+        val text = field.text.toString().trim()
+        if (text.isEmpty()) return 0
+        val port = text.toIntOrNull()
+        if (port == null || port < VpnSettings.MIN_PORT || port > VpnSettings.MAX_PORT) {
+            field.error = "$label harus angka ${VpnSettings.MIN_PORT}-${VpnSettings.MAX_PORT}, atau kosongkan"
+            return null
+        }
+        return port
     }
 
     /**
@@ -262,6 +286,10 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
 
+        val socksPort = parseOptionalPort(binding.etVpnSocksPort, "SOCKS5 Port") ?: return
+        val httpPort = parseOptionalPort(binding.etVpnHttpPort, "HTTP Port") ?: return
+        val udpgwPort = parseOptionalPort(binding.etVpnUdpgwPort, "UDPGW Port") ?: return
+
         VpnSettingsStore.save(
             this,
             VpnSettings(
@@ -269,7 +297,10 @@ class SettingsActivity : AppCompatActivity() {
                 dns2 = dns2,
                 mtu = mtu,
                 keepCpuAwake = binding.switchKeepAwake.isChecked,
-                autoReconnect = binding.switchAutoReconnect.isChecked
+                autoReconnect = binding.switchAutoReconnect.isChecked,
+                socksPort = socksPort,
+                httpPort = httpPort,
+                udpgwPort = udpgwPort
             )
         )
         Toast.makeText(this, "VPN Setting disimpan", Toast.LENGTH_SHORT).show()

@@ -88,19 +88,6 @@ class SshTunnelManager {
         }
         StatusBus.success(StepId.SSH_HANDSHAKE)
 
-        // PENTING (deteksi "tunnel mati sendiri"): ConnectionMonitor bawaan
-        // trilead-ssh2 dipanggil PERSIS saat socket TCP koneksi ini benar-benar
-        // tertutup, entah karena server yang memutus, jaringan hilang, atau
-        // koneksi memang kita tutup sendiri lewat disconnect() di bawah (yang
-        // terakhir ini difilter di level MyVpnService lewat flag
-        // "stoppingIntentionally", bukan di sini -- SshTunnelManager cukup
-        // teruskan semua event apa adanya).
-        conn.addConnectionMonitor(object : ConnectionMonitor {
-            override fun connectionLost(reason: Throwable?) {
-                onUnexpectedDisconnect(reason?.message ?: reason?.javaClass?.simpleName ?: "koneksi SSH terputus")
-            }
-        })
-
         StatusBus.start(StepId.SSH_AUTH)
         val authOk = try {
             conn.authenticateWithPassword(config.username, config.password.orEmpty())
@@ -151,6 +138,56 @@ class SshTunnelManager {
         }
         socks5Server = socks
         StatusBus.success(StepId.SOCKS5)
+
+        // PENTING (deteksi "tunnel mati sendiri" -- FIX bug reentrancy/EADDRINUSE):
+        // ConnectionMonitor SEKARANG BARU dipasang DI SINI, SETELAH SOCKS5 lokal
+        // benar-benar berhasil dinyalakan -- BUKAN sesaat setelah handshake SSH
+        // seperti sebelumnya.
+        //
+        // Alasan: trilead-ssh2 memanggil connectionLost() SECARA SINKRON di
+        // thread yang sama begitu conn.close() dipanggil (bahkan kalau close()
+        // itu dipanggil oleh kode kita sendiri, dari DALAM connect() ini, saat
+        // membersihkan kegagalan auth/SOCKS5 di atas). Kalau monitor sudah
+        // aktif SEBELUM titik itu, conn.close() pada baris "auth gagal"/"SOCKS5
+        // gagal bind" di atas ikut memicu onUnexpectedDisconnect() ->
+        // MyVpnService.handleTunnelDeath() SECARA REENTRANT -- padahal
+        // exception dari connect() ini sendiri BELUM SEMPAT sampai ke blok
+        // catch establishTunnel() yang MEMANG bertugas menangani kegagalan
+        // tersebut. Akibatnya DUA alur reconnect berjalan hampir bersamaan
+        // untuk satu kegagalan yang sama, saling balapan connect()/Socks5Server.start()
+        // ke socksPort yang sama -- salah satunya kalah bind() -> persis
+        // error "bind failed: EADDRINUSE" yang berulang terus-menerus walau
+        // sudah reconnect berkali-kali, karena penyebabnya race, bukan port
+        // yang benar-benar dipakai proses lain.
+        //
+        // Sekarang: kegagalan auth/SOCKS5 di atas (SEBELUM baris ini) murni
+        // dilaporkan lewat exception biasa ke establishTunnel() -- SATU alur
+        // penanganan kegagalan, tidak ada lagi jalur kedua yang menyusup.
+        // connectionLost() cuma relevan/aktif SETELAH tunnel benar-benar
+        // berdiri penuh, yang memang semestinya jadi definisi "tunnel mati
+        // sendiri" (bukan "tunnel gagal terbentuk").
+        conn.addConnectionMonitor(object : ConnectionMonitor {
+            override fun connectionLost(reason: Throwable?) {
+                onUnexpectedDisconnect(reason?.message ?: reason?.javaClass?.simpleName ?: "koneksi SSH terputus")
+            }
+        })
+
+        // FIX (jaring pengaman): kalau justru koneksi mati TEPAT di antara
+        // socks.start() sukses dan addConnectionMonitor() barusan terpasang
+        // (jendela race yang sangat sempit), trilead-ssh2 TIDAK akan pernah
+        // memanggil connectionLost() untuk kejadian itu (monitor belum ada
+        // saat kejadian). isAuthenticationComplete berubah false begitu
+        // socket bawahnya benar-benar tertutup -- cek sekali di sini supaya
+        // kejadian langka ini tetap dilaporkan sebagai kegagalan biasa lewat
+        // exception, bukan diam-diam dianggap sukses.
+        if (!conn.isAuthenticationComplete) {
+            val msg = "Koneksi SSH terputus tepat setelah SOCKS5 disiapkan"
+            StatusBus.fail(StepId.SOCKS5, msg)
+            socks.stop()
+            socks5Server = null
+            relay.stop()
+            throw IOException(msg)
+        }
         // FIX (log Terminal menyesatkan): dulu baris ini cuma "Connected" --
         // kedengarannya seperti seluruh proses sudah kelar, padahal di titik
         // ini baru SSH handshake + SOCKS5 lokal yang siap. TUN engine belum

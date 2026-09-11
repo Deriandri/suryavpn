@@ -207,6 +207,16 @@ class MyVpnService : VpnService() {
     private val xrayTunnelManager by lazy { XrayTunnelManager(this) }
     private var tunEngine: TunEngine? = null
 
+    // Proxy HTTP lokal opsional (lihat VpnSettings.httpPort) -- hanya
+    // non-null selama tunnel aktif DAN httpPort diisi user di VPN Setting.
+    private var httpProxyServer: HttpProxyServer? = null
+
+    /** Aman dipanggil berkali-kali (no-op kalau memang tidak sedang jalan). */
+    private fun stopHttpProxyServer() {
+        httpProxyServer?.stop()
+        httpProxyServer = null
+    }
+
     // Config terakhir yang berhasil/sedang dicoba -- dipakai untuk reconnect
     // otomatis tanpa perlu minta izin VPN ke user lagi (TUN interface yang
     // sudah establish() dibiarkan hidup selama proses reconnect).
@@ -364,7 +374,7 @@ class MyVpnService : VpnService() {
         }
     }
 
-    private fun startVpn(config: ServerConfig) {
+    private fun startVpn(rawConfig: ServerConfig) {
         if (vpnInterface != null) {
             Log.w(TAG, "VPN sudah berjalan, abaikan permintaan start kedua")
             return
@@ -372,6 +382,18 @@ class MyVpnService : VpnService() {
         if (!startInProgress.compareAndSet(false, true)) {
             Log.w(TAG, "Permintaan connect sudah sedang diproses, abaikan permintaan kedua")
             return
+        }
+
+        val vpnSettings = VpnSettingsStore.load(this)
+        // Global override "SOCKS5 Port" (VPN Setting) MENIMPA socksPort
+        // per-profil kalau diisi (>0) -- sama pola dengan override DNS
+        // (applyDnsServers). Diterapkan di sini SEBELUM lastConfig
+        // ditetapkan supaya seluruh alur (establishTunnel, reconnect, hard
+        // reset) konsisten memakai port yang sama.
+        val config = if (vpnSettings.socksPort > 0) {
+            rawConfig.copy(socksPort = vpnSettings.socksPort)
+        } else {
+            rawConfig
         }
 
         lastConfig = config
@@ -390,7 +412,6 @@ class MyVpnService : VpnService() {
             serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
         }
 
-        val vpnSettings = VpnSettingsStore.load(this)
         currentMtu = vpnSettings.mtu
         currentAutoReconnect = vpnSettings.autoReconnect
         acquireWakeLockIfNeeded(vpnSettings.keepCpuAwake)
@@ -539,6 +560,7 @@ class MyVpnService : VpnService() {
     private fun checkStoppedMidway(engineJustStarted: TunEngine?): Boolean {
         if (!stoppingIntentionally) return false
         Log.w(TAG, "Stop diminta di tengah proses connect -- membatalkan & membongkar hasil parsial")
+        stopHttpProxyServer()
         if (engineJustStarted != null && tunEngine === engineJustStarted) {
             tunEngine = null
         }
@@ -641,6 +663,25 @@ class MyVpnService : VpnService() {
                 StatusBus.log("Tunnel aktif — verifikasi trafik nyata berhasil, semua koneksi device lewat tunnel.")
                 if (checkStoppedMidway(tunEngine)) return@launch
 
+                // Nyalakan proxy HTTP lokal tambahan kalau diisi user (VPN
+                // Setting > HTTP Port) -- SOCKS5 lokal (config.socksPort)
+                // sudah pasti aktif di titik ini (verifyTunnelReallyWorks
+                // di atas sudah membuktikannya).
+                val vpnSettingsForHttpProxy = VpnSettingsStore.load(this@MyVpnService)
+                if (vpnSettingsForHttpProxy.httpPort > 0) {
+                    stopHttpProxyServer()
+                    try {
+                        httpProxyServer = HttpProxyServer().apply {
+                            start(vpnSettingsForHttpProxy.httpPort, config.socksPort)
+                        }
+                        StatusBus.log("Proxy HTTP lokal aktif di 127.0.0.1:${vpnSettingsForHttpProxy.httpPort}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Gagal menyalakan proxy HTTP lokal", e)
+                        StatusBus.log("Proxy HTTP lokal GAGAL dinyalakan di port ${vpnSettingsForHttpProxy.httpPort}: ${e.message}")
+                        httpProxyServer = null
+                    }
+                }
+
                 // Reconnect (kalau ada) sukses -- reset hitungan percobaan &
                 // nyalakan ulang watchdog buat siklus berikutnya.
                 reconnectAttempt = 0
@@ -701,6 +742,7 @@ class MyVpnService : VpnService() {
                 // walau connect() gagal di awal sekali (sebelum SOCKS5 sempat
                 // dibuat) -- kedua manager sudah no-op kalau memang belum ada
                 // apa-apa yang aktif.
+                stopHttpProxyServer()
                 runBlockingWithTimeout("sshTunnelManager.disconnect() (cleanup gagal connect)") {
                     sshTunnelManager.disconnect()
                 }
@@ -766,6 +808,7 @@ class MyVpnService : VpnService() {
         // scheduleReconnectOrGiveUp() di bawah ini SELALU sempat terpanggil.
         val engine = tunEngine
         tunEngine = null
+        stopHttpProxyServer()
         if (engine != null) {
             runBlockingWithTimeout("tunEngine.stop()") { engine.stop() }
         }
@@ -849,6 +892,7 @@ class MyVpnService : VpnService() {
         val vpnIf = vpnInterface
         tunEngine = null
         vpnInterface = null
+        stopHttpProxyServer()
         if (engine != null) {
             runBlockingWithTimeout("tunEngine.stop() (hard reset)") { engine.stop() }
         }
@@ -1425,6 +1469,7 @@ class MyVpnService : VpnService() {
         tunEngine = null
         vpnInterface = null
         lastConfig = null
+        stopHttpProxyServer()
 
         // --- FIX ANR ---
         // Semua pemanggilan di bawah ini BLOCKING (join thread native,

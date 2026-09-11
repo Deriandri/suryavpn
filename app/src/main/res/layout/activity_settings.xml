@@ -272,6 +272,76 @@
                         android:autofillHints="" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="Kosongkan port di bawah untuk pakai default masing-masing profil. SOCKS5 Port menimpa port semua profil. HTTP Port menyalakan proxy HTTP lokal tambahan (chaining ke SOCKS5) untuk app yang cuma dukung proxy HTTP. UDPGW Port disimpan untuk kompatibilitas -- engine tunnel saat ini sudah meneruskan UDP lewat SOCKS5 langsung, jadi belum berpengaruh."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="8dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="8dp"
+                        android:hint="SOCKS5 Port (opsional)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etVpnSocksPort"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:maxLength="5"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:hint="HTTP Port (opsional)">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etVpnHttpPort"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:maxLength="5"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Field.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:hint="UDPGW Port (opsional)">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etVpnUdpgwPort"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="number"
+                        android:maxLength="5"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:autofillHints="" />
+                </com.google.android.material.textfield.TextInputLayout>
+
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="1dp"
