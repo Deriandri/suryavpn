@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Titik status "Terminal" di header Log, versi lebih elegan dari bg_dot
+     polos: ada halo tipis di belakang titik solid supaya terkesan menyala
+     (glow), bukan bulatan datar. android:backgroundTint di layout tetap
+     mewarnai KEDUA lapis ini sekaligus (alpha tiap lapis tetap dipertahankan
+     oleh mode tint default/SRC_IN), jadi halo otomatis ikut warna accent
+     tapi tetap transparan/pudar. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="#332DD4BF" />
+            <size android:width="18dp" android:height="18dp" />
+        </shape>
+    </item>
+    <item android:gravity="center">
+        <shape android:shape="oval">
+            <solid android:color="#FF2DD4BF" />
+            <size android:width="8dp" android:height="8dp" />
+        </shape>
+    </item>
+</layer-list>

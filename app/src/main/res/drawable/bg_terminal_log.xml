@@ -5,6 +5,7 @@
      (putih) ke BAWAH (biru muda), lewat warna tengah supaya transisinya
      halus (tidak langsung loncat dari putih ke biru). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <corners android:radius="14dp" />
     <gradient
         android:angle="270"
         android:startColor="#FFFFFF"

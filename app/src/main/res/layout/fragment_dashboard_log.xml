@@ -2,147 +2,121 @@
 <!-- Halaman "Log" dari Dashboard (geser kesamping <-> halaman "Main", lihat
      activity_dashboard.xml + DashboardPagerAdapter).
 
-     PERUBAHAN (permintaan user): sebelumnya kartu Terminal punya tinggi
-     tetap (260dp) di dalam ScrollView pembungkus, jadi banyak ruang layar
-     terbuang di bawahnya. Sekarang ScrollView luar dibuang, root langsung
-     LinearLayout match_parent, dan kartu Terminal diberi layout_height="0dp"
-     + layout_weight="1" supaya SELALU mengisi penuh sisa tinggi layar
-     (setelah dikurangi tab "Main | Log" & bottom nav di activity_dashboard.xml),
-     baik di layar kecil maupun besar. TerminalScrollView di dalamnya yang
-     tetap menangani scroll isi log (lihat TerminalScrollView.kt, sudah
-     dirancang untuk berdiri sendiri tanpa ScrollView pembungkus). -->
+     REDESIGN (permintaan user: "elegan, modern, smooth" - sama seperti
+     fragment_dashboard_main.xml sebelumnya): kartu Terminal yang tadinya
+     full-bleed nempel tepi layar dengan sudut lancip 0dp & pembatas garis
+     1dp kiri-kanan sekarang jadi kartu mengambang bersudut membulat +
+     bayangan (konsisten dengan gaya kartu di tab Main), dot status dikasih
+     efek glow, dan tombol "Hapus Log" jadi pill tipis supaya kelihatan
+     sebagai tombol. Kartu tetap mengisi PENUH sisa tinggi layar
+     (layout_height="0dp" + layout_weight="1"), cuma sekarang ada margin
+     16dp di sekelilingnya alih-alih nempel tepi. Isi gradasi
+     putih->biru muda di dalamnya (bg_terminal_log) TIDAK diubah, itu
+     preferensi user dari permintaan sebelumnya. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/app_background"
     android:orientation="vertical"
-    android:paddingTop="16dp"
-    android:paddingBottom="16dp">
+    android:padding="16dp">
 
-    <!-- Card "Tahapan Koneksi" SUDAH DIPINDAHKAN ke halaman Main, tepat di
-         atas "Profil aktif", lihat fragment_dashboard_main.xml &
-         DashboardMainFragment.renderLogSteps(). Halaman Log sekarang
-         cuma berisi Terminal mentah di bawah ini, penuh satu layar. -->
-
-    <!-- Baris pembungkus kartu Terminal + border tipis kiri-kanan
-         (permintaan user). Kartu tetap full-bleed secara efek visual (tidak
-         ada margin/padding lebar seperti kartu lain), cuma diapit dua View
-         1dp berwarna @color/terminal_divider supaya ada garis pembatas halus
-         ke tepi layar, tanpa border di sisi atas/bawah. -->
-    <LinearLayout
+    <!-- Card: Terminal log mentah (real-time, event asli - lihat StatusBus.log). -->
+    <com.google.android.material.card.MaterialCardView
+        style="@style/Card.Section"
+        app:cardElevation="4dp"
+        app:cardBackgroundColor="@color/terminal_background"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="horizontal">
+        android:layout_weight="1">
 
-        <View
-            android:layout_width="1dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@color/terminal_divider" />
+            android:orientation="vertical">
 
-        <!-- Card: Terminal log mentah (real-time, event asli - lihat StatusBus.log).
-             PERUBAHAN (permintaan user): kartu ini sekarang full-bleed kiri-kanan
-             (nempel ke tepi layar, tanpa margin horizontal) supaya area log tidak
-             terlihat sempit, makanya padding horizontal di root LinearLayout di
-             atas dihapus (paddingTop/paddingBottom masih ada, cuma sisi kiri-kanan
-             yang dibuang), dan sudut kartu diratakan jadi 0dp di sini biar rapi
-             nempel ke tepi (bukan rounded corner yang kepotong tanggung). -->
-        <com.google.android.material.card.MaterialCardView
-            style="@style/Card.Section"
-            app:cardCornerRadius="0dp"
-            app:cardBackgroundColor="@color/terminal_background"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1">
-
+            <!-- Header: judul + tombol hapus, tinggi tetap -->
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="vertical">
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingBottom="12dp">
 
-                <!-- Header: judul + tombol hapus, tinggi tetap -->
-                <LinearLayout
+                <!-- Dot dengan efek glow (halo tipis di belakang titik solid),
+                     lebih hidup dibanding titik datar polos. -->
+                <View
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/bg_dot_glow"
+                    android:backgroundTint="@color/terminal_accent" />
+
+                <TextView
+                    style="@style/SectionTitleText"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginBottom="0dp"
+                    android:letterSpacing="0.02"
+                    android:textColor="@color/terminal_accent"
+                    android:text="Terminal" />
+
+                <!-- Pill tipis supaya kelihatan sebagai tombol, bukan cuma
+                     label teks tanpa latar seperti sebelumnya. -->
+                <TextView
+                    android:id="@+id/btnClearLog"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Hapus Log"
+                    android:textColor="@color/terminal_text_dim"
+                    android:textSize="12sp"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="6dp"
+                    android:background="@drawable/bg_pill_ghost"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?attr/selectableItemBackgroundBorderless" />
+            </LinearLayout>
+
+            <!-- Garis pemisah tipis header <-> isi log, pakai warna khusus
+                 terminal (putih transparan) karena garis "divider" biasa
+                 dirancang untuk kartu putih, tidak kelihatan di latar gelap. -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginBottom="12dp"
+                android:background="@color/terminal_divider" />
+
+            <!-- Isi log: mengisi SISA ruang kartu (weight=1). Sekarang punya
+                 sedikit "napas" (margin bawah) dari tepi kartu supaya
+                 terlihat sebagai panel tersendiri yang membulat, senada
+                 dengan kartu pembungkusnya, bukan nempel rata ke tepi kartu. -->
+            <com.example.tunnelapp.ui.TerminalScrollView
+                android:id="@+id/svTerminal"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:layout_marginBottom="2dp"
+                android:background="@drawable/bg_terminal_log"
+                android:scrollbars="vertical"
+                android:fadeScrollbars="false"
+                android:overScrollMode="always"
+                android:clipToOutline="true">
+
+                <TextView
+                    android:id="@+id/tvTerminal"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingBottom="10dp">
-
-                    <View
-                        android:layout_width="8dp"
-                        android:layout_height="8dp"
-                        android:layout_marginEnd="8dp"
-                        android:background="@drawable/bg_dot"
-                        android:backgroundTint="@color/terminal_accent" />
-
-                    <TextView
-                        style="@style/SectionTitleText"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginBottom="0dp"
-                        android:letterSpacing="0.02"
-                        android:textColor="@color/terminal_accent"
-                        android:text="Terminal" />
-
-                    <TextView
-                        android:id="@+id/btnClearLog"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Hapus Log"
-                        android:textColor="@color/terminal_text_dim"
-                        android:textSize="12sp"
-                        android:paddingHorizontal="10dp"
-                        android:paddingVertical="4dp"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:background="?attr/selectableItemBackgroundBorderless" />
-                </LinearLayout>
-
-                <!-- Garis pemisah tipis header <-> isi log, pakai warna khusus
-                     terminal (putih transparan) karena garis "divider" biasa
-                     dirancang untuk kartu putih, tidak kelihatan di latar gelap. -->
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginBottom="8dp"
-                    android:background="@color/terminal_divider" />
-
-                <!-- Isi log: mengisi SISA ruang kartu (weight=1), bukan lagi
-                     tinggi tetap 260dp, supaya benar-benar tampil satu layar
-                     penuh dan enak dibaca tanpa area kosong di bawahnya. -->
-                <com.example.tunnelapp.ui.TerminalScrollView
-                    android:id="@+id/svTerminal"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/bg_terminal_log"
-                    android:scrollbars="vertical"
-                    android:fadeScrollbars="false"
-                    android:overScrollMode="always"
-                    android:clipToOutline="true">
-
-                    <TextView
-                        android:id="@+id/tvTerminal"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:fontFamily="monospace"
-                        android:textSize="12sp"
-                        android:textColor="@color/terminal_text"
-                        android:lineSpacingExtra="5dp"
-                        android:padding="12dp"
-                        android:textIsSelectable="true"
-                        android:text="" />
-                </com.example.tunnelapp.ui.TerminalScrollView>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <View
-            android:layout_width="1dp"
-            android:layout_height="match_parent"
-            android:background="@color/terminal_divider" />
-
-    </LinearLayout>
+                    android:fontFamily="monospace"
+                    android:textSize="12sp"
+                    android:textColor="@color/terminal_text"
+                    android:lineSpacingExtra="5dp"
+                    android:padding="12dp"
+                    android:textIsSelectable="true"
+                    android:text="" />
+            </com.example.tunnelapp.ui.TerminalScrollView>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
 </LinearLayout>
