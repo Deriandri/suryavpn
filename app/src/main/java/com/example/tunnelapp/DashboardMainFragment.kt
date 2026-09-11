@@ -74,7 +74,12 @@ class DashboardMainFragment : Fragment() {
         val customHeaders: String,
         val ignoreCertErrors: Boolean,
         val dns1: String,
-        val dns2: String
+        val dns2: String,
+        // FIX/FITUR BARU (fallback akun cadangan di MyVpnService): id profil
+        // ProfileStore yang dipakai request Connect ini -- diteruskan ke
+        // Service lewat EXTRA_PROFILE_ID supaya dia tahu profil mana yang
+        // HARUS DIKECUALIKAN saat menyusun daftar akun cadangan.
+        val profileId: String?
     )
 
     override fun onCreateView(
@@ -288,7 +293,8 @@ class DashboardMainFragment : Fragment() {
     }
 
     private fun onConnectClicked() {
-        val saved = ProfileStore.getActive(requireContext())?.config
+        val activeProfile = ProfileStore.getActive(requireContext())
+        val saved = activeProfile?.config
         if (saved == null) {
             StatusBus.state.value = "Belum ada konfigurasi, buka menu SSH atau Xray dulu"
             return
@@ -305,7 +311,8 @@ class DashboardMainFragment : Fragment() {
                     sni = "", payload = "", proxyHost = "", proxyPort = null, tlsVersion = null,
                     useWebSocket = false, wsPath = "", proxyRawMode = false, xrayLink = saved.xrayLink,
                     customHeaders = "", ignoreCertErrors = false,
-                    dns1 = saved.dns1, dns2 = saved.dns2
+                    dns1 = saved.dns1, dns2 = saved.dns2,
+                    profileId = activeProfile.id
                 )
             )
             return
@@ -356,7 +363,8 @@ class DashboardMainFragment : Fragment() {
                 customHeaders = saved.customHeaders,
                 ignoreCertErrors = saved.ignoreCertErrors,
                 dns1 = saved.dns1,
-                dns2 = saved.dns2
+                dns2 = saved.dns2,
+                profileId = activeProfile.id
             )
         )
     }
@@ -404,6 +412,7 @@ class DashboardMainFragment : Fragment() {
             putExtra(MyVpnService.EXTRA_IGNORE_CERT_ERRORS, c.ignoreCertErrors)
             if (c.dns1.isNotEmpty()) putExtra(MyVpnService.EXTRA_DNS1, c.dns1)
             if (c.dns2.isNotEmpty()) putExtra(MyVpnService.EXTRA_DNS2, c.dns2)
+            if (!c.profileId.isNullOrEmpty()) putExtra(MyVpnService.EXTRA_PROFILE_ID, c.profileId)
         }
         ctx.startForegroundService(intent)
     }

@@ -264,3 +264,63 @@ data class ServerConfig(
     /** Apakah mode ini pakai jalur Xray-core, bukan jalur SSH (trilead-ssh2). */
     fun usesXray(): Boolean = mode == ConnectionMode.XRAY
 }
+
+/**
+ * Ubah [SavedConfig] (hasil tersimpan dari layar Konfigurasi SSH/Xray) jadi
+ * [ServerConfig] siap pakai buat MyVpnService -- logikanya sengaja disalin
+ * dari DashboardMainFragment.onConnectClicked() (bukan menggantikannya,
+ * supaya pesan error spesifik yang ditampilkan ke user di sana tidak
+ * berubah), dipakai MyVpnService buat FITUR FALLBACK AKUN CADANGAN: kalau
+ * akun yang lagi aktif gagal terus (reconnect + reset penuh sudah dicoba
+ * semua), MyVpnService butuh cara membangun ServerConfig dari akun LAIN yang
+ * tersimpan di ProfileStore, bukan cuma akun aktif yang sudah lewat Intent
+ * extras dari Fragment. Null kalau konfigurasinya tidak valid (mis. link
+ * Xray kosong, host/username kosong) -- silent, bukan menampilkan pesan ke
+ * user (fallback ini jalan di background, tidak ada UI buat menampilkannya).
+ */
+fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
+    if (modeIndex == 5) {
+        if (xrayLink.isBlank()) return null
+        return ServerConfig(
+            host = "", username = "", mode = ConnectionMode.XRAY,
+            xrayLink = xrayLink, dns1 = dns1, dns2 = dns2
+        )
+    }
+
+    if (host.isBlank() || username.isBlank()) return null
+
+    val mode = when (modeIndex) {
+        1 -> ConnectionMode.SSH_SSL
+        2 -> ConnectionMode.SSH_SSL_PAYLOAD
+        3 -> ConnectionMode.REMOTE_PROXY
+        else -> ConnectionMode.SSH
+    }
+    val usesPayload = modeIndex == 2 || modeIndex == 3
+    val usesProxy = modeIndex == 2 || modeIndex == 3
+    val proxyRawModeResolved = usesProxy && proxyRawMode
+    val usesTls = modeIndex == 1 || modeIndex == 2
+
+    if (usesProxy && proxyRawModeResolved && proxyHost.isBlank()) return null
+    if (modeIndex == 3 && proxyHost.isBlank()) return null
+
+    return ServerConfig(
+        host = host,
+        port = port,
+        username = username,
+        password = password,
+        mode = mode,
+        sslSni = sni,
+        payload = if (usesPayload) payload else "",
+        proxyHost = if (usesProxy) proxyHost else "",
+        proxyPort = if (usesProxy) proxyPort.toIntOrNull() else null,
+        tlsVersion = if (usesTls) tlsVersion.ifEmpty { null } else null,
+        useWebSocket = true,
+        wsPath = wsPath,
+        proxyRawMode = proxyRawModeResolved,
+        xrayLink = "",
+        customHeaders = customHeaders,
+        ignoreCertErrors = ignoreCertErrors,
+        dns1 = dns1,
+        dns2 = dns2
+    )
+}
