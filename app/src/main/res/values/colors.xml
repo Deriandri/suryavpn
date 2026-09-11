@@ -16,6 +16,17 @@
     <color name="text_secondary">#6B7280</color>
     <color name="text_hint">#9CA3AF</color>
 
+    <!-- Hero card (Main dashboard): kartu status utama bergradasi ungu di
+         paling atas halaman "Main" - warna teks/ikon di atasnya perlu versi
+         terang tersendiri karena latar belakangnya gelap (bukan putih),
+         beda dari text_primary/text_secondary yang didesain untuk latar
+         terang biasa. -->
+    <color name="hero_gradient_start">#6366F1</color>
+    <color name="hero_gradient_end">#4338CA</color>
+    <color name="hero_icon_badge_bg">#33FFFFFF</color>
+    <color name="text_on_hero">#F5F3FF</color>
+    <color name="text_on_hero_secondary">#C7D2FE</color>
+
     <!-- Status -->
     <color name="status_success">#16A34A</color>
     <color name="status_success_bg">#DCFCE7</color>

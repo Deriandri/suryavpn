@@ -4,7 +4,19 @@
      lama, MINUS header (hamburger+judul, sekarang tetap/fixed di
      activity_dashboard.xml) dan MINUS baris menu "Log Koneksi" (sekarang jadi
      tab "Log" di sebelah kanan, bukan lagi item menu yang buka layar baru —
-     lihat DashboardMainFragment.rowMenuLog). -->
+     lihat DashboardMainFragment.rowMenuLog).
+
+     REDESIGN (permintaan user: "elegan, modern + smooth"):
+     - Status pill + "Profil aktif" sekarang digabung jadi satu kartu "hero"
+       bergradasi ungu di paling atas (ikon lencana + pill status + ringkasan
+       profil), menggantikan pill polos + teks kecil terpisah seperti
+       sebelumnya.
+     - Card "Kontrol Koneksi" dapat sub-judul + tombol yang lebih besar dan
+       memakai ikon power.
+     - Semua id yang dipakai DashboardMainFragment.kt (pillStatus, tvStatus,
+       tvActiveProfile, btnConnectToggle, tvLogEmpty, llLogSteps) TETAP
+       dipertahankan persis, cuma gaya visualnya yang berubah - supaya kode
+       Kotlin yang sudah ada tidak perlu diubah sama sekali. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -19,46 +31,77 @@
         android:padding="16dp"
         android:animateLayoutChanges="true">
 
-        <!-- Status headline ("Belum tersambung" / "Tunnel aktif" / dll):
-             DIPINDAHKAN KE SINI dari activity_dashboard.xml (permintaan
-             user): sebelumnya fixed di bawah tab Main|Log sehingga ikut
-             tampil juga di halaman "Log" (bikin area Terminal sempit).
-             Sekarang jadi bagian dari konten halaman "Main" saja, paling
-             atas, jadi tidak lagi tampil di halaman "Log". Diisi lewat
-             StatusBus.state, lihat DashboardMainFragment.setupStatusPill(). -->
+        <!-- Kartu "hero": ikon lencana + status + ringkasan profil aktif,
+             digabung dalam satu kartu bergradasi supaya jadi titik fokus
+             utama halaman (sebelumnya: pill status polos + baris teks kecil
+             terpisah tanpa hierarki visual yang jelas). -->
         <LinearLayout
-            android:id="@+id/pillStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:background="@drawable/bg_status_pill"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp"
-            android:paddingTop="12dp"
-            android:paddingBottom="12dp"
-            android:layout_marginBottom="16dp">
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:background="@drawable/bg_hero_gradient"
+            android:elevation="6dp"
+            android:paddingTop="28dp"
+            android:paddingBottom="24dp"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:layout_marginBottom="20dp">
+
+            <!-- Lencana ikon VPN, lingkaran putih transparan di atas gradasi. -->
+            <FrameLayout
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:background="@drawable/bg_hero_icon_badge"
+                android:layout_marginBottom="16dp">
+
+                <ImageView
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_vpn_status"
+                    android:contentDescription="@null" />
+            </FrameLayout>
+
+            <!-- Pill status: DIPERTAHANKAN persis id & strukturnya (pillStatus,
+                 tvStatus) karena warna latar & teksnya diganti dinamis lewat
+                 DashboardMainFragment.applyStatusPillColor()
+                 (pillStatus.background as GradientDrawable). Sekarang dibuat
+                 wrap_content & center supaya tampil sebagai "chip" mengambang
+                 di tengah kartu hero, bukan lagi bar penuh selebar layar. -->
+            <LinearLayout
+                android:id="@+id/pillStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:background="@drawable/bg_status_pill"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingTop="10dp"
+                android:paddingBottom="10dp">
+
+                <TextView
+                    android:id="@+id/tvStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Belum tersambung"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/tvStatus"
-                android:layout_width="0dp"
+                android:id="@+id/tvActiveProfile"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Belum tersambung"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                android:layout_marginTop="14dp"
+                android:gravity="center"
+                android:text="Profil aktif: belum ada konfigurasi"
+                android:textColor="@color/text_on_hero_secondary"
+                android:textSize="12.5sp" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/tvActiveProfile"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:layout_marginStart="4dp"
-            android:text="Profil aktif: belum ada konfigurasi"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp" />
 
         <!-- Card: Kontrol Koneksi (Connect & Disconnect satu tempat) -->
         <com.google.android.material.card.MaterialCardView
@@ -76,19 +119,35 @@
                     style="@style/SectionTitleText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:layout_marginBottom="2dp"
                     android:text="Kontrol Koneksi" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:text="Satu tombol untuk menyambungkan atau memutus tunnel Anda"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12.5sp" />
 
                 <!-- Tombol tunggal: Connect/Disconnect digabung jadi satu toggle,
                      tampilan & aksinya berubah sesuai status tunnel saat ini
-                     (lihat DashboardMainFragment.applyConnectButtonState). -->
+                     (lihat DashboardMainFragment.applyConnectButtonState).
+                     Diperbesar (56dp) & ditambah ikon power supaya lebih
+                     tegas sebagai aksi utama halaman ini. -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnConnectToggle"
                     style="@style/Button.Primary"
                     android:layout_width="match_parent"
-                    android:layout_height="52dp"
+                    android:layout_height="56dp"
                     android:text="Connect"
                     android:textAllCaps="false"
-                    android:textSize="15sp" />
+                    android:textSize="16sp"
+                    android:letterSpacing="0.01"
+                    app:icon="@drawable/ic_power"
+                    app:iconGravity="textStart"
+                    app:iconPadding="10dp"
+                    app:cornerRadius="16dp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -119,6 +178,7 @@
                     android:id="@+id/tvLogEmpty"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:lineSpacingExtra="2dp"
                     android:text="Belum ada aktivitas koneksi. Tekan Connect di tab Main untuk memulai."
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />

@@ -16,4 +16,9 @@
         android:icon="@drawable/ic_nav_settings"
         android:title="Pengaturan" />
 
+    <item
+        android:id="@+id/nav_tools"
+        android:icon="@drawable/ic_nav_tools"
+        android:title="Tools" />
+
 </menu>

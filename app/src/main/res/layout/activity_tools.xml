@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Layar "Tools" - tab BARU (ke-4) di bilah navigasi bawah, di samping
+     "Pengaturan" (lihat bottom_nav_menu.xml & ToolsActivity.setupBottomNav()).
+     PERMINTAAN USER: baru navigasinya dulu yang dipasang, isi halamannya
+     masih placeholder kosong - daftar tool sebenarnya (mis. Ping Test,
+     Speed Test, Cek IP) menyusul belakangan, tinggal ganti kartu placeholder
+     di bawah dengan konten aslinya nanti. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/app_background">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Header -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:layout_marginBottom="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Tools"
+                    android:textColor="@color/text_primary"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Alat bantu tambahan untuk tunnel Anda"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Placeholder kosong: menunggu daftar tool sebenarnya (Ping
+                 Test / Speed Test / Cek IP / dll) ditentukan & dibangun. -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Card.Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:gravity="center_horizontal"
+                    android:paddingTop="28dp"
+                    android:paddingBottom="28dp">
+
+                    <ImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@drawable/ic_nav_tools"
+                        android:contentDescription="@null"
+                        app:tint="@color/text_hint"
+                        android:layout_marginBottom="12dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Segera hadir"
+                        android:textColor="@color/text_primary"
+                        android:textStyle="bold"
+                        android:textSize="15sp"
+                        android:layout_marginBottom="4dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text="Halaman ini masih placeholder. Tool seperti Ping Test, Speed Test, atau Cek IP akan ditambahkan di sini."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Bilah navigasi bawah, sama seperti Dashboard/Konfigurasi/Pengaturan:
+         tab "Tools" yang aktif di layar ini. Lihat ToolsActivity.setupBottomNav(). -->
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNav"
+        style="@style/Widget.TunnelApp.BottomNav"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:menu="@menu/bottom_nav_menu" />
+
+</LinearLayout>

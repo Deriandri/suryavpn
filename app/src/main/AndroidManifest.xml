@@ -63,6 +63,14 @@
             android:label="Pengaturan"
             android:launchMode="singleTop" />
 
+        <!-- singleTop: tab ke-4 (baru) di bilah navigasi bawah, di samping
+             "Pengaturan" - lihat ToolsActivity & bottom_nav_menu.xml. -->
+        <activity
+            android:name=".ToolsActivity"
+            android:exported="false"
+            android:label="Tools"
+            android:launchMode="singleTop" />
+
         <service
             android:name=".tunnel.MyVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"

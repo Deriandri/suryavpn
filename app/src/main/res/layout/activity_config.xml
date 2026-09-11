@@ -53,7 +53,7 @@
             <!-- Card: Akun Tersimpan (permintaan user: multi-akun). Isi baris
                  di dalamnya (llAccountsContainer) dibangun DINAMIS lewat kode
                  di ConfigActivity.kt satu row per akun (SSH maupun Xray,
-                 campur, tidak dibatasi jumlahnya) -- lihat
+                 campur, tidak dibatasi jumlahnya) - lihat
                  ConfigActivity.refreshAccountsList(). llAccountEmpty tampil
                  kalau belum ada akun sama sekali. -->
             <com.google.android.material.card.MaterialCardView

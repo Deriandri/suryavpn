@@ -303,6 +303,11 @@ class SettingsActivity : AppCompatActivity() {
                     finish()
                     true
                 }
+                R.id.nav_tools -> {
+                    startActivity(Intent(this, ToolsActivity::class.java))
+                    finish()
+                    true
+                }
                 else -> false
             }
         }

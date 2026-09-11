@@ -82,10 +82,11 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     /**
-     * Bilah navigasi bawah, sekarang TIGA tab: "Dashboard" (layar ini, sudah
+     * Bilah navigasi bawah, sekarang EMPAT tab: "Dashboard" (layar ini, sudah
      * aktif dari awal), "Konfigurasi" (buka [ConfigActivity] -- jalan pintas
-     * ke Konfigurasi SSH/Xray) di TENGAH, & "Pengaturan" (buka
-     * [SettingsActivity] yang berisi VPN Setting + info app) di kanan.
+     * ke Konfigurasi SSH/Xray) di TENGAH, "Pengaturan" (buka
+     * [SettingsActivity] yang berisi VPN Setting + info app), & "Tools" (buka
+     * [ToolsActivity], masih placeholder) di paling kanan.
      * ConfigActivity & SettingsActivity di-launch dengan launchMode="singleTop"
      * (lihat AndroidManifest) supaya tap berkali-kali tidak numpuk banyak
      * instance di back stack. DashboardActivity sendiri adalah ROOT: tetap
@@ -102,6 +103,10 @@ class DashboardActivity : AppCompatActivity() {
                 }
                 R.id.nav_settings -> {
                     startActivity(Intent(this, SettingsActivity::class.java))
+                    true
+                }
+                R.id.nav_tools -> {
+                    startActivity(Intent(this, ToolsActivity::class.java))
                     true
                 }
                 else -> false
