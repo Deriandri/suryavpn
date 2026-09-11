@@ -92,15 +92,45 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <TextView
-                android:id="@+id/tvActiveProfile"
+            <!-- REDESIGN (permintaan user: tampilan "Profil aktif" lebih
+                 profesional/modern/smooth). Sebelumnya teks polos
+                 mengambang langsung di atas gradasi hero, sekarang
+                 dibungkus jadi "chip" kaca (bg_pill_ghost_on_hero, sama
+                 seperti dipakai "Ganti Akun" di bawahnya supaya senada)
+                 + titik indikator kecil di depan teks — konsisten dengan
+                 pola "status dot" yang sudah dipakai di kartu Log
+                 (bg_dot_glow). tvActiveProfile TETAP id & jenis View yang
+                 sama persis (TextView polos) — DashboardMainFragment.kt
+                 masih cuma nulis .text ke situ, tidak ada perubahan Kotlin
+                 sama sekali. -->
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="14dp"
-                android:gravity="center"
-                android:text="Profil aktif: belum ada konfigurasi"
-                android:textColor="@color/text_on_hero_secondary"
-                android:textSize="12.5sp" />
+                android:layout_gravity="center_horizontal"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="@drawable/bg_pill_ghost_on_hero"
+                android:paddingStart="14dp"
+                android:paddingEnd="16dp"
+                android:paddingTop="8dp"
+                android:paddingBottom="8dp">
+
+                <View
+                    android:layout_width="7dp"
+                    android:layout_height="7dp"
+                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/bg_dot_active_profile" />
+
+                <TextView
+                    android:id="@+id/tvActiveProfile"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:text="Profil aktif: belum ada konfigurasi"
+                    android:textColor="@color/text_on_hero_secondary"
+                    android:textSize="12.5sp" />
+            </LinearLayout>
 
             <!-- FITUR BARU (permintaan user): pemilih akun tersimpan langsung
                  dari Dashboard — cuma tampil kalau ada LEBIH DARI SATU akun

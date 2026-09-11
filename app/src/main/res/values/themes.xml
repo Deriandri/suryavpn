@@ -40,6 +40,21 @@
         <item name="strokeWidth">0dp</item>
     </style>
 
+    <!-- REDESIGN (permintaan user: kartu Konfigurasi Akun jadi "profesional,
+         modern, smooth"): tiap akun tersimpan sekarang kartu sendiri-sendiri
+         (elevasi tipis + sudut lebih bulat) alih-alih baris polos bertumpuk
+         di dalam satu kartu besar dengan garis pembatas — lihat
+         item_account_row.xml & ConfigActivity.refreshAccountsList(). Elevasi
+         sengaja dibuat lebih tipis dari Card.Section (1.2dp vs 2dp) supaya
+         tetap terasa ringan/rapi walau banyak kartu ditumpuk berurutan. -->
+    <style name="Card.Account" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardCornerRadius">18dp</item>
+        <item name="cardElevation">1.2dp</item>
+        <item name="contentPadding">14dp</item>
+        <item name="cardBackgroundColor">@color/card_background</item>
+        <item name="strokeWidth">0dp</item>
+    </style>
+
     <style name="SectionTitleText">
         <item name="android:textColor">@color/text_primary</item>
         <item name="android:textStyle">bold</item>

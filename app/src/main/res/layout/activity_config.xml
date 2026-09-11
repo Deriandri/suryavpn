@@ -50,14 +50,106 @@
                     android:textSize="13sp" />
             </LinearLayout>
 
-            <!-- Card: Akun Tersimpan (permintaan user: multi-akun). Isi baris
-                 di dalamnya (llAccountsContainer) dibangun DINAMIS lewat kode
-                 di ConfigActivity.kt satu row per akun (SSH maupun Xray,
-                 campur, tidak dibatasi jumlahnya) - lihat
-                 ConfigActivity.refreshAccountsList(). llAccountEmpty tampil
-                 kalau belum ada akun sama sekali. -->
+            <!-- REDESIGN (permintaan user: "profesional, modern, smooth").
+                 Sebelumnya "Akun Tersimpan" satu kartu besar berisi
+                 baris-baris akun dipisah garis tipis, dan tombol Impor/
+                 Ekspor gampang mepet/tabrakan dengan judul di baris yang
+                 sama. Sekarang: judul & aksi Impor/Ekspor jadi baris
+                 header TERPISAH (bukan lagi di dalam satu kartu), lalu tiap
+                 akun (llAccountsContainer, diisi DINAMIS lewat
+                 ConfigActivity.refreshAccountsList()) jadi KARTU SENDIRI-
+                 SENDIRI (lihat item_account_row.xml, style Card.Account) —
+                 lebih mirip pola list modern (mis. kartu akun/kartu
+                 pembayaran) daripada satu blok panjang bertumpuk.
+                 llAccountEmpty (state belum ada akun) juga jadi kartu
+                 sendiri, konsisten dengan kartu akun asli. -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:layout_marginBottom="10dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Akun Tersimpan"
+                        android:textColor="@color/text_primary"
+                        android:textStyle="bold"
+                        android:textSize="16sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="1dp"
+                        android:text="Kelola, bagikan, atau pindahkan akun Anda"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- FITUR BARU (permintaan user): Impor & Ekspor akun. Lihat
+                     ConfigActivity.onImportClicked/onExportAllClicked &
+                     model/ConfigIO.kt untuk format datanya. Tombol "chip"
+                     soft-brand + ikon supaya lebih menyatu dengan warna
+                     brand app, bukan lagi outline abu-abu netral. -->
+                <TextView
+                    android:id="@+id/btnImportConfig"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_btn_brand_soft"
+                    android:drawableStart="@drawable/ic_import"
+                    android:drawablePadding="5dp"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="12dp"
+                    android:paddingTop="7dp"
+                    android:paddingBottom="7dp"
+                    android:layout_marginEnd="8dp"
+                    android:text="Impor"
+                    android:textColor="@color/brand_primary"
+                    android:textStyle="bold"
+                    android:textSize="12sp"
+                    android:clickable="true"
+                    android:focusable="true" />
+
+                <TextView
+                    android:id="@+id/btnExportAllConfig"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_btn_brand_soft"
+                    android:drawableStart="@drawable/ic_export"
+                    android:drawablePadding="5dp"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="12dp"
+                    android:paddingTop="7dp"
+                    android:paddingBottom="7dp"
+                    android:text="Ekspor"
+                    android:textColor="@color/brand_primary"
+                    android:textStyle="bold"
+                    android:textSize="12sp"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/llAccountsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <!-- State: BELUM ada konfigurasi tersimpan — kartu sendiri,
+                 senada dengan kartu akun asli (Card.Account) supaya tidak
+                 terasa seperti komponen lain sendiri di tengah daftar. -->
             <com.google.android.material.card.MaterialCardView
-                style="@style/Card.Section"
+                android:id="@+id/llAccountEmpty"
+                style="@style/Card.Account"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp">
@@ -65,88 +157,22 @@
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical">
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
+                    <View
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:layout_marginEnd="12dp"
+                        android:background="@drawable/bg_avatar_empty" />
+
+                    <TextView
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="4dp">
-
-                        <TextView
-                            style="@style/SectionTitleText"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Akun Tersimpan" />
-
-                        <!-- FITUR BARU (permintaan user): Impor & Ekspor akun.
-                             Lihat ConfigActivity.onImportClicked/onExportAllClicked
-                             & model/ConfigIO.kt untuk format datanya. -->
-                        <TextView
-                            android:id="@+id/btnImportConfig"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:background="@drawable/bg_btn_neutral_outline"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:paddingTop="5dp"
-                            android:paddingBottom="5dp"
-                            android:layout_marginEnd="6dp"
-                            android:text="Impor"
-                            android:textColor="@color/text_secondary"
-                            android:textStyle="bold"
-                            android:textSize="11.5sp"
-                            android:clickable="true"
-                            android:focusable="true" />
-
-                        <TextView
-                            android:id="@+id/btnExportAllConfig"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:background="@drawable/bg_btn_neutral_outline"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:paddingTop="5dp"
-                            android:paddingBottom="5dp"
-                            android:text="Ekspor Semua"
-                            android:textColor="@color/text_secondary"
-                            android:textStyle="bold"
-                            android:textSize="11.5sp"
-                            android:clickable="true"
-                            android:focusable="true" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:id="@+id/llAccountsContainer"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical" />
-
-                    <!-- State: BELUM ada konfigurasi tersimpan -->
-                    <LinearLayout
-                        android:id="@+id/llAccountEmpty"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:paddingTop="12dp">
-
-                        <View
-                            android:layout_width="44dp"
-                            android:layout_height="44dp"
-                            android:layout_marginEnd="12dp"
-                            android:background="@drawable/bg_avatar_empty" />
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Belum ada akun ditambahkan. Tambahkan lewat Konfigurasi SSH atau Xray di bawah."
-                            android:textColor="@color/text_secondary"
-                            android:textSize="13sp" />
-                    </LinearLayout>
+                        android:layout_weight="1"
+                        android:text="Belum ada akun ditambahkan. Tambahkan lewat Konfigurasi SSH atau Xray di bawah."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

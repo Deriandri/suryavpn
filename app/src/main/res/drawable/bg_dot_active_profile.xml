@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Titik kecil penanda "profil aktif" di kartu hero Dashboard (permintaan
+     user: modernisasi tampilan "Profil aktif"). Solid teal (brand_secondary)
+     supaya kontras jelas di atas gradasi ungu hero, tanpa perlu glow besar
+     seperti bg_dot_glow (dot ini kecil sekali, di dalam chip teks). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/brand_secondary" />
+</shape>

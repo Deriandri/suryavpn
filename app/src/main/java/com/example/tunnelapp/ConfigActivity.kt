@@ -149,16 +149,15 @@ class ConfigActivity : AppCompatActivity() {
         }
         binding.llAccountEmpty.visibility = View.GONE
 
+        // REDESIGN (permintaan user, tampilan modern): tiap akun sekarang
+        // kartu MaterialCardView sendiri-sendiri (lihat item_account_row.xml,
+        // style Card.Account) -- jadi tidak perlu lagi divider manual antar
+        // baris seperti sebelumnya (dividerRow dihapus dari layout), jarak
+        // antar kartu sudah cukup jadi "pemisah" visualnya sendiri.
         val inflater = LayoutInflater.from(this)
-        profiles.forEachIndexed { index, profile ->
+        profiles.forEach { profile ->
             val row = ItemAccountRowBinding.inflate(inflater, binding.llAccountsContainer, false)
             bindAccountRow(row, profile, isActive = profile.id == activeId)
-            if (index == profiles.lastIndex) {
-                // Baris terakhir tidak perlu divider -- kartu sendiri sudah
-                // punya batas visual (elevasi/tepi), divider di sini cuma
-                // bikin garis nganggur di paling bawah kartu.
-                row.dividerRow.visibility = View.GONE
-            }
             binding.llAccountsContainer.addView(row.root)
         }
     }

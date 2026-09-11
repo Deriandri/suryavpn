@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ikon tombol "Ekspor Semua" (header kartu Akun Tersimpan, lihat
+     ConfigActivity). Panah naik dari tray, kebalikan ic_import. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="16dp"
+    android:height="16dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#4F46E5"
+        android:pathData="M9,16h6v-6h4l-7,-7 -7,7h4v6zM5,18h14v2L5,20v-2z"/>
+</vector>

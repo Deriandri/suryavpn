@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tombol pill "soft brand" (permintaan user: modernisasi tampilan
+     Konfigurasi) — latar indigo lembut + efek ripple indigo saat ditekan,
+     dipakai tombol "Impor"/"Ekspor Semua" di header kartu Akun Tersimpan.
+     Beda dari bg_btn_neutral_outline (abu-abu polos, tanpa ripple) yang
+     sebelumnya dipakai di situ — warna brand + feedback sentuhan bikin
+     terasa lebih premium/smooth. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#334F46E5">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#EEF2FF" />
+            <corners android:radius="12dp" />
+        </shape>
+    </item>
+</ripple>
