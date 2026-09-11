@@ -370,7 +370,31 @@ class MyVpnService : VpnService() {
                 startVpn(config)
                 return START_STICKY
             }
-            else -> return START_NOT_STICKY
+            else -> {
+                // FIX (laporan user): notifikasi "SSH tersambung..." nyangkut
+                // di status bar padahal Dashboard sudah bilang "Belum
+                // tersambung". Ini terjadi kalau Android membunuh proses app
+                // di background (manajemen baterai agresif ala MIUI/ColorOS/
+                // FuntouchOS) lalu membangunkan ulang Service ini otomatis
+                // karena onStartCommand() sebelumnya return START_STICKY --
+                // pembangunan ulang itu SELALU dengan intent NULL (tidak
+                // pernah bawa action ACTION_CONNECT lagi), jadi pasti mendarat
+                // di branch ini. Proses baru = StatusBus baru (default
+                // "Belum tersambung", benar apa adanya karena vpnInterface di
+                // instance baru ini juga pasti null, tunnel LAMA sudah mati
+                // bersama proses lama) -- tapi notifikasi lama yang di-set
+                // ongoing=true tidak pernah otomatis hilang, jadi tetap
+                // menampilkan status basi dari sebelum proses mati.
+                // Tanpa START_STICKY di sini pula, supaya Android tidak terus
+                // membangunkan ulang Service kosong berulang-ulang.
+                if (vpnInterface == null) {
+                    val manager = getSystemService(NotificationManager::class.java)
+                    manager?.cancel(NOTIFICATION_ID)
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                }
+                stopSelf()
+                return START_NOT_STICKY
+            }
         }
     }
 
