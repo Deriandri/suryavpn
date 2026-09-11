@@ -51,24 +51,41 @@ class ConfigActivity : AppCompatActivity() {
 
     private fun refreshActiveProfileSummary() {
         val saved = ConfigStore.load(this)
-        binding.tvActiveProfileConfig.text = when {
-            saved == null -> "Belum ada konfigurasi tersimpan"
-            saved.modeIndex == 5 -> {
-                val parsed = runCatching { XrayLinkParser.parse(saved.xrayLink) }.getOrNull()
-                if (parsed != null) {
-                    "Profil aktif: Xray — ${parsed.address}:${parsed.port}"
-                } else {
-                    "Profil aktif: Xray — link belum valid"
-                }
+        if (saved == null) {
+            binding.llAccountFilled.visibility = android.view.View.GONE
+            binding.llAccountEmpty.visibility = android.view.View.VISIBLE
+            return
+        }
+
+        binding.llAccountEmpty.visibility = android.view.View.GONE
+        binding.llAccountFilled.visibility = android.view.View.VISIBLE
+
+        if (saved.modeIndex == 5) {
+            val parsed = runCatching { XrayLinkParser.parse(saved.xrayLink) }.getOrNull()
+            binding.ivAccountAvatarBg.setBackgroundResource(R.drawable.bg_avatar_xray)
+            binding.ivAccountIcon.setImageResource(R.drawable.ic_account_xray)
+            binding.tvAccountTypeBadge.text = "XRAY"
+            binding.tvAccountTitle.text = if (parsed != null) {
+                "${parsed.address}:${parsed.port}"
+            } else {
+                "Link belum valid"
             }
-            else -> {
-                val modeName = when (saved.modeIndex) {
-                    1 -> "SSH SSL"
-                    2 -> "SSH TLS Payload Proxy"
-                    3 -> "Payload + Remote Proxy"
-                    else -> "SSH"
-                }
-                "Profil aktif: $modeName — ${saved.host}:${saved.port}"
+            binding.btnEditAccount.setOnClickListener {
+                startActivity(Intent(this, XrayConfigActivity::class.java))
+            }
+        } else {
+            val modeName = when (saved.modeIndex) {
+                1 -> "SSH SSL"
+                2 -> "SSH TLS PAYLOAD"
+                3 -> "REMOTE PROXY"
+                else -> "SSH"
+            }
+            binding.ivAccountAvatarBg.setBackgroundResource(R.drawable.bg_avatar_ssh)
+            binding.ivAccountIcon.setImageResource(R.drawable.ic_account_ssh)
+            binding.tvAccountTypeBadge.text = modeName
+            binding.tvAccountTitle.text = "${saved.host}:${saved.port}"
+            binding.btnEditAccount.setOnClickListener {
+                startActivity(Intent(this, SshConfigActivity::class.java))
             }
         }
     }

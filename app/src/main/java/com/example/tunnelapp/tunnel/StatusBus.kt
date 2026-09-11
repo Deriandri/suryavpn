@@ -74,6 +74,32 @@ object StatusBus {
         }
     }
 
+    /**
+     * Dipanggil saat user memutus koneksi secara manual SETELAH tunnel
+     * sempat aktif penuh (semua/sebagian tahap sudah SUCCESS).
+     *
+     * FIX (laporan user): "Tahapan Koneksi" di layar Main tetap hijau semua
+     * walau VPN sudah dimatikan dan Log sudah bilang "Terputus". Sebabnya:
+     * markInterrupted() di atas cuma menyentuh tahap yang masih
+     * RUNNING/PENDING -- begitu tunnel sudah connect penuh, semua tahap
+     * sudah SUCCESS, jadi tidak ada yang disentuh sama sekali dan titik
+     * hijau itu nyangkut selamanya sampai user connect ulang.
+     * Di sini tahap yang sudah SUCCESS ikut dikembalikan ke PENDING supaya
+     * kartu "Tahapan Koneksi" benar-benar merefleksikan bahwa tunnel sudah
+     * tidak aktif, bukan cuma menampilkan snapshot terakhir saat connect.
+     */
+    fun markDisconnected() {
+        steps.value = steps.value.map {
+            when (it.status) {
+                StepStatus.RUNNING, StepStatus.PENDING ->
+                    it.copy(status = StepStatus.SKIPPED, detail = "Diputuskan")
+                StepStatus.SUCCESS ->
+                    it.copy(status = StepStatus.PENDING, detail = null)
+                else -> it
+            }
+        }
+    }
+
     /** Ambil detail tahap pertama yang gagal -- ini alasan paling akurat kenapa koneksi putus. */
     fun firstErrorDetail(): String? =
         steps.value.firstOrNull { it.status == StepStatus.ERROR }?.let { "${it.label}: ${it.detail ?: "gagal"}" }

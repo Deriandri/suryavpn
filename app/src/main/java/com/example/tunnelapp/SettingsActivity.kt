@@ -50,7 +50,7 @@ class SettingsActivity : AppCompatActivity() {
         loadGeneralSettingsIntoForm()
         binding.btnSaveGeneralSetting.setOnClickListener { saveGeneralSettingsFromForm() }
 
-        binding.tvAppVersion.text = "TunnelApp — versi ${appVersionName()}"
+        binding.tvAppVersion.text = "SuryaVPN — versi ${appVersionName()}"
 
         setupBottomNav()
     }

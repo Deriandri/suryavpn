@@ -416,7 +416,7 @@ class MyVpnService : VpnService() {
             StatusBus.start(StepId.TUN)
 
             val builder = Builder()
-                .setSession("TunnelApp")
+                .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
                 .addRoute("0.0.0.0", 0)
                 .setMtu(currentMtu)
@@ -631,6 +631,14 @@ class MyVpnService : VpnService() {
                     throw IllegalStateException(reason)
                 }
                 StatusBus.success(StepId.TUNNEL_ACTIVE)
+                // FIX (laporan user): baris terakhir yang pernah masuk ke Log
+                // terminal sebelumnya cuma "Mengaktifkan tunnel ke seluruh
+                // trafik device..." (dari SshTunnelManager) -- tidak pernah ada
+                // baris konfirmasi susulan setelah verifyTunnelReallyWorks()
+                // benar-benar sukses, jadi Log terlihat "berhenti di situ"
+                // padahal sebenarnya sudah terverifikasi aktif. Tambahkan event
+                // nyata di sini supaya Log merefleksikan status sebenarnya.
+                StatusBus.log("Tunnel aktif — verifikasi trafik nyata berhasil, semua koneksi device lewat tunnel.")
                 if (checkStoppedMidway(tunEngine)) return@launch
 
                 // Reconnect (kalau ada) sukses -- reset hitungan percobaan &
@@ -703,6 +711,14 @@ class MyVpnService : VpnService() {
                 if (isReconnect) {
                     scheduleReconnectOrGiveUp("Reconnect gagal: $reason")
                 } else {
+                    // FIX (laporan user): sebelumnya kegagalan connect awal
+                    // (bukan reconnect) cuma nge-update StatusBus.state, jadi
+                    // terminal Log berhenti begitu saja di baris terakhir
+                    // sebelum gagal -- tidak pernah ada baris "Gagal: ..."
+                    // yang benar-benar tertulis ke liveLog. Sama seperti fix
+                    // sebelumnya untuk jalur sukses, di sini juga perlu event
+                    // nyata ke Log supaya konsisten dengan status akhirnya.
+                    StatusBus.log("Gagal: $reason")
                     StatusBus.state.value = "Gagal: $reason"
                     stopVpn()
                 }
@@ -856,7 +872,7 @@ class MyVpnService : VpnService() {
 
             val vpnSettings = VpnSettingsStore.load(this@MyVpnService)
             val builder = Builder()
-                .setSession("TunnelApp")
+                .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
                 .addRoute("0.0.0.0", 0)
                 .setMtu(currentMtu)
@@ -1395,7 +1411,11 @@ class MyVpnService : VpnService() {
         // (spinner) nyangkut selamanya. Sekarang kirim event nyata ke
         // liveLog + tandai tahap yang belum selesai.
         StatusBus.log("Memutuskan tunnel (diminta pengguna)...")
-        StatusBus.markInterrupted()
+        // FIX: pakai markDisconnected() (bukan markInterrupted()) supaya tahap
+        // yang sudah SUCCESS ikut direset -- lihat catatan di StatusBus.kt.
+        // markInterrupted() saja tidak cukup kalau disconnect dipanggil SETELAH
+        // tunnel sempat aktif penuh (semua tahap sudah hijau).
+        StatusBus.markDisconnected()
 
         // Ambil referensi lokal, lalu langsung null-kan field-nya di sini
         // (masih di caller thread, cepat & tidak blocking) supaya startVpn()
@@ -1488,7 +1508,7 @@ class MyVpnService : VpnService() {
         )
 
         return Notification.Builder(this, channelId)
-            .setContentTitle("TunnelApp")
+            .setContentTitle("SuryaVPN")
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_vpn_status)
             .setContentIntent(contentIntent)

@@ -20,48 +20,40 @@
     android:orientation="vertical"
     android:background="@color/app_background">
 
-    <!-- Header: ikon hamburger (buka sidebar) + judul — fixed, tidak ikut
-         digeser/discroll oleh ViewPager2 di bawahnya. -->
+    <!-- Header: judul di tengah — fixed, tidak ikut digeser/discroll oleh
+         ViewPager2 di bawahnya.
+         FIX (permintaan user): ikon hamburger DIHAPUS (drawer isinya cuma
+         duplikat "Dashboard" & "Log" yang sudah ada lewat bottom nav + tab
+         Main|Log, jadi aman dihapus tanpa kehilangan akses fitur apa pun —
+         lihat DashboardActivity.setupSidebar() yang dikunci lewat
+         setDrawerLockMode supaya swipe-edge juga tidak lagi membuka drawer
+         yang sekarang tidak py affordance visualnya). Judul+subjudul
+         di-center secara horizontal di seluruh lebar header, bukan lagi
+         rata kiri nempel ikon. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
         android:paddingStart="16dp"
-        android:paddingEnd="4dp"
+        android:paddingEnd="16dp"
         android:paddingTop="16dp"
         android:paddingBottom="8dp">
 
-        <ImageButton
-            android:id="@+id/btnOpenDrawer"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginEnd="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_menu_hamburger"
-            android:tint="@color/text_primary"
-            android:contentDescription="Buka menu" />
-
-        <LinearLayout
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:text="SuryaVPN"
+            android:textColor="@color/text_primary"
+            android:textSize="24sp"
+            android:textStyle="bold" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="TunnelApp"
-                android:textColor="@color/text_primary"
-                android:textSize="24sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Dashboard"
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-        </LinearLayout>
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Dashboard"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
     </LinearLayout>
 
     <!-- Tab "Main | Log" — fixed juga, tapi TERHUBUNG ke ViewPager2 lewat

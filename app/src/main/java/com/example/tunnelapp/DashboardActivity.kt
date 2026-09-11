@@ -7,6 +7,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import com.example.tunnelapp.databinding.ActivityDashboardBinding
 import com.google.android.material.tabs.TabLayoutMediator
 
@@ -114,9 +115,13 @@ class DashboardActivity : AppCompatActivity() {
      * dengan tab "Main | Log" & baris menu "Log Koneksi" di halaman Main.
      */
     private fun setupSidebar() {
-        binding.btnOpenDrawer.setOnClickListener {
-            binding.drawerLayout.openDrawer(GravityCompat.START)
-        }
+        // FIX (permintaan user): ikon hamburger di header dihapus. Drawer-nya
+        // sendiri sengaja TIDAK dihapus total (item Dashboard/Log di dalamnya
+        // sudah redundan dengan bottom nav + tab Main|Log), tapi karena tidak
+        // ada lagi tombol pembukanya, dikunci penuh supaya swipe dari tepi
+        // layar juga tidak diam-diam membuka panel yang sudah tidak ada
+        // affordance visualnya.
+        binding.drawerLayout.setDrawerLockMode(DrawerLayout.LOCK_MODE_LOCKED_CLOSED)
 
         binding.navDrawer.setCheckedItem(R.id.drawer_dashboard)
         binding.navDrawer.setNavigationItemSelectedListener { item ->
