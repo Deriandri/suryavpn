@@ -19,6 +19,12 @@ import com.example.tunnelapp.R
 import com.example.tunnelapp.model.ServerConfig
 import com.example.tunnelapp.model.GeneralSettingsStore
 import com.example.tunnelapp.model.VpnSettingsStore
+// FIX build error "Unresolved reference: toServerConfigOrNull": fungsi
+// ekstensi di ServerConfig.kt (package model) ini dipakai di
+// pickNextFallbackConfig() tapi belum pernah di-import di sini -- fungsi
+// ekstensi Kotlin TIDAK otomatis ketemu hanya karena tipe datanya (SavedConfig)
+// diakses lewat nama lengkap (fully-qualified), harus di-import eksplisit.
+import com.example.tunnelapp.model.toServerConfigOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
