@@ -45,7 +45,23 @@ import java.net.Socket
  * ([disconnect]) atau hard reset. Kelas bug EADDRINUSE saat reconnect jadi
  * tidak mungkin terjadi lagi secara struktural.
  */
-class SshTunnelManager {
+/**
+ * Bungkus [com.trilead.ssh2.Connection] jadi [SshConnectionHandle] generik,
+ * supaya [Socks5Server] bisa dipakai bersama engine SSH mana pun (lihat
+ * SshEngineTypes.kt) tanpa tahu ini spesifik trilead-ssh2.
+ */
+private class TrileadConnectionHandle(private val conn: Connection) : SshConnectionHandle {
+    override fun openDirectTcpip(host: String, port: Int): DirectTcpipForwarder {
+        val forwarder = conn.createLocalStreamForwarder(host, port)
+        return object : DirectTcpipForwarder {
+            override val inputStream get() = forwarder.inputStream
+            override val outputStream get() = forwarder.outputStream
+            override fun close() = forwarder.close()
+        }
+    }
+}
+
+class SshTunnelManager : SshEngineHandle {
 
     companion object {
         private const val TAG = "SshTunnelManager"
@@ -121,7 +137,7 @@ class SshTunnelManager {
     private val teardownLock = Any()
 
     @Throws(Exception::class)
-    fun connect(
+    override fun connect(
         config: ServerConfig,
         protect: (Socket) -> Boolean,
         // FIX DNS timeout di server yg firewall port 53 outbound -- lihat
@@ -131,7 +147,7 @@ class SshTunnelManager {
         // DNS1/DNS2 sendiri di Pengaturan, supaya Socks5Server tidak
         // pernah mencoba jalur ini sama sekali & tidak ada log/percobaan
         // yang membingungkan.
-        protectDatagram: ((java.net.DatagramSocket) -> Boolean)? = null,
+        protectDatagram: ((java.net.DatagramSocket) -> Boolean)?,
         // FITUR BARU: "Performance Mode" (VpnSettingsStore.performanceMode,
         // kartu "VPN Setting"). true (default) -> TCP_NODELAY dinyalakan di
         // Connection ini (mematikan algoritma Nagle) supaya tiap paket SSH
@@ -141,9 +157,19 @@ class SshTunnelManager {
         // kecil digabung dulu, sedikit lebih hemat overhead kalau device
         // sedang buka banyak koneksi kecil bersamaan ("multi-tasking"),
         // dengan trade-off latensi per-paket sedikit lebih tinggi.
-        performanceMode: Boolean = true,
-        onUnexpectedDisconnect: (String) -> Unit = {}
+        performanceMode: Boolean,
+        // trilead-ssh2 TIDAK mendukung kompresi zlib sama sekali (lihat
+        // catatan JUJUR di VpnSettingsStore.compressionEnabled) -- parameter
+        // ini SENGAJA diterima (supaya signature seragam dengan
+        // SshEngineHandle/SshjTunnelManager) tapi diabaikan di sini, cuma
+        // dicatat ke log kalau true supaya kelihatan jelas saat debugging
+        // kenapa trafik tidak mengecil walau toggle di Pengaturan aktif.
+        compressionEnabled: Boolean,
+        onUnexpectedDisconnect: (String) -> Unit
     ) {
+        if (compressionEnabled) {
+            Log.w(TAG, "compressionEnabled=true diabaikan -- trilead-ssh2 tidak mendukung kompresi zlib")
+        }
         // (a) Relay lokal -- trilead-ssh2 akan connect ke sini, BUKAN
         // langsung ke server asli. Relay inilah yang benar-benar membuka
         // koneksi ke server (dengan protect(), proxy, payload, dan TLS kalau perlu).
@@ -242,6 +268,7 @@ class SshTunnelManager {
         StatusBus.success(StepId.SSH_AUTH)
 
         connection = conn
+        val connHandle = TrileadConnectionHandle(conn)
 
         // (b) SOCKS5 server -- lihat catatan arsitektur di header class ini.
         // Bind() ke port cuma terjadi kalau memang belum ada server yang
@@ -252,7 +279,7 @@ class SshTunnelManager {
         val existing = socks5Server
         try {
             if (existing != null && existing.isRunning()) {
-                existing.attachConnection(conn)
+                existing.attachConnection(connHandle)
                 // protect() lambda-nya sama persis lintas reconnect (masih
                 // instance MyVpnService yang sama sepanjang sesi VPN), tapi
                 // tetap di-set ulang di sini -- murah & menghindari asumsi
@@ -263,7 +290,7 @@ class SshTunnelManager {
                 val fresh = Socks5Server()
                 fresh.setProtectDatagram(protectDatagram)
                 fresh.start(config.socksPort)
-                fresh.attachConnection(conn)
+                fresh.attachConnection(connHandle)
                 socks5Server = fresh
             }        } catch (e: Exception) {
             StatusBus.fail(StepId.SOCKS5, e.message ?: e.javaClass.simpleName)
@@ -291,7 +318,7 @@ class SshTunnelManager {
                 udpgwClientPort = config.udpgwPort
                 fresh
             }
-            client.attachConnection(conn)
+            client.attachConnection(connHandle)
             socks5Server?.setUdpgwClient(client)
             StatusBus.log("[UDPGW] Diaktifkan, target 127.0.0.1:${config.udpgwPort} di sisi server")
         } else {
@@ -473,7 +500,7 @@ class SshTunnelManager {
      * Client SOCKS5 yang kebetulan masuk selagi belum ada koneksi SSH aktif
      * cukup dijawab "connection refused" oleh Socks5Server sendiri.
      */
-    fun disconnectForReconnect() {
+    override fun disconnectForReconnect() {
         synchronized(teardownLock) {
             socks5Server?.detachConnection()
             udpgwClient?.detachConnection()
@@ -500,7 +527,7 @@ class SshTunnelManager {
      * karena titik ini adalah batas sesi yang jelas, bukan reconnect
      * di-tengah-sesi.
      */
-    fun disconnect() {
+    override fun disconnect() {
         synchronized(teardownLock) {
             try {
                 socks5Server?.stop()
@@ -530,5 +557,5 @@ class SshTunnelManager {
         }
     }
 
-    fun isConnected(): Boolean = connection?.isAuthenticationComplete == true
+    override fun isConnected(): Boolean = connection?.isAuthenticationComplete == true
 }

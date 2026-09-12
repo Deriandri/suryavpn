@@ -291,7 +291,13 @@ class MyVpnService : VpnService() {
     // keduanya kalau job lama sudah tidak aktif lagi.
     private var serviceJob = Job()
     private var serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
-    private val sshTunnelManager = SshTunnelManager()
+    // FITUR BARU (permintaan user: "tambah library SSH kedua, bisa pilih di
+    // Pengaturan"): SshEngineRouter memilih trilead-ssh2 ATAU sshj berdasarkan
+    // VpnSettingsStore.sshEngine -- lihat javadoc lengkap di SshEngineRouter.kt.
+    // SEMUA pemanggilan sshTunnelManager.* di bawah (connect/disconnect/
+    // disconnectForReconnect/isConnected) TIDAK PERLU diubah sama sekali,
+    // signature-nya sengaja dibuat identik dengan SshTunnelManager lama.
+    private val sshTunnelManager = SshEngineRouter(this)
     private val xrayTunnelManager by lazy { XrayTunnelManager(this) }
     private var tunEngine: TunEngine? = null
 
@@ -877,6 +883,13 @@ class MyVpnService : VpnService() {
                 // SEBELUM reconnect berikutnya tetap ikut kepakai (establishTunnel
                 // ini juga dipanggil ulang tiap reconnect, lihat isReconnect).
                 val performanceMode = VpnSettingsStore.load(this@MyVpnService).performanceMode
+                // Sama alasannya dengan performanceMode di atas -- di-load
+                // ulang di sini (bukan sekali di startVpn()) supaya toggle
+                // Compression yang user ubah SESUDAH tunnel sempat konek
+                // tapi SEBELUM reconnect berikutnya ikut kepakai. Cuma
+                // benar-benar berefek kalau sshEngine = ENGINE_SSHJ, lihat
+                // catatan lengkap di VpnSettingsStore.compressionEnabled.
+                val compressionEnabled = VpnSettingsStore.load(this@MyVpnService).compressionEnabled
 
                 if (config.usesXray()) {
                     // libXray protect socket beroperasi di level fd mentah (Go/gomobile),
@@ -904,6 +917,7 @@ class MyVpnService : VpnService() {
                             null
                         },
                         performanceMode = performanceMode,
+                        compressionEnabled = compressionEnabled,
                         onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }
                     )
                     StatusBus.state.value = "SSH tersambung. Mengaktifkan tunnel..."

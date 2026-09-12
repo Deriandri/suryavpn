@@ -1,8 +1,6 @@
 package com.example.tunnelapp.tunnel
 
 import android.util.Log
-import com.trilead.ssh2.Connection
-import com.trilead.ssh2.LocalStreamForwarder
 import java.io.DataOutputStream
 import java.io.EOFException
 import java.io.InputStream
@@ -121,8 +119,8 @@ class UdpgwClient(private val remotePort: Int) {
         @Volatile var lastActivityMs: Long = System.currentTimeMillis()
     }
 
-    @Volatile private var sshConnection: Connection? = null
-    @Volatile private var forwarder: LocalStreamForwarder? = null
+    @Volatile private var sshConnection: SshConnectionHandle? = null
+    @Volatile private var forwarder: DirectTcpipForwarder? = null
     @Volatile private var dataOut: DataOutputStream? = null
     @Volatile private var readerThread: Thread? = null
     // Timestamp (System.currentTimeMillis()) sampai kapan openChannelIfNeeded()
@@ -152,7 +150,7 @@ class UdpgwClient(private val remotePort: Int) {
     }
 
     /** Pasang koneksi SSH yang baru connect/reconnect. Channel TCP ke udpgw TIDAK langsung dibuka di sini (lazy, lihat header class). */
-    fun attachConnection(conn: Connection) {
+    fun attachConnection(conn: SshConnectionHandle) {
         sshConnection = conn
         openFailedUntilMs = 0 // koneksi SSH baru -- beri kesempatan baru, jangan warisi cooldown dari sesi SSH sebelumnya
     }
@@ -286,7 +284,7 @@ class UdpgwClient(private val remotePort: Int) {
                 Log.w(TAG, "Belum ada koneksi SSH aktif, tidak bisa buka channel udpgw")
                 return null
             }
-            var fwd: LocalStreamForwarder? = null
+            var fwd: DirectTcpipForwarder? = null
             val openDone = AtomicBoolean(false)
             val guard = Thread({
                 try {
@@ -300,7 +298,7 @@ class UdpgwClient(private val remotePort: Int) {
             }, "udpgw-channel-open-timeout").apply { isDaemon = true; start() }
 
             return try {
-                fwd = conn.createLocalStreamForwarder(REMOTE_HOST, remotePort)
+                fwd = conn.openDirectTcpip(REMOTE_HOST, remotePort)
                 openDone.set(true)
                 guard.interrupt()
 

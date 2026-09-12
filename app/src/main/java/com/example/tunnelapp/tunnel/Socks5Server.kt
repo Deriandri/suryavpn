@@ -1,7 +1,6 @@
 package com.example.tunnelapp.tunnel
 
 import android.util.Log
-import com.trilead.ssh2.Connection
 import java.io.DataInputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -18,8 +17,9 @@ import java.net.Socket
  *
  * Mendukung 2 command:
  *  - CONNECT (0x01): trafik TCP biasa (HTTP/HTTPS/dll), diteruskan lewat
- *    Connection.createLocalStreamForwarder() -- API RESMI trilead-ssh2
- *    untuk membuka "direct-tcpip channel" di dalam tunnel SSH.
+ *    [SshConnectionHandle.openDirectTcpip] -- abstraksi tipis di atas
+ *    "direct-tcpip channel" resmi SSH, supaya server ini jalan sama persis
+ *    di ATAS engine trilead-ssh2 MAUPUN sshj (lihat SshEngineTypes.kt).
  *  - UDP ASSOCIATE (0x03): PENTING untuk DNS. hev-socks5-tunnel mengirim
  *    query DNS device sebagai paket UDP ke sini. Protokol SSH sendiri
  *    TIDAK BISA forward UDP mentah (hanya TCP), jadi query DNS-nya
@@ -118,7 +118,7 @@ class Socks5Server {
     // di jendela itu cukup dijawab "connection refused" oleh SOCKS5, BUKAN
     // bikin seluruh server mati/gagal bind.
     @Volatile
-    private var sshConnection: Connection? = null
+    private var sshConnection: SshConnectionHandle? = null
 
     // Client udpgw opsional -- kalau di-set (lihat setUdpgwClient(), dipasang
     // SshTunnelManager cuma kalau user mengisi VPN Setting > UDPGW Port),
@@ -156,7 +156,7 @@ class Socks5Server {
     fun isRunning(): Boolean = running
 
     /** Pasang koneksi SSH yang baru berhasil connect/reconnect. Port TIDAK disentuh. */
-    fun attachConnection(conn: Connection) {
+    fun attachConnection(conn: SshConnectionHandle) {
         sshConnection = conn
     }
 
@@ -305,8 +305,8 @@ class Socks5Server {
             return
         }
 
-        var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
-        // Watchdog: kalau createLocalStreamForwarder() (buka "direct-tcpip"
+        var forwarder: DirectTcpipForwarder? = null
+        // Watchdog: kalau openDirectTcpip() (buka "direct-tcpip"
         // channel ke targetHost:targetPort lewat SSH) tidak selesai dalam
         // CHANNEL_OPEN_TIMEOUT_MS, tutup paksa forwarder-nya begitu ia
         // akhirnya kebentuk -- ini membuat request YANG MACET gagal dengan
@@ -326,7 +326,7 @@ class Socks5Server {
             }
         }, "socks5-channel-open-timeout").apply { isDaemon = true; start() }
         try {
-            forwarder = conn.createLocalStreamForwarder(targetHost, targetPort)
+            forwarder = conn.openDirectTcpip(targetHost, targetPort)
             openDone.set(true)
             openTimeoutGuard.interrupt()
 
@@ -629,21 +629,20 @@ class Socks5Server {
             // perilaku asli sebelum fix ini, device/hev-socks5-tunnel akan
             // mengirim ulang query-nya sendiri.
             if (conn == null) return@Thread
-            var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
+            var forwarder: DirectTcpipForwarder? = null
             val done = java.util.concurrent.atomic.AtomicBoolean(false)
             // FIX (root cause "hev-socks5-tunnel 'io timeout' berulang cepat,
             // DNS device tidak pernah kejawab"): watchdog SEBELUMNYA baru
-            // dipasang SETELAH createLocalStreamForwarder() (buka channel)
+            // dipasang SETELAH openDirectTcpip() (buka channel)
             // selesai -- kalau justru PEMBUKAAN channel itu sendiri yang
             // macet (server SSH tidak pernah membalas permintaan buka
             // direct-tcpip ke <dns>:53, mis. karena diblokir firewall),
             // panggilan itu bisa menggantung SANGAT lama (dibatasi timeout
-            // internal trilead-ssh2 yang defaultnya besar, bukan
-            // DNS_RELAY_TIMEOUT_MS kita) -- watchdog kita sendiri belum
-            // sempat menyala sama sekali. Sekarang watchdog dipasang
-            // SEBELUM createLocalStreamForwarder() dipanggil, supaya fase
-            // "buka channel" ikut ditimeout juga, bukan cuma fase "baca
-            // balasan" setelah channel terbuka.
+            // internal library SSH yang aktif, bukan DNS_RELAY_TIMEOUT_MS
+            // kita) -- watchdog kita sendiri belum sempat menyala sama
+            // sekali. Sekarang watchdog dipasang SEBELUM openDirectTcpip()
+            // dipanggil, supaya fase "buka channel" ikut ditimeout juga,
+            // bukan cuma fase "baca balasan" setelah channel terbuka.
             val timeoutGuard = Thread({
                 try {
                     Thread.sleep(DNS_RELAY_TIMEOUT_MS)
@@ -656,7 +655,7 @@ class Socks5Server {
                 }
             }, "socks5-dns-relay-timeout").apply { isDaemon = true; start() }
             try {
-                forwarder = conn.createLocalStreamForwarder(destHost, destPort)
+                forwarder = conn.openDirectTcpip(destHost, destPort)
                 val fwd = forwarder!!
 
                 val fOut = fwd.outputStream

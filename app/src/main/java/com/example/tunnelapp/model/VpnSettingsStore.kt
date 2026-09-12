@@ -58,17 +58,27 @@ import android.content.Context
  * overhead paket utk banyak koneksi kecil bersamaan (browsing/chat/banyak app),
  * dengan trade-off latensi sedikit lebih tinggi per paket.
  *
- * [compressionEnabled] -- JUJUR: engine SSH yang dipakai app ini (fork
- * jenkinsci/trilead-ssh2, lihat SshTunnelManager) TIDAK mengimplementasikan
- * algoritma kompresi "zlib"/"zlib@openssh.com" di key exchange SSH sama sekali
- * (cryptoWishList di library ini cuma pernah menawarkan "none") -- beda dgn
- * OpenSSH/Dropbear yg support itu. Jadi toggle ini SENGAJA baru tersimpan di
- * VpnSettingsStore & ditampilkan di UI (paritas layar dgn app referensi), TAPI
- * BELUM disambungkan ke SshTunnelManager mana pun karena tidak ada API publik
- * di library ini utk itu -- pasang beneran butuh vendor+patch source
- * trilead-ssh2 sendiri (nambah codec deflate/inflate di TransportManager),
- * bukan sekadar ubah kode app ini. Jangan salah kira toggle ini mengecilkan
- * trafik SSH nyata sampai itu benar-benar dikerjakan.
+ * [sshEngine] pilih IMPLEMENTASI SSH yang dipakai [com.example.tunnelapp.tunnel.SshEngineRouter]:
+ *  - [ENGINE_TRILEAD] (default): fork jenkinsci/trilead-ssh2, engine ASLI app
+ *    ini sejak awal, sudah paling teruji. TIDAK mendukung kompresi zlib sama
+ *    sekali (lihat catatan [compressionEnabled] di bawah).
+ *  - [ENGINE_SSHJ]: engine kedua (com.hierynomus:sshj) yang BENERAN mendukung
+ *    kompresi zlib/zlib@openssh.com (lihat SshjTunnelManager.useCompression()).
+ *    Dipilih sebagai engine kedua (bukan Apache MINA SSHD) karena API-nya
+ *    blocking/socket biasa yang cocok dengan arsitektur relay+SOCKS5 app ini,
+ *    dan riwayat kompatibilitas Android yang lebih baik dibanding MINA SSHD.
+ *    Fitur non-esensial trilead (reorder cipher cepat, ekstraksi server
+ *    banner lewat reflection) BELUM diportasi ke engine ini -- fungsi inti
+ *    (auth password, semua [ConnectionMode] lewat ConnectRelay yang sama,
+ *    SOCKS5 lokal, forwarding UDPGW) tetap jalan penuh.
+ *
+ * [compressionEnabled] -- JUJUR: trilead-ssh2 (ENGINE_TRILEAD) TIDAK
+ * mengimplementasikan algoritma kompresi "zlib"/"zlib@openssh.com" di key
+ * exchange SSH sama sekali (cryptoWishList di library ini cuma pernah
+ * menawarkan "none"). Toggle ini SEKARANG BEREFEK NYATA, TAPI HANYA kalau
+ * [sshEngine] = [ENGINE_SSHJ] -- SettingsActivity mengunci (disable) switch
+ * ini kalau engine yang dipilih masih ENGINE_TRILEAD, supaya tidak
+ * menyesatkan user seolah aktif padahal enginenya tidak mendukung.
  */
 data class VpnSettings(
     val dns1: String = "",
@@ -91,9 +101,13 @@ data class VpnSettings(
     // Default true: langsung "mode full traffic" (lihat catatan performanceMode
     // di atas) tanpa perlu diaktifkan manual, meniru default ON di app referensi.
     val performanceMode: Boolean = true,
-    // Default true (paritas UI dgn app referensi) -- lihat catatan JUJUR di
-    // atas soal keterbatasan library: belum ada efek nyata ke ukuran trafik.
-    val compressionEnabled: Boolean = true
+    // Default false -- lihat catatan JUJUR di atas: cuma berefek nyata kalau
+    // sshEngine = ENGINE_SSHJ, dikunci disabled di UI selama masih ENGINE_TRILEAD.
+    val compressionEnabled: Boolean = false,
+    // Default ENGINE_TRILEAD -- engine asli app ini, paling teruji. User
+    // pindah ke ENGINE_SSHJ secara sadar lewat kartu "VPN Setting" kalau mau
+    // kompresi beneran aktif atau mau coba engine alternatif.
+    val sshEngine: String = ENGINE_TRILEAD
 ) {
     companion object {
         const val DEFAULT_MTU = 1500
@@ -116,6 +130,9 @@ data class VpnSettings(
         const val DEFAULT_SOCKS_PORT = 3080
         const val DEFAULT_HTTP_PORT = 8880
         const val DEFAULT_UDPGW_PORT = 7300
+
+        const val ENGINE_TRILEAD = "TRILEAD"
+        const val ENGINE_SSHJ = "SSHJ"
     }
 }
 
@@ -131,6 +148,7 @@ object VpnSettingsStore {
     private const val KEY_UDPGW_PORT = "vpn_udpgw_port"
     private const val KEY_PERFORMANCE_MODE = "vpn_performance_mode"
     private const val KEY_COMPRESSION_ENABLED = "vpn_compression_enabled"
+    private const val KEY_SSH_ENGINE = "vpn_ssh_engine"
 
     fun load(context: Context): VpnSettings {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -144,7 +162,12 @@ object VpnSettingsStore {
             httpPort = prefs.getInt(KEY_HTTP_PORT, VpnSettings.DEFAULT_HTTP_PORT),
             udpgwPort = prefs.getInt(KEY_UDPGW_PORT, VpnSettings.DEFAULT_UDPGW_PORT),
             performanceMode = prefs.getBoolean(KEY_PERFORMANCE_MODE, true),
-            compressionEnabled = prefs.getBoolean(KEY_COMPRESSION_ENABLED, true)
+            compressionEnabled = prefs.getBoolean(KEY_COMPRESSION_ENABLED, false),
+            // Data lama (sebelum fitur multi-engine ini ada) tidak punya key
+            // ini sama sekali -- default ke ENGINE_TRILEAD supaya perilaku
+            // user lama TIDAK BERUBAH sama sekali.
+            sshEngine = prefs.getString(KEY_SSH_ENGINE, VpnSettings.ENGINE_TRILEAD)
+                ?: VpnSettings.ENGINE_TRILEAD
         )
     }
 
@@ -161,6 +184,7 @@ object VpnSettingsStore {
             .putInt(KEY_UDPGW_PORT, settings.udpgwPort)
             .putBoolean(KEY_PERFORMANCE_MODE, settings.performanceMode)
             .putBoolean(KEY_COMPRESSION_ENABLED, settings.compressionEnabled)
+            .putString(KEY_SSH_ENGINE, settings.sshEngine)
             .apply()
     }
 }

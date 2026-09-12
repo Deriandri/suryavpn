@@ -90,6 +90,21 @@ dependencies {
     // sama (com.trilead.ssh2.*), jadi tidak perlu ubah kode Kotlin manapun.
     implementation("org.jenkins-ci:trilead-ssh2:build-217-jenkins-293.v56de4d4d3515")
 
+    // --- Engine SSH KEDUA (permintaan user): sshj ---
+    // Dipilih dibanding Apache MINA SSHD (paling lengkap tapi berbasis NIO
+    // gaya server, riwayat rewel di Android) karena API-nya blocking/socket
+    // biasa (SSHClient.connect ke host:port, cocok dipasangkan ke
+    // ConnectRelay lokal yang sama seperti trilead-ssh2 di atas) DAN sudah
+    // terbukti dipakai di banyak app Android production. Beda dari trilead-
+    // ssh2, sshj BENERAN mendukung kompresi zlib/zlib@openssh.com lewat
+    // SSHClient.useCompression() -- lihat SshjTunnelManager & catatan
+    // VpnSettingsStore.compressionEnabled.
+    implementation("com.hierynomus:sshj:0.38.0")
+    // sshj pakai SLF4J utk logging -- tanpa binding, log-nya cuma "no-op"
+    // (aman, TIDAK crash), tapi slf4j-android di bawah ini meneruskannya ke
+    // Logcat (memudahkan debugging engine ini).
+    implementation("org.slf4j:slf4j-android:1.7.36")
+
     // --- Modul Xray (tahap 3) ---
     // 1. Ambil/compile xray.aar dari proyek resmi XTLS/libXray (https://github.com/XTLS/libXray),
     //    letakkan hasilnya di app/libs/xray.aar.

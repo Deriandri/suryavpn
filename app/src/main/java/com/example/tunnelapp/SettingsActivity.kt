@@ -261,6 +261,20 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /** Isi form VPN Setting dari [VpnSettingsStore] (dipanggil tiap onCreate, termasuk saat kembali dari layar lain lewat singleTop). */
+    /**
+     * Kunci/buka switchCompression sesuai engine yang SEDANG dipilih di UI
+     * (belum tentu sudah disimpan) -- lihat catatan JUJUR di
+     * VpnSettingsStore.compressionEnabled soal kenapa cuma sshj yang boleh.
+     */
+    private fun applyCompressionSwitchAvailability(sshjSelected: Boolean) {
+        binding.switchCompression.isEnabled = sshjSelected
+        binding.tvCompressionHint.text = if (sshjSelected) {
+            "Compress trafik SSH pakai zlib -- BENERAN aktif di engine sshj."
+        } else {
+            "Compress trafik SSH pakai zlib. Cuma berfungsi nyata di engine sshj -- pilih 'sshj (Beta)' di SSH Engine di atas dulu, baru toggle ini bisa dinyalakan. Engine Trilead tidak mendukung ini sama sekali (dikunci otomatis)."
+        }
+    }
+
     private fun loadVpnSettingsIntoForm() {
         val settings = VpnSettingsStore.load(this)
         binding.etVpnDns1.setText(settings.dns1)
@@ -269,7 +283,30 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
         binding.switchAutoReconnect.isChecked = settings.autoReconnect
         binding.switchPerformanceMode.isChecked = settings.performanceMode
-        binding.switchCompression.isChecked = settings.compressionEnabled
+        // Pilih tombol SSH Engine sesuai setting tersimpan (default TRILEAD).
+        binding.toggleSshEngine.check(
+            if (settings.sshEngine == VpnSettings.ENGINE_SSHJ) R.id.btnEngineSshj else R.id.btnEngineTrilead
+        )
+        // Compression cuma BENERAN berfungsi di engine sshj (lihat catatan
+        // JUJUR di VpnSettingsStore.compressionEnabled) -- switch-nya
+        // dikunci mati kalau engine yang lagi dipilih masih TRILEAD, dan
+        // baru bisa dinyalakan user kalau sudah pindah ke sshj. Listener di
+        // bawah (addOnButtonCheckedListener) menjaga ini tetap konsisten
+        // secara LIVE kalau user gonta-ganti pilihan engine tanpa Simpan dulu.
+        applyCompressionSwitchAvailability(settings.sshEngine == VpnSettings.ENGINE_SSHJ)
+        binding.switchCompression.isChecked = settings.compressionEnabled && settings.sshEngine == VpnSettings.ENGINE_SSHJ
+        binding.toggleSshEngine.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            val sshjSelected = checkedId == R.id.btnEngineSshj
+            applyCompressionSwitchAvailability(sshjSelected)
+            if (!sshjSelected) {
+                // Pindah balik ke Trilead -- matikan togglenya juga (bukan
+                // cuma dikunci), supaya kalau user langsung Simpan tanpa
+                // sadar, compressionEnabled yang tersimpan tetap false
+                // (konsisten dengan saveVpnSettingsFromForm di bawah).
+                binding.switchCompression.isChecked = false
+            }
+        }
         // 0 berarti "tidak diisi" -- tampilkan field kosong, bukan "0",
         // supaya konsisten dengan makna kosong = pakai default/nonaktif.
         binding.etVpnSocksPort.setText(if (settings.socksPort > 0) settings.socksPort.toString() else "")
@@ -325,6 +362,12 @@ class SettingsActivity : AppCompatActivity() {
         val httpPort = parseOptionalPort(binding.etVpnHttpPort, "HTTP Port") ?: return
         val udpgwPort = parseOptionalPort(binding.etVpnUdpgwPort, "UDPGW Port") ?: return
 
+        val sshEngine = if (binding.toggleSshEngine.checkedButtonId == R.id.btnEngineSshj) {
+            VpnSettings.ENGINE_SSHJ
+        } else {
+            VpnSettings.ENGINE_TRILEAD
+        }
+
         VpnSettingsStore.save(
             this,
             VpnSettings(
@@ -337,7 +380,14 @@ class SettingsActivity : AppCompatActivity() {
                 httpPort = httpPort,
                 udpgwPort = udpgwPort,
                 performanceMode = binding.switchPerformanceMode.isChecked,
-                compressionEnabled = binding.switchCompression.isChecked
+                // Simpan apa adanya dari switch UI, TAPI dijaga ganda di
+                // sini: kalau entah bagaimana engine yang tersimpan masih
+                // TRILEAD (switch seharusnya sudah dikunci mati di kondisi
+                // ini oleh applyCompressionSwitchAvailability), tetap paksa
+                // false -- jangan pernah simpan compressionEnabled=true
+                // berpasangan dengan sshEngine=TRILEAD.
+                compressionEnabled = binding.switchCompression.isChecked && sshEngine == VpnSettings.ENGINE_SSHJ,
+                sshEngine = sshEngine
             )
         )
         Toast.makeText(this, "VPN Setting disimpan", Toast.LENGTH_SHORT).show()
