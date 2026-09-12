@@ -622,30 +622,29 @@ class MyVpnService : VpnService() {
                 .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
                 .addRoute("0.0.0.0", 0)
-                // FIX (laporan user: "tunnel terhubung tapi internet tidak
-                // jalan sama sekali"): SEBELUMNYA cuma addRoute untuk IPv4
-                // ("0.0.0.0/0") -- TIDAK PERNAH addRoute untuk IPv6. Engine
-                // hev-socks5-tunnel yang dipakai app ini JUGA cuma dukung
-                // IPv4 (lihat config YAML di HevSocks5Engine, cuma ada field
-                // "ipv4:"). Tanpa rute IPv6 di TUN, Android menganggap VPN ini
-                // TIDAK menangani IPv6 sama sekali -- trafik IPv6 device jadi
-                // lewat JALUR ASLI OPERATOR, DI LUAR TUNNEL, walau status VPN
-                // sudah "aktif". Di jaringan seluler yang menyediakan IPv6
-                // (umum di operator Indonesia), browser/app SELALU mencoba
-                // IPv6 dulu (Happy Eyeballs) sebelum fallback ke IPv4 --
-                // kalau jalur asli operator itu dibatasi/diblokir (alasan
-                // utama orang pakai tunnel ini), hasilnya internet terasa
-                // MATI TOTAL walau tunnel status "Tunnel aktif", dan
-                // gonta-ganti jalur IPv6<->IPv4 ini yang memicu
-                // ERR_NETWORK_CHANGED di browser.
-                // addRoute("::", 0) di bawah TIDAK membuat IPv6 beneran jalan
-                // lewat tunnel (engine-nya tidak dukung) -- efeknya "menahan"
-                // semua trafik IPv6 di dalam TUN lalu dibuang bersih (device
-                // langsung tahu harus fallback ke IPv4 yang BENAR lewat
-                // tunnel), alih-alih membiarkannya bocor lewat jalur asli
-                // operator. Teknik standar yang dipakai hampir semua app VPN
-                // IPv4-only (OpenVPN, WireGuard for Android, dll).
-                .addRoute("::", 0)
+                // REVERT (laporan user: server SSH yang dipakai TIDAK punya rute
+                // IPv6 sama sekali -- SEMUA percobaan CONNECT SOCKS5 ke tujuan
+                // IPv6 selalu gagal "Could not open channel (state:4)", terus
+                // diulang oleh hev-socks5-tunnel/browser tanpa henti, bikin log
+                // penuh & internet berasa lambat/macet). addRoute("::", 0)
+                // SEHARUSNYA cuma "menahan lalu buang bersih" trafik IPv6 di
+                // dalam TUN (lihat versi lama fungsi ini) -- tapi pada
+                // praktiknya hev-socks5-tunnel TETAP menangkap paket IPv6 itu
+                // & mengirimkannya sebagai request SOCKS5 CONNECT ber-ATYP
+                // IPv6 ke Socks5Server, yang lalu diteruskan ke server SSH --
+                // bukan didrop diam-diam seperti yang diharapkan. Sekarang
+                // IPv6 TIDAK di-route ke TUN sama sekali -- device akan
+                // memakai jalur asli (di luar tunnel) untuk trafik IPv6,
+                // sama seperti sebelum VPN dinyalakan.
+                // CATATAN (trade-off, bukan bug): kalau jaringan asli device
+                // punya IPv6 DAN jalur asli itu sendiri yang dibatasi/diblokir
+                // operator (alasan awal orang pakai tunnel ini), app yang
+                // mencoba IPv6 dulu (Happy Eyeballs) bisa tetap terasa lambat
+                // sebelum fallback ke IPv4 asli device -- tapi ini di LUAR
+                // tunnel, tunnel/log SOCKS5 tidak lagi kebanjiran percobaan
+                // yang pasti gagal. Kalau nanti server SSH lain yang dipakai
+                // TERNYATA punya rute IPv6, addRoute("::", 0) bisa diaktifkan
+                // lagi khusus untuk server itu.
                 .setMtu(currentMtu)
             applyDnsServers(builder, config, vpnSettings)
 
@@ -1173,14 +1172,14 @@ class MyVpnService : VpnService() {
             StatusBus.start(StepId.TUN)
 
             val vpnSettings = VpnSettingsStore.load(this@MyVpnService)
-            // FIX (sama seperti startVpn()): cegah kebocoran trafik IPv6 di
-            // luar tunnel -- lihat catatan panjang di builder pertama pada
-            // startVpn().
+            // REVERT (sama seperti startVpn()): IPv6 TIDAK di-route ke TUN --
+            // lihat catatan panjang di builder pertama pada startVpn() untuk
+            // alasannya (server SSH tidak punya rute IPv6, jadi semua CONNECT
+            // ke tujuan IPv6 selalu gagal & membanjiri log).
             val builder = Builder()
                 .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
                 .addRoute("0.0.0.0", 0)
-                .addRoute("::", 0)
                 .setMtu(currentMtu)
             applyDnsServers(builder, config, vpnSettings)
 
