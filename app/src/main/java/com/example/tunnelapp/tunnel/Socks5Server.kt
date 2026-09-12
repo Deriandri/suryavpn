@@ -102,8 +102,8 @@ class Socks5Server {
     @Volatile
     private var protectDatagram: ((DatagramSocket) -> Boolean)? = null
 
-    /** Pasang fungsi protect() dari VpnService, dipakai utk device-side DNS. */
-    fun setProtectDatagram(fn: (DatagramSocket) -> Boolean) {
+    /** Pasang/lepas fungsi protect() dari VpnService, dipakai utk device-side DNS. null = matikan bypass total. */
+    fun setProtectDatagram(fn: ((DatagramSocket) -> Boolean)?) {
         protectDatagram = fn
     }
 
@@ -247,6 +247,19 @@ class Socks5Server {
                 0x03 -> handleUdpAssociate(client, output)
                 else -> client.close()
             }
+        } catch (e: java.io.EOFException) {
+            // JINAK, BUKAN error nyata: klien (hev-socks5-tunnel) menutup
+            // koneksi TCP kontrol ini SEBELUM menyelesaikan handshake SOCKS5
+            // -- rutin terjadi tiap kali library-nya "probe" koneksi lokal,
+            // atau jaringan device sempat kedip (wifi<->seluler) tepat di
+            // tengah handshake. Sebelumnya di-log sebagai "[SOCKS5] Error
+            // handle client: EOFException" di terminal, kelihatan seperti
+            // error padahal tidak ada dampak (thread ini cuma utk satu
+            // percobaan koneksi, tidak menyentuh tunnel/koneksi lain sama
+            // sekali). Sekarang cukup dicatat ke Logcat, TIDAK ke terminal
+            // log app supaya tidak membingungkan/terkesan seperti masalah.
+            Log.d(TAG, "Koneksi SOCKS5 client ditutup sebelum handshake selesai (EOF, jinak)")
+            try { client.close() } catch (_: Exception) {}
         } catch (e: Exception) {
             Log.e(TAG, "Error handle SOCKS5 client", e)
             StatusBus.log("[SOCKS5] Error handle client: ${e.message ?: e.javaClass.simpleName}")

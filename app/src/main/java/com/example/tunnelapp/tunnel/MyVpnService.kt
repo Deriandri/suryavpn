@@ -306,6 +306,19 @@ class MyVpnService : VpnService() {
     // otomatis tanpa perlu minta izin VPN ke user lagi (TUN interface yang
     // sudah establish() dibiarkan hidup selama proses reconnect).
     private var lastConfig: ServerConfig? = null
+
+    // FIX (permintaan user: DNS device-side bypass JANGAN otomatis nyala
+    // sendiri diam-diam -- terlalu "ajaib"/tidak terduga, dan device-side
+    // artinya DNS device jadi keluar dari tunnel (trade-off privasi)).
+    // Sekarang bypass itu HANYA aktif kalau user ISI SENDIRI DNS1/DNS2 di
+    // kartu "VPN Setting" yang SUDAH ADA (VpnSettingsStore) atau di
+    // Konfigurasi SSH per-server (ServerConfig.dns1/dns2) -- persis sinyal
+    // yang sama dipakai applyDnsServers() utk menentukan apakah DEFAULT_DNS
+    // fallback dipakai atau tidak. Diisi ulang tiap kali applyDnsServers()
+    // dipanggil (initial connect & hard-reset reconnect), dibaca di
+    // establishTunnel() saat connect SSH.
+    @Volatile
+    private var customDnsConfigured: Boolean = false
     private var reconnectAttempt = 0
     // --- FITUR BARU: fallback otomatis ke akun cadangan ---
     // Kalau akun yang lagi aktif gagal terus (reconnect ringan + reset penuh
@@ -679,9 +692,17 @@ class MyVpnService : VpnService() {
      * Prioritas sumber DNS: DNS1/DNS2 di kartu "VPN Setting"
      * ([VpnSettingsStore], global) MENIMPA DNS per-server
      * ([ServerConfig.dns1]/[ServerConfig.dns2], dari Konfigurasi SSH) kalau
-     * salah satunya diisi. Kalau keduanya kosong/tidak diisi sama sekali,
-     * fallback ke [DEFAULT_DNS] supaya resolusi domain tetap jalan seperti
-     * perilaku lama.
+     * salah satunya diisi.
+     *
+     * PERCOBAAN (atas permintaan user, SUDAH DIPERINGATKAN risikonya):
+     * fallback ke [DEFAULT_DNS] DIHAPUS -- kalau DNS1/DNS2 kosong semua,
+     * TIDAK ADA addDnsServer() dipanggil sama sekali. Efek yang paling
+     * mungkin: resolusi domain gagal total buat user yang tidak isi
+     * DNS1/DNS2 manual, karena addRoute("0.0.0.0", 0) tetap menangkap
+     * SEMUA trafik ke TUN termasuk DNS bawaan operator/wifi (yang sering
+     * berupa IP privat, tidak bisa dicapai server SSH). Kalau efeknya
+     * memang seburuk itu, tinggal balikin baris addDnsServer(DEFAULT_DNS)
+     * di bawah (kodenya dipertahankan dlm komentar, bukan dihapus total).
      */
     private fun applyDnsServers(builder: Builder, config: ServerConfig, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
         val useGlobalOverride = vpnSettings.dns1.isNotBlank() || vpnSettings.dns2.isNotBlank()
@@ -703,8 +724,15 @@ class MyVpnService : VpnService() {
             }
         }
         if (!addedAny) {
-            builder.addDnsServer(DEFAULT_DNS)
+            // builder.addDnsServer(DEFAULT_DNS)  // DIMATIKAN sesuai permintaan user
+            StatusBus.log("[DNS] DNS1/DNS2 kosong -- TIDAK ada DNS default dipasang ke TUN (fallback $DEFAULT_DNS dimatikan)")
         }
+
+        // addedAny == true berarti user MEMANG mengisi DNS1/DNS2 sendiri
+        // (bukan fallback DEFAULT_DNS diam-diam) -- inilah sinyal "DNS
+        // diisi manual di Pengaturan" yang dipakai establishTunnel() utk
+        // menyalakan/mematikan device-side DNS bypass di Socks5Server.
+        customDnsConfigured = addedAny
     }
 
     /**
@@ -803,13 +831,20 @@ class MyVpnService : VpnService() {
                     sshTunnelManager.connect(
                         config,
                         protect = { socket -> protect(socket) },
-                        // FIX DNS timeout di server yg firewall port 53 --
-                        // lihat catatan lengkap di Socks5Server. Overload
-                        // protect() KHUSUS DatagramSocket (beda dari yang
-                        // dipakai socket kontrol SSH di atas), dipakai
-                        // Socks5Server utk resolve DNS langsung di jaringan
-                        // device, bypass tunnel.
-                        protectDatagram = { datagramSocket -> protect(datagramSocket) },
+                        // FIX (permintaan user): device-side DNS bypass di
+                        // Socks5Server HANYA aktif kalau user mengisi
+                        // sendiri DNS1/DNS2 di Pengaturan (lihat
+                        // customDnsConfigured/applyDnsServers). Kalau tidak
+                        // diisi (pakai DEFAULT_DNS), lambda-nya sengaja
+                        // dibuat SELALU return false -- Socks5Server bakal
+                        // langsung fallback ke relay SSH lama tanpa pernah
+                        // benar-benar kirim trafik di luar tunnel, PERSIS
+                        // perilaku sebelum fitur bypass ini ada.
+                        protectDatagram = if (customDnsConfigured) {
+                            { datagramSocket -> protect(datagramSocket) }
+                        } else {
+                            null
+                        },
                         onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }
                     )
                     StatusBus.state.value = "SSH tersambung. Mengaktifkan tunnel..."
