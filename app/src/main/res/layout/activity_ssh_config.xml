@@ -445,8 +445,8 @@
 
                 <!-- FITUR BARU (permintaan user): Path WebSocket & Header HTTP
                      tambahan disembunyikan di balik toggle "Opsi Lanjutan"
-                     supaya form tidak penuh dengan field yang jarang dipakai
-                     -- baris ini murni tombol buka/tutup, logika aktif/tidak-
+                     supaya form tidak penuh dengan field yang jarang dipakai;
+                     baris ini murni tombol buka/tutup, logika aktif/tidak-
                      aktifnya (redup saat tidak dipakai mode saat ini) tetap
                      sama seperti sebelumnya, lihat updateWsAndHeaderFieldState
                      & SshConfigActivity.onCreate (auto-expand kalau salah
