@@ -8,7 +8,8 @@ object StreamPump {
     private const val TAG = "StreamPump"
     // FITUR BARU (maksimalkan kecepatan): sama seperti Socks5Server -- naik
     // dari 8KB -> 32KB, mengurangi jumlah syscall read()/write() per MB data.
-    private const val BUFFER_SIZE_BYTES = 32768
+    // REVERT (laporan user, sama seperti Socks5Server.kt): dikembalikan ke 8KB.
+    private const val BUFFER_SIZE_BYTES = 8192
 
     fun pumpBothWays(a: Socket, b: Socket) {
         Thread({ copy(a, b) }, "pump-a-to-b").apply { isDaemon = true; start() }

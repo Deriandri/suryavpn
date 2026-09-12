@@ -37,7 +37,8 @@ class HttpProxyServer {
         private const val TAG = "HttpProxyServer"
         private const val SOCKS_HANDSHAKE_TIMEOUT_MS = 8000
         // FITUR BARU (maksimalkan kecepatan): sama seperti Socks5Server/StreamPump.
-        private const val PUMP_BUFFER_SIZE_BYTES = 32768
+        // REVERT (laporan user, sama seperti Socks5Server.kt): dikembalikan ke 8KB.
+        private const val PUMP_BUFFER_SIZE_BYTES = 8192
     }
 
     private var serverSocket: ServerSocket? = null

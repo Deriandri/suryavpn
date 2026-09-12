@@ -62,7 +62,13 @@ class Socks5Server {
         // dinaikkan tanpa risiko -- efeknya mengurangi jumlah syscall
         // read()/write() per MB data yang lewat, yang lumayan berarti untuk
         // throughput tinggi (kurang overhead context-switch per byte).
-        private const val RELAY_BUFFER_SIZE_BYTES = 32768
+        // REVERT (laporan user: "terhubung tapi internet tidak jalan" masih
+        // terjadi walau kandidat lain sudah dimatikan) -- dikembalikan ke
+        // 8192 (nilai asli sebelum fitur kecepatan) sampai ada cara aman
+        // buat mengetes dampak ukuran buffer yang lebih besar di server
+        // nyata. Nama konstanta dipertahankan supaya gampang dinaikkan lagi
+        // nanti kalau sudah terverifikasi bukan penyebabnya.
+        private const val RELAY_BUFFER_SIZE_BYTES = 8192
     }
 
     private var serverSocket: ServerSocket? = null

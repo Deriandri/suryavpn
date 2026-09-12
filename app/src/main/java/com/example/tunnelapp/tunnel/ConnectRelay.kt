@@ -167,34 +167,29 @@ class ConnectRelay(
             throw IOException(msg)
         }
 
-        // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan):
-        //  1. TCP_NODELAY -- tanpa ini, Nagle's algorithm bisa menahan paket
-        //     kecil sampai ~40ms sebelum benar-benar dikirim (nunggu ACK
-        //     paket sebelumnya atau nunggu buffer penuh dulu) -- kerasa
-        //     banget di trafik penuh paket kecil (DNS, request API, dst.)
-        //     yang lewat tunnel ini. Aman untuk SEMUA server, tidak
-        //     memengaruhi kompatibilitas sama sekali (murni socket option
-        //     sisi client).
-        //  2. SO_RCVBUF/SO_SNDBUF dinaikkan -- default OS kadang terlalu
-        //     kecil untuk bandwidth-delay product jaringan seluler ber-RTT
-        //     tinggi (umum di Indonesia), yang jadi plafon throughput TCP
-        //     maksimal walau bandwidth sebenarnya jauh lebih besar. HARUS
-        //     diset SEBELUM connect() supaya window scaling ikut terpakai
-        //     sejak awal handshake -- dibungkus try-catch karena beberapa
-        //     implementasi Socket bisa menolak nilai tertentu (mis. socket
-        //     custom seperti WebSocketTransport.RawSocketAdapter di file
-        //     ini), TIDAK FATAL kalau gagal, cuma fallback ke default OS.
-        try {
-            rawSocket.tcpNoDelay = true
-        } catch (e: Exception) {
-            Log.w(TAG, "Gagal set TCP_NODELAY (lanjut pakai default)", e)
-        }
-        try {
-            rawSocket.receiveBufferSize = SOCKET_BUFFER_SIZE_BYTES
-            rawSocket.sendBufferSize = SOCKET_BUFFER_SIZE_BYTES
-        } catch (e: Exception) {
-            Log.w(TAG, "Gagal naikkan SO_RCVBUF/SO_SNDBUF (lanjut pakai default OS)", e)
-        }
+        // REVERT (laporan user: "terhubung tapi internet tidak jalan" di mode
+        // SSH -- MASIH terjadi walau prioritas cipher & tcp-buffer-size hev
+        // sudah dimatikan duluan). Kandidat baru yang tadinya saya anggap
+        // aman: TCP_NODELAY mengubah POLA TIMING pengiriman paket -- untuk
+        // app kelas "bug host"/SSH TLS Payload/Remote Proxy seperti ini,
+        // pola timing paket seringkali BAGIAN DARI TRIK mengelabui deteksi
+        // ISP (mis. payload/WebSocket/TLS yang sengaja dipecah dengan cara
+        // tertentu) -- mengubahnya bisa bikin trik itu gagal dikenali server
+        // meski TCP connect awal tetap sukses. SO_RCVBUF/SO_SNDBUF yang
+        // dipaksa besar juga saya matikan sekalian karena sama-sama belum
+        // pernah dites di server/device nyata. DIMATIKAN DULU semua sampai
+        // ada cara aman untuk mengetes dampaknya satu per satu.
+        // try {
+        //     rawSocket.tcpNoDelay = true
+        // } catch (e: Exception) {
+        //     Log.w(TAG, "Gagal set TCP_NODELAY (lanjut pakai default)", e)
+        // }
+        // try {
+        //     rawSocket.receiveBufferSize = SOCKET_BUFFER_SIZE_BYTES
+        //     rawSocket.sendBufferSize = SOCKET_BUFFER_SIZE_BYTES
+        // } catch (e: Exception) {
+        //     Log.w(TAG, "Gagal naikkan SO_RCVBUF/SO_SNDBUF (lanjut pakai default OS)", e)
+        // }
 
         // (proxy) Kalau mode PROXY, atau ENHANCED dengan host proxy diisi,
         // TCP connect diarahkan ke proxy dulu -- bukan langsung ke server SSH.
