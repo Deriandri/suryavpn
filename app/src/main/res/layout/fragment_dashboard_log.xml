@@ -109,10 +109,10 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:fontFamily="monospace"
-                    android:textSize="12sp"
+                    android:textSize="10.5sp"
                     android:textColor="@color/terminal_text"
-                    android:lineSpacingExtra="5dp"
-                    android:padding="12dp"
+                    android:lineSpacingExtra="3dp"
+                    android:padding="10dp"
                     android:textIsSelectable="true"
                     android:text="" />
             </com.example.tunnelapp.ui.TerminalScrollView>

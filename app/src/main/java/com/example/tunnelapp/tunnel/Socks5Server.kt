@@ -553,7 +553,13 @@ class Socks5Server {
                         out[9] = (destPort and 0xFF).toByte()
                         System.arraycopy(deviceResp, 0, out, 10, deviceResp.size)
                         udpSocket.send(DatagramPacket(out, out.size, replyToAddr, replyToPort))
-                        StatusBus.log("[DNS] $destHost dijawab langsung dari jaringan device (bypass tunnel SSH)")
+                        // FIX "log Terminal banjir" (permintaan user, dibandingkan
+                        // HTTP Custom yang cuma nulis milestone sekali-sekali):
+                        // ini kejadian NORMAL & SERING (tiap query DNS device yang
+                        // sukses), jadi cukup Log.d ke logcat, JANGAN StatusBus
+                        // (yang tampil di Terminal) -- Terminal cukup dikasih tahu
+                        // kalau ada MASALAH, bukan tiap query yang jalan lancar.
+                        Log.d(TAG, "$destHost dijawab langsung dari jaringan device (bypass tunnel SSH)")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Gagal kirim balik hasil device-side DNS utk $destHost", e)
@@ -561,11 +567,67 @@ class Socks5Server {
                 return@Thread
             }
 
+            // --- JALUR BARU (ikut alur HTTP Custom/HTTP Injector): kalau user
+            // sudah isi UDPGW Port, relay DNS sebagai paket UDP ASLI lewat
+            // udpgwClient yang sama dipakai trafik UDP non-DNS -- BUKAN lagi
+            // dipaksa lewat DNS-over-TCP direct-tcpip. Ini fix utk kasus
+            // provider/VPS yang firewall-nya blokir outbound TCP:53 tapi tetap
+            // izinkan proses badvpn-udpgw di server (yang jalan di UDP), persis
+            // yang terlihat di log HTTP Custom: "UDP bridge active" / "UDP
+            // diagnostic OK" -- akun SSH yang sama, cuma beda jalur DNS-nya.
+            // Kalau user belum isi UDPGW Port (udpgwClient == null), lewati
+            // blok ini sama sekali, jatuh ke fallback DNS-over-TCP lama di bawah.
+            val udpgw = udpgwClient
+            if (udpgw != null) {
+                val destInetAddr = try {
+                    InetAddress.getByName(destHost)
+                } catch (e: Exception) {
+                    null
+                }
+                if (destInetAddr != null && destInetAddr.address.size == 4) {
+                    udpgw.sendPacket(
+                        flowOwner = udpSocket,
+                        destAddr = destInetAddr,
+                        destPort = destPort,
+                        payload = payload
+                    ) { respPayload ->
+                        try {
+                            val destAddrBytes = destInetAddr.address
+                            val out = ByteArray(10 + respPayload.size)
+                            out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0x01
+                            System.arraycopy(destAddrBytes, 0, out, 4, 4)
+                            out[8] = ((destPort shr 8) and 0xFF).toByte()
+                            out[9] = (destPort and 0xFF).toByte()
+                            System.arraycopy(respPayload, 0, out, 10, respPayload.size)
+                            udpSocket.send(DatagramPacket(out, out.size, replyToAddr, replyToPort))
+                            // Sama alasannya dengan log device-side DNS di atas --
+                            // ini jalur SUKSES yang terjadi tiap query, biarkan diam
+                            // di Terminal (cukup logcat), biar tidak banjir seperti
+                            // sebelumnya.
+                            Log.d(TAG, "$destHost dijawab lewat UDPGW")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Gagal kirim balik hasil DNS via UDPGW utk $destHost", e)
+                        }
+                    }
+                    // Best-effort & async murni (sama seperti trafik UDP non-DNS
+                    // lain lewat udpgw) -- TIDAK ada fallback otomatis ke DNS-over-TCP
+                    // per-query kalau udpgw kebetulan gagal/drop paket ini, supaya
+                    // perilakunya konsisten & bisa diprediksi (persis satu jalur
+                    // yang sama dipakai HTTP Custom, bukan campur dua jalur).
+                    // Kalau channel udpgw memang belum/tidak bisa terbuka sama
+                    // sekali, hev-socks5-tunnel di device akan retry query ini
+                    // sendiri beberapa saat lagi.
+                    return@Thread
+                }
+            }
+
             // --- FALLBACK: jalur lama, relay lewat SSH sebagai DNS-over-TCP ---
-            // conn null di sini artinya device-side GAGAL *dan* SSH sedang
-            // tidak tersedia (mis. persis di jendela reconnect) -- dibuang
-            // diam-diam seperti perilaku asli sebelum fix ini, device/
-            // hev-socks5-tunnel akan mengirim ulang query-nya sendiri.
+            // Dipakai HANYA kalau udpgwClient tidak dikonfigurasi (UDPGW Port
+            // kosong) ATAU destHost gagal di-resolve ke IPv4. conn null di sini
+            // artinya device-side GAGAL *dan* SSH sedang tidak tersedia (mis.
+            // persis di jendela reconnect) -- dibuang diam-diam seperti
+            // perilaku asli sebelum fix ini, device/hev-socks5-tunnel akan
+            // mengirim ulang query-nya sendiri.
             if (conn == null) return@Thread
             var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
             val done = java.util.concurrent.atomic.AtomicBoolean(false)

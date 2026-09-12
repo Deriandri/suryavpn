@@ -60,13 +60,19 @@ class UdpgwClient(private val remotePort: Int) {
         private const val REMOTE_HOST = "127.0.0.1"
 
         private const val FLAG_KEEPALIVE = 0x01
-        // FLAG_REBIND & FLAG_DNS ada di spesifikasi resmi tapi sengaja TIDAK
-        // pernah dikirim dari client ini: REBIND cuma relevan utk skenario
-        // client berpindah alamat sumber (tidak berlaku di sini, satu
-        // channel TCP tetap dipakai ulang), dan DNS punya jalur sendiri yang
-        // JAUH lebih murah (DNS-over-TCP langsung lewat direct-tcpip biasa,
-        // lihat Socks5Server.relayUdpPacket) -- port 53 TIDAK PERNAH sampai
-        // ke UdpgwClient ini sama sekali (sudah difilter oleh caller).
+        // FLAG_REBIND ada di spesifikasi resmi tapi sengaja TIDAK pernah
+        // dikirim dari client ini: cuma relevan utk skenario client
+        // berpindah alamat sumber (tidak berlaku di sini, satu channel TCP
+        // tetap dipakai ulang).
+        // CATATAN (update): FLAG_DNS TIDAK dipakai di sini, TAPI itu bukan
+        // berarti query DNS tidak lewat UdpgwClient sama sekali. Sejak fix
+        // "ikuti alur HTTP Custom", Socks5Server.relayUdpPacket() memang
+        // mengirim query DNS ke sini (kalau udpgwClient dikonfigurasi) --
+        // hanya saja dikirim TANPA flag DNS, pakai frame biasa dengan alamat
+        // IPv4 lengkap (persis seperti paket UDP non-DNS lain), supaya tidak
+        // perlu variasi framing ekstra di kelas ini. DNS-over-TCP langsung
+        // lewat direct-tcpip (lihat komentar lama di Socks5Server) sekarang
+        // cuma jadi FALLBACK kalau udpgwClient belum dikonfigurasi user.
         private const val FLAG_IPV6 = 0x08
 
         private const val HEADER_SIZE = 3 // flags(1) + conid(2)
@@ -187,9 +193,18 @@ class UdpgwClient(private val remotePort: Int) {
         payload: ByteArray,
         onResponse: (ByteArray) -> Unit
     ) {
+        // FIX tampilan log "berantakan" (muncul '/' aneh sebelum tiap IP,
+        // mis. "Flow baru #81 -> / 1.1.1.1:53"): $destAddr di bawah ini
+        // TIPENYA InetAddress, BUKAN String -- kalau dipakai langsung di
+        // string template, Kotlin manggil InetAddress.toString() yang
+        // formatnya "hostname/ip" (hostname kosong kalau tidak di-resolve
+        // dari nama, hasilnya cuma "/ip"). Pakai .hostAddress supaya hasilnya
+        // string IP polos ("1.1.1.1"), bukan "/1.1.1.1".
+        val destAddrStr = destAddr.hostAddress ?: destAddr.toString()
+
         val out = openChannelIfNeeded()
         if (out == null) {
-            Log.w(TAG, "Channel udpgw tidak tersedia, paket ke $destAddr:$destPort dibuang")
+            Log.w(TAG, "Channel udpgw tidak tersedia, paket ke $destAddrStr:$destPort dibuang")
             return
         }
 
@@ -198,7 +213,14 @@ class UdpgwClient(private val remotePort: Int) {
             val conId = allocateConId()
             val state = FlowState(conId, destAddr, destPort, onResponse)
             flowsByConId[conId] = state
-            StatusBus.log("[UDPGW] Flow baru #$conId -> $destAddr:$destPort")
+            // FIX "log Terminal banjir": flow baru itu KEJADIAN NORMAL yang
+            // sering banget (browser modern + banyak app spam QUIC/DNS terus-
+            // menerus, apalagi sejak DNS ikut lewat sini juga) -- HTTP Custom
+            // tidak menampilkan ini satu-satu ke Terminal, cuma milestone
+            // "UDP bridge active" sekali di awal. Turunkan ke Log.d (logcat
+            // saja) supaya konsisten, StatusBus tetap dipakai HANYA utk hal
+            // yang jarang & penting (channel dibuka/gagal/putus).
+            Log.d(TAG, "Flow baru #$conId -> $destAddrStr:$destPort")
             state
         }
         flow.lastActivityMs = System.currentTimeMillis()
@@ -206,8 +228,8 @@ class UdpgwClient(private val remotePort: Int) {
         try {
             writeFrame(out, flags = 0, conId = flow.conId, addr = destAddr, port = destPort, payload = payload)
         } catch (e: Exception) {
-            Log.w(TAG, "Gagal kirim paket udpgw ke $destAddr:$destPort", e)
-            StatusBus.log("[UDPGW] Gagal kirim paket ke $destAddr:$destPort: ${e.message ?: e.javaClass.simpleName}")
+            Log.w(TAG, "Gagal kirim paket udpgw ke $destAddrStr:$destPort", e)
+            StatusBus.log("[UDPGW] Gagal kirim paket ke $destAddrStr:$destPort: ${e.message ?: e.javaClass.simpleName}")
             // Channel kemungkinan sudah rusak -- tutup supaya paket BERIKUTNYA
             // memicu buka ulang dari nol, bukan terus-menerus gagal di channel yang sama.
             closeChannelAndFlows()
