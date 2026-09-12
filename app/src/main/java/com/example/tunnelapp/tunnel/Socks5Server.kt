@@ -497,7 +497,7 @@ class Socks5Server {
             // timeout (mis. protect() belum siap, atau jaringan device sendiri
             // blokir DNS langsung), jatuh ke jalur SSH lama di bawah, tanpa ada
             // perubahan perilaku dari sebelumnya.
-            val deviceResp = tryDeviceDns(payload, destHost)
+            val deviceResp = tryDeviceDns(payload, destHost, destPort)
             if (deviceResp != null) {
                 try {
                     val destAddrBytes = InetAddress.getByName(destHost).address
@@ -509,7 +509,7 @@ class Socks5Server {
                         out[9] = (destPort and 0xFF).toByte()
                         System.arraycopy(deviceResp, 0, out, 10, deviceResp.size)
                         udpSocket.send(DatagramPacket(out, out.size, replyToAddr, replyToPort))
-                        StatusBus.log("[DNS] $destHost:53 dijawab langsung dari jaringan device (bypass tunnel SSH)")
+                        StatusBus.log("[DNS] $destHost dijawab langsung dari jaringan device (bypass tunnel SSH)")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Gagal kirim balik hasil device-side DNS utk $destHost", e)
@@ -543,14 +543,14 @@ class Socks5Server {
                     Thread.sleep(DNS_RELAY_TIMEOUT_MS)
                     if (!done.get()) {
                         Log.w(TAG, "DNS relay ke $destHost timeout -- menutup paksa channel")
-                        StatusBus.log("[DNS] Relay ke $destHost:53 TIMEOUT (>${DNS_RELAY_TIMEOUT_MS}ms) -- kemungkinan port 53 diblokir/di-drop server")
+                        StatusBus.log("[DNS] Relay ke $destHost TIMEOUT (>${DNS_RELAY_TIMEOUT_MS}ms) -- kemungkinan port DNS diblokir/di-drop server")
                         try { forwarder?.close() } catch (_: Exception) {}
                     }
                 } catch (_: InterruptedException) {
                 }
             }, "socks5-dns-relay-timeout").apply { isDaemon = true; start() }
             try {
-                forwarder = conn.createLocalStreamForwarder(destHost, 53)
+                forwarder = conn.createLocalStreamForwarder(destHost, destPort)
                 val fwd = forwarder!!
 
                 val fOut = fwd.outputStream
@@ -581,7 +581,7 @@ class Socks5Server {
                 udpSocket.send(DatagramPacket(out, out.size, replyToAddr, replyToPort))
             } catch (e: Exception) {
                 Log.e(TAG, "Gagal relay DNS via DNS-over-TCP ke $destHost", e)
-                StatusBus.log("[DNS] Relay ke $destHost:53 GAGAL: ${e.message ?: e.javaClass.simpleName}")
+                StatusBus.log("[DNS] Relay ke $destHost GAGAL: ${e.message ?: e.javaClass.simpleName}")
             } finally {
                 // PENTING (bug fix -- leak yang sama persis dengan handleConnect,
                 // TAPI lebih parah di sini: query DNS terjadi jauh lebih sering
@@ -600,16 +600,18 @@ class Socks5Server {
 
     /**
      * Coba jawab query DNS [payload] (RFC 1035, format UDP mentah -- BUKAN
-     * DNS-over-TCP) langsung dari jaringan device sendiri ke [destHost]:53,
-     * pakai socket yang di-protect() supaya tidak nyasar loop balik ke TUN
-     * kita sendiri (persis pola ConnectRelay.kt utk socket kontrol SSH).
+     * DNS-over-TCP) langsung dari jaringan device sendiri ke [destHost]
+     * di port [destPort] (dikirim dinamis dari request klien, BUKAN
+     * hardcode -- lihat catatan di relayUdpPacket()), pakai socket yang
+     * di-protect() supaya tidak nyasar loop balik ke TUN kita sendiri
+     * (persis pola ConnectRelay.kt utk socket kontrol SSH).
      *
      * Return null (BUKAN throw) kalau protect() belum dipasang, protect()
      * gagal, atau device tidak dapat balasan dalam DEVICE_DNS_TIMEOUT_MS --
      * di semua kasus itu caller akan fallback ke relay SSH lama seperti
      * sebelum fix ini ada.
      */
-    private fun tryDeviceDns(payload: ByteArray, destHost: String): ByteArray? {
+    private fun tryDeviceDns(payload: ByteArray, destHost: String, destPort: Int): ByteArray? {
         val protectFn = protectDatagram ?: return null
         var socket: DatagramSocket? = null
         return try {
@@ -620,7 +622,7 @@ class Socks5Server {
             }
             socket.soTimeout = DEVICE_DNS_TIMEOUT_MS
             val target = InetAddress.getByName(destHost)
-            socket.send(DatagramPacket(payload, payload.size, target, 53))
+            socket.send(DatagramPacket(payload, payload.size, target, destPort))
 
             val respBuf = ByteArray(65535)
             val respPacket = DatagramPacket(respBuf, respBuf.size)
