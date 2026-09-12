@@ -127,38 +127,20 @@ class SshTunnelManager {
         StatusBus.start(StepId.SSH_HANDSHAKE)
         val conn = Connection("127.0.0.1", relayPort)
 
-        // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan):
-        // prioritaskan cipher yang punya percepatan hardware (AES-NI di
-        // x86, ARMv8 Crypto Extensions -- ADA DI HAMPIR SEMUA HP MODERN)
-        // supaya kalau server MENAWARKAN salah satu cipher ini, dia yang
-        // dipilih -- bukan cipher lama yang lebih lambat secara CPU
-        // (mis. 3des-cbc/blowfish-cbc) yang kebetulan lebih dulu di daftar
-        // urutan bawaan library.
-        //
-        // PENTING soal kompatibilitas: setClient2ServerCiphers()/
-        // setServer2ClientCiphers() di trilead-ssh2 MENGGANTI TOTAL daftar
-        // cipher yang ditawarkan, BUKAN cuma mengurutkan ulang -- kalau
-        // daftar yang dikirim tidak mengandung cipher yang didukung server
-        // (server SSH/dropbear tua di jalur bug host), handshake GAGAL
-        // TOTAL. Makanya di sini TIDAK mengirim daftar pendek custom -- kita
-        // ambil daftar LENGKAP cipher yang didukung library ini sendiri
-        // (Connection.getAvailableCiphers(), superset yang sama yang dipakai
-        // kalau fungsi ini tidak dipanggil sama sekali), lalu cuma
-        // MENGURUTKAN ULANG supaya cipher cepat naik ke depan -- daftar
-        // cipher yang didukung TETAP SAMA PERSIS, cuma urutan prioritasnya
-        // yang berubah, jadi tidak mungkin mematahkan kompatibilitas ke
-        // server mana pun yang sebelumnya bisa connect.
-        //
-        // Dibungkus try-catch penuh & silent-fallback: kalau API ini ternyata
-        // tidak ada/berubah di versi trilead-ssh2 yang dipakai (jenkinsci
-        // fork), TIDAK BOLEH sampai membuat seluruh koneksi gagal cuma gara-
-        // gara fitur optimasi kecepatan -- fallback ke urutan default bawaan
-        // library kalau terjadi apa pun yang tidak terduga di sini.
-        try {
-            preferFastCiphers(conn)
-        } catch (e: Exception) {
-            Log.w(TAG, "Gagal atur prioritas cipher cepat, pakai urutan default library", e)
-        }
+        // REVERT (laporan user: "terhubung tapi internet tidak jalan" di mode
+        // SSH, tepat setelah fitur prioritas cipher cepat ini ditambahkan):
+        // handshake SSH tetap sukses (status "Terhubung" muncul), tapi
+        // kemungkinan implementasi cipher AES-GCM/CTR di fork trilead-ssh2
+        // ini punya bug halus yang bikin data SETELAH handshake gagal
+        // diverifikasi/rusak -- persis gejala yang dilaporkan. Karena saya
+        // tidak punya server/device nyata untuk mengetes langsung dampak
+        // reorder cipher ini, DIMATIKAN DULU (bukan dihapus total -- kode
+        // preferFastCiphers() masih ada di companion object kalau nanti mau
+        // dicoba lagi setelah diverifikasi lebih hati-hati, mis. cipher demi
+        // cipher satu-satu) sampai ada cara mengetesnya dengan aman.
+        // try { preferFastCiphers(conn) } catch (e: Exception) {
+        //     Log.w(TAG, "Gagal atur prioritas cipher cepat, pakai urutan default library", e)
+        // }
 
         try {
             conn.connect(

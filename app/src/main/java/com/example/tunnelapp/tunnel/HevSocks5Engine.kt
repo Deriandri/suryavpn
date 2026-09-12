@@ -32,28 +32,28 @@ class HevSocks5Engine : TunEngine {
 
     override fun start(tunFd: Int, tunAddress: String, mtu: Int, socksHost: String, socksPort: Int, onUnexpectedStop: (() -> Unit)?) {
         stoppedByUs = false
-        // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan) --
-        // sudah diverifikasi lewat README resmi heiher/hev-socks5-tunnel
-        // (bukan tebakan) karena project ini build LANGSUNG dari branch
-        // `main` GitHub-nya (lihat CMakeLists.txt), jadi salah nama key
-        // beresiko besar ke seluruh tunnel:
-        //  - misc.tcp-buffer-size dinaikkan dari default -> 65536 -- ini
-        //    versi "socket buffer tuning" tapi di sisi stack TCP/IP virtual
-        //    (lwIP) milik hev sendiri, yang menangani sisi TUN<->socks5.
-        //    Sama alasannya dengan SOCKET_BUFFER_SIZE_BYTES di ConnectRelay.kt.
-        //  - SENGAJA TIDAK mengaktifkan tunnel.multi-queue: true -- fitur
-        //    ini didesain untuk beberapa fd TUN paralel, sedangkan integrasi
-        //    VpnService Android di app ini cuma membuka SATU fd
-        //    (ParcelFileDescriptor dari establish()) -- mengaktifkannya
-        //    tanpa multi-fd kemungkinan besar tidak berefek atau malah
-        //    bikin hev gagal start, bukan bikin lebih cepat.
-        //  - SENGAJA TIDAK mengaktifkan socks5.pipeline: true -- ini varian
-        //    handshake SOCKS5 yang menggabungkan beberapa langkah jadi lebih
-        //    sedikit round-trip, TAPI Socks5Server.kt kita adalah
-        //    implementasi SOCKS5 minimal buatan sendiri yang belum tentu
-        //    mendukung varian pipeline ini -- resiko merusak handshake demi
-        //    keuntungan kecepatan yang nyaris nol (toh ini localhost,
-        //    127.0.0.1, RTT-nya sudah praktis 0 dari awal).
+        // CATATAN soal fitur kecepatan yang PERNAH dicoba di sini lalu
+        // di-revert -- lihat blok komentar REVERT di bawah untuk detail:
+        //  - misc.tcp-buffer-size (dinaikkan ke 65536) -- DIMATIKAN.
+        //  - SENGAJA TIDAK PERNAH diaktifkan sama sekali (beda dari yang di
+        //    atas, ini bukan revert tapi memang dari awal tidak dipakai):
+        //    tunnel.multi-queue: true -- didesain untuk beberapa fd TUN
+        //    paralel, sedangkan integrasi VpnService Android di app ini
+        //    cuma membuka SATU fd (ParcelFileDescriptor dari establish()).
+        //    socks5.pipeline: true -- varian handshake SOCKS5 yang
+        //    Socks5Server.kt (implementasi minimal buatan sendiri) belum
+        //    tentu dukung, resiko merusak handshake demi untung kecepatan
+        //    yang nyaris nol (toh ini localhost, RTT-nya sudah ~0).
+        // REVERT (laporan user: "terhubung tapi internet tidak jalan" di mode
+        // SSH, tepat setelah fitur ini ditambahkan): tcp-buffer-size ini
+        // dipakai SEMUA mode (SSH maupun Xray) karena letaknya di config
+        // native TUN engine, bukan spesifik SSH -- jadi walau bug dilaporkan
+        // di mode SSH, ini tetap kandidat kuat karena project ini build
+        // hev-socks5-tunnel LANGSUNG dari branch `main` GitHub (bukan versi
+        // yang di-pin), jadi saya tidak bisa pastikan 100% versi yang
+        // ke-compile PERSIS sama behaviour-nya dengan README yang saya cek.
+        // Tanpa server/device nyata untuk mengetes langsung, DIMATIKAN DULU
+        // (dikomentari, bukan dihapus) sampai ada cara aman untuk verifikasi.
         val yamlConfig = """
             tunnel:
               name: tun0
@@ -66,7 +66,6 @@ class HevSocks5Engine : TunEngine {
             misc:
               log-level: warn
               log-file: stdout
-              tcp-buffer-size: 65536
         """.trimIndent()
 
         thread = Thread({
