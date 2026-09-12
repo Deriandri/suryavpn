@@ -50,6 +50,45 @@ class SshTunnelManager {
     companion object {
         private const val TAG = "SshTunnelManager"
         private const val CONNECT_TIMEOUT_MS = 15000
+
+        // FITUR BARU (maksimalkan kecepatan): daftar cipher yang punya
+        // percepatan hardware di hampir semua HP modern (AES-NI/ARMv8 Crypto
+        // Extensions) -- nama-nama standar RFC/OpenSSH, sengaja HANYA
+        // dipakai sebagai kunci "naikkan ke depan kalau ada", bukan daftar
+        // pengganti (lihat catatan panjang di connect() soal kenapa ini
+        // aman untuk kompatibilitas).
+        private val FAST_CIPHER_PRIORITY = listOf(
+            "aes128-gcm@openssh.com",
+            "aes256-gcm@openssh.com",
+            "chacha20-poly1305@openssh.com",
+            "aes128-ctr",
+            "aes192-ctr",
+            "aes256-ctr"
+        )
+
+        /**
+         * Ambil daftar LENGKAP cipher yang didukung [conn] (client-side,
+         * bukan dipersempit berdasarkan server), lalu urutkan ulang supaya
+         * cipher di [FAST_CIPHER_PRIORITY] naik ke depan -- SEMUA cipher
+         * lain yang tadinya didukung tetap ikut dikirim di posisi
+         * berikutnya, urutan relatifnya sendiri dipertahankan. Diterapkan
+         * ke DUA arah (client->server & server->client) karena keduanya
+         * dinegosiasikan terpisah oleh SSH.
+         */
+        private fun preferFastCiphers(conn: Connection) {
+            // PENTING (sudah diverifikasi langsung ke source resmi
+            // jenkinsci/trilead-ssh2 di GitHub, BUKAN tebakan): method-nya
+            // bernama setClient2ServerCiphers()/setServer2ClientCiphers()
+            // (pakai "2", warisan penamaan dari ganymed-ssh2) -- BUKAN
+            // setClientToServerCiphers() seperti asumsi awal yang salah.
+            // getAvailableCiphers() sendiri memang STATIC di class Connection.
+            val available = Connection.getAvailableCiphers()?.toList().orEmpty()
+            if (available.isEmpty()) return
+            val reordered = (FAST_CIPHER_PRIORITY.filter { it in available } +
+                available.filter { it !in FAST_CIPHER_PRIORITY }).toTypedArray()
+            conn.setClient2ServerCiphers(reordered)
+            conn.setServer2ClientCiphers(reordered)
+        }
     }
 
     private var connection: Connection? = null
@@ -87,6 +126,40 @@ class SshTunnelManager {
 
         StatusBus.start(StepId.SSH_HANDSHAKE)
         val conn = Connection("127.0.0.1", relayPort)
+
+        // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan):
+        // prioritaskan cipher yang punya percepatan hardware (AES-NI di
+        // x86, ARMv8 Crypto Extensions -- ADA DI HAMPIR SEMUA HP MODERN)
+        // supaya kalau server MENAWARKAN salah satu cipher ini, dia yang
+        // dipilih -- bukan cipher lama yang lebih lambat secara CPU
+        // (mis. 3des-cbc/blowfish-cbc) yang kebetulan lebih dulu di daftar
+        // urutan bawaan library.
+        //
+        // PENTING soal kompatibilitas: setClient2ServerCiphers()/
+        // setServer2ClientCiphers() di trilead-ssh2 MENGGANTI TOTAL daftar
+        // cipher yang ditawarkan, BUKAN cuma mengurutkan ulang -- kalau
+        // daftar yang dikirim tidak mengandung cipher yang didukung server
+        // (server SSH/dropbear tua di jalur bug host), handshake GAGAL
+        // TOTAL. Makanya di sini TIDAK mengirim daftar pendek custom -- kita
+        // ambil daftar LENGKAP cipher yang didukung library ini sendiri
+        // (Connection.getAvailableCiphers(), superset yang sama yang dipakai
+        // kalau fungsi ini tidak dipanggil sama sekali), lalu cuma
+        // MENGURUTKAN ULANG supaya cipher cepat naik ke depan -- daftar
+        // cipher yang didukung TETAP SAMA PERSIS, cuma urutan prioritasnya
+        // yang berubah, jadi tidak mungkin mematahkan kompatibilitas ke
+        // server mana pun yang sebelumnya bisa connect.
+        //
+        // Dibungkus try-catch penuh & silent-fallback: kalau API ini ternyata
+        // tidak ada/berubah di versi trilead-ssh2 yang dipakai (jenkinsci
+        // fork), TIDAK BOLEH sampai membuat seluruh koneksi gagal cuma gara-
+        // gara fitur optimasi kecepatan -- fallback ke urutan default bawaan
+        // library kalau terjadi apa pun yang tidak terduga di sini.
+        try {
+            preferFastCiphers(conn)
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal atur prioritas cipher cepat, pakai urutan default library", e)
+        }
+
         try {
             conn.connect(
                 object : ServerHostKeyVerifier {

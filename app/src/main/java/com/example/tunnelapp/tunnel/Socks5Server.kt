@@ -56,6 +56,13 @@ class Socks5Server {
         // force-close). Watchdog manual di bawah membatasi SATU query DNS
         // maksimal sekian lama sebelum channel-nya ditutup paksa sendiri.
         private const val DNS_RELAY_TIMEOUT_MS = 8000L
+        // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan): buffer
+        // relay TUN<->channel SSH dinaikkan dari 8KB -> 32KB. Ini MURNI
+        // loopback lokal (127.0.0.1, bukan jaringan asli), jadi aman
+        // dinaikkan tanpa risiko -- efeknya mengurangi jumlah syscall
+        // read()/write() per MB data yang lewat, yang lumayan berarti untuk
+        // throughput tinggi (kurang overhead context-switch per byte).
+        private const val RELAY_BUFFER_SIZE_BYTES = 32768
     }
 
     private var serverSocket: ServerSocket? = null
@@ -236,7 +243,7 @@ class Socks5Server {
 
             val upstreamThread = Thread({
                 try {
-                    val buf = ByteArray(8192)
+                    val buf = ByteArray(RELAY_BUFFER_SIZE_BYTES)
                     while (true) {
                         val n = client.getInputStream().read(buf)
                         if (n == -1) break
@@ -248,7 +255,7 @@ class Socks5Server {
             }, "socks5-upstream").apply { isDaemon = true; start() }
 
             try {
-                val buf = ByteArray(8192)
+                val buf = ByteArray(RELAY_BUFFER_SIZE_BYTES)
                 while (true) {
                     val n = forwarderIn.read(buf)
                     if (n == -1) break

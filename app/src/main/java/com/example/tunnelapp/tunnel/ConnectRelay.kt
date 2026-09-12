@@ -37,6 +37,11 @@ class ConnectRelay(
     companion object {
         private const val TAG = "ConnectRelay"
         private const val CONNECT_TIMEOUT_MS = 15000
+        // FITUR BARU (maksimalkan kecepatan): 256KB -- cukup besar untuk
+        // bandwidth-delay product jaringan seluler ber-RTT tinggi tanpa
+        // boros memori berlebihan per koneksi (tunnel ini biasanya cuma
+        // pegang 1 koneksi TCP utama ke server, jadi aman dinaikkan).
+        private const val SOCKET_BUFFER_SIZE_BYTES = 262_144
         private const val MAX_PROXY_RESPONSE_BYTES = 8192
 
         // PENTING (bug fix "freeze"/SSH tidak jalan): tanpa timeout ini, socket
@@ -160,6 +165,35 @@ class ConnectRelay(
             StatusBus.fail(StepId.CONNECT_SERVER, msg)
             rawSocket.close()
             throw IOException(msg)
+        }
+
+        // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan):
+        //  1. TCP_NODELAY -- tanpa ini, Nagle's algorithm bisa menahan paket
+        //     kecil sampai ~40ms sebelum benar-benar dikirim (nunggu ACK
+        //     paket sebelumnya atau nunggu buffer penuh dulu) -- kerasa
+        //     banget di trafik penuh paket kecil (DNS, request API, dst.)
+        //     yang lewat tunnel ini. Aman untuk SEMUA server, tidak
+        //     memengaruhi kompatibilitas sama sekali (murni socket option
+        //     sisi client).
+        //  2. SO_RCVBUF/SO_SNDBUF dinaikkan -- default OS kadang terlalu
+        //     kecil untuk bandwidth-delay product jaringan seluler ber-RTT
+        //     tinggi (umum di Indonesia), yang jadi plafon throughput TCP
+        //     maksimal walau bandwidth sebenarnya jauh lebih besar. HARUS
+        //     diset SEBELUM connect() supaya window scaling ikut terpakai
+        //     sejak awal handshake -- dibungkus try-catch karena beberapa
+        //     implementasi Socket bisa menolak nilai tertentu (mis. socket
+        //     custom seperti WebSocketTransport.RawSocketAdapter di file
+        //     ini), TIDAK FATAL kalau gagal, cuma fallback ke default OS.
+        try {
+            rawSocket.tcpNoDelay = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal set TCP_NODELAY (lanjut pakai default)", e)
+        }
+        try {
+            rawSocket.receiveBufferSize = SOCKET_BUFFER_SIZE_BYTES
+            rawSocket.sendBufferSize = SOCKET_BUFFER_SIZE_BYTES
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal naikkan SO_RCVBUF/SO_SNDBUF (lanjut pakai default OS)", e)
         }
 
         // (proxy) Kalau mode PROXY, atau ENHANCED dengan host proxy diisi,

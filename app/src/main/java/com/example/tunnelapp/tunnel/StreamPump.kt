@@ -6,6 +6,9 @@ import java.net.Socket
 /** Menyalurkan data dua arah antara dua socket sampai salah satunya putus. */
 object StreamPump {
     private const val TAG = "StreamPump"
+    // FITUR BARU (maksimalkan kecepatan): sama seperti Socks5Server -- naik
+    // dari 8KB -> 32KB, mengurangi jumlah syscall read()/write() per MB data.
+    private const val BUFFER_SIZE_BYTES = 32768
 
     fun pumpBothWays(a: Socket, b: Socket) {
         Thread({ copy(a, b) }, "pump-a-to-b").apply { isDaemon = true; start() }
@@ -14,7 +17,7 @@ object StreamPump {
 
     private fun copy(from: Socket, to: Socket) {
         try {
-            val buffer = ByteArray(8192)
+            val buffer = ByteArray(BUFFER_SIZE_BYTES)
             val input = from.getInputStream()
             val output = to.getOutputStream()
             while (true) {
