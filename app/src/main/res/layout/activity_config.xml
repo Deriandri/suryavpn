@@ -72,6 +72,14 @@
                 android:paddingEnd="4dp"
                 android:layout_marginBottom="10dp">
 
+                <!-- BARU (permintaan user, modern/smooth): bar aksen gradasi
+                     biru kecil di depan judul, gaya editorial. -->
+                <View
+                    android:layout_width="4dp"
+                    android:layout_height="22dp"
+                    android:layout_marginEnd="10dp"
+                    android:background="@drawable/bg_section_accent_bar" />
+
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
@@ -97,9 +105,11 @@
 
                 <!-- FITUR BARU (permintaan user): Impor & Ekspor akun. Lihat
                      ConfigActivity.onImportClicked/onExportAllClicked &
-                     model/ConfigIO.kt untuk format datanya. Tombol "chip"
-                     soft-brand + ikon supaya lebih menyatu dengan warna
-                     brand app, bukan lagi outline abu-abu netral. -->
+                     model/ConfigIO.kt untuk format datanya. REDESIGN
+                     (permintaan user, "fill biru smooth"): tombol sekarang
+                     benar-benar diisi gradasi biru (bg_btn_brand_soft),
+                     jadi teks & ikonnya diputihkan supaya kontras, bukan
+                     lagi indigo di atas wash muda. -->
                 <TextView
                     android:id="@+id/btnImportConfig"
                     android:layout_width="wrap_content"
@@ -113,7 +123,7 @@
                     android:paddingBottom="7dp"
                     android:layout_marginEnd="8dp"
                     android:text="Impor"
-                    android:textColor="@color/brand_primary"
+                    android:textColor="@color/brand_on_primary"
                     android:textStyle="bold"
                     android:textSize="12sp"
                     android:clickable="true"
@@ -131,7 +141,7 @@
                     android:paddingTop="7dp"
                     android:paddingBottom="7dp"
                     android:text="Ekspor"
-                    android:textColor="@color/brand_primary"
+                    android:textColor="@color/brand_on_primary"
                     android:textStyle="bold"
                     android:textSize="12sp"
                     android:clickable="true"
@@ -189,11 +199,29 @@
                     android:layout_height="wrap_content"
                     android:orientation="vertical">
 
-                    <TextView
-                        style="@style/SectionTitleText"
+                    <LinearLayout
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Konfigurasi Server" />
+                        android:layout_marginBottom="12dp"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <!-- BARU (permintaan user, modern/smooth): bar aksen
+                             gradasi biru, senada dengan header "Akun
+                             Tersimpan" di atas. -->
+                        <View
+                            android:layout_width="4dp"
+                            android:layout_height="16dp"
+                            android:layout_marginEnd="10dp"
+                            android:background="@drawable/bg_section_accent_bar" />
+
+                        <TextView
+                            style="@style/SectionTitleText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginBottom="0dp"
+                            android:text="Konfigurasi Server" />
+                    </LinearLayout>
 
                     <LinearLayout
                         android:id="@+id/rowConfigSsh"
@@ -247,12 +275,11 @@
                                 android:textSize="12sp" />
                         </LinearLayout>
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="›"
-                            android:textColor="@color/text_hint"
-                            android:textSize="22sp" />
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_chevron_forward"
+                            android:contentDescription="@null" />
                     </LinearLayout>
 
                     <View
@@ -312,12 +339,11 @@
                                 android:textSize="12sp" />
                         </LinearLayout>
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="›"
-                            android:textColor="@color/text_hint"
-                            android:textSize="22sp" />
+                        <ImageView
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:src="@drawable/ic_chevron_forward"
+                            android:contentDescription="@null" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

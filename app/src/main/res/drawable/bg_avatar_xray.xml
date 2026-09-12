@@ -1,4 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- REDESIGN (senada dengan bg_avatar_ssh.xml): avatar "Xray" ikut gaya
+     gradasi halus, tetap pakai hue teal supaya dua jenis akun (SSH/Xray)
+     masih gampang dibedakan sekilas, hanya saja sekarang gradasi bukan
+     solid flat. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="oval">
-    <solid android:color="@color/brand_secondary" />
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="@color/brand_secondary"
+        android:endColor="@color/brand_secondary_dark" />
+    <stroke android:width="1dp" android:color="#33FFFFFF" />
 </shape>

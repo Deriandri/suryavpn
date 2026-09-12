@@ -5,6 +5,11 @@
     <color name="brand_primary_dark">#4338CA</color>
     <color name="brand_on_primary">#FFFFFF</color>
     <color name="brand_secondary">#0EA5A4</color>
+    <!-- Pasangan gradasi teal untuk avatar "Xray" (permintaan user: tampilan
+         Konfigurasi lebih modern/smooth) — dipakai bersama brand_secondary
+         di bg_avatar_xray.xml supaya avatar Xray ikut gaya gradasi halus
+         yang sama dengan avatar SSH (bg_avatar_ssh.xml, gradasi biru). -->
+    <color name="brand_secondary_dark">#0C7A79</color>
 
     <!-- Surfaces -->
     <color name="app_background">#F3F4F6</color>
@@ -60,7 +65,7 @@
     <color name="terminal_timestamp">#22D3EE</color>
     <!-- Warna durasi "(...ms)" pada baris "HTTP Ping"/"Keep-alive" di layar
          Log (permintaan user): BIRU kalau cepat (1-80ms), MERAH kalau
-         lambat (85ms ke atas) -- lihat MyVpnService.pingMsColorHex(). -->
+         lambat (85ms ke atas). Lihat MyVpnService.pingMsColorHex(). -->
     <color name="ping_ms_fast">#3B82F6</color>
     <color name="ping_ms_slow">@color/status_error</color>
 </resources>

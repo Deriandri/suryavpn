@@ -443,6 +443,52 @@
                         android:autofillHints="" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- FITUR BARU (permintaan user): Path WebSocket & Header HTTP
+                     tambahan disembunyikan di balik toggle "Opsi Lanjutan"
+                     supaya form tidak penuh dengan field yang jarang dipakai
+                     -- baris ini murni tombol buka/tutup, logika aktif/tidak-
+                     aktifnya (redup saat tidak dipakai mode saat ini) tetap
+                     sama seperti sebelumnya, lihat updateWsAndHeaderFieldState
+                     & SshConfigActivity.onCreate (auto-expand kalau salah
+                     satu field sudah terisi waktu edit akun lama). -->
+                <LinearLayout
+                    android:id="@+id/rowToggleAdvanced"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:paddingTop="10dp"
+                    android:paddingBottom="10dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:background="?attr/selectableItemBackground">
+
+                    <TextView
+                        android:id="@+id/tvToggleAdvancedLabel"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Opsi Lanjutan (Path WebSocket, Header HTTP)"
+                        android:textColor="@color/brand_primary"
+                        android:textStyle="bold"
+                        android:textSize="13sp" />
+
+                    <ImageView
+                        android:id="@+id/ivToggleAdvancedChevron"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:rotation="0"
+                        android:src="@drawable/ic_chevron_forward"
+                        android:contentDescription="@null" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/llAdvancedFields"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
                 <!-- WebSocket sekarang SELALU dicoba di semua mode (lihat
                      ServerConfig.usesWebSocket()), jadi field ini selalu
                      ditampilkan (tidak ikut disembunyikan/diperlihatkan per
@@ -488,6 +534,8 @@
                         android:textColorHint="@color/text_hint"
                         android:autofillHints="" />
                 </com.google.android.material.textfield.TextInputLayout>
+
+                </LinearLayout>
 
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>

@@ -47,9 +47,39 @@ class SshConfigActivity : AppCompatActivity() {
 
         restoreSavedConfig()
         setupModeChips()
+        setupAdvancedFieldsToggle()
 
         binding.btnSaveSsh.setOnClickListener { onSaveClicked() }
         binding.btnQuickPasteApply.setOnClickListener { onQuickPasteApplied() }
+    }
+
+    /**
+     * FITUR BARU (permintaan user): "Opsi Lanjutan" -- Path WebSocket & Header
+     * HTTP tambahan disembunyikan (llAdvancedFields, GONE) secara default
+     * supaya form tidak penuh field yang jarang dipakai, dibuka/ditutup lewat
+     * rowToggleAdvanced. Auto-dibuka sekali di sini kalau salah satu field
+     * SUDAH terisi (mis. lagi EDIT akun lama yang memang pakai path/header
+     * custom) supaya isinya tidak "hilang" dari pandangan user.
+     */
+    private fun setupAdvancedFieldsToggle() {
+        val alreadyFilled = binding.etWsPath.text?.isNotBlank() == true ||
+            binding.etCustomHeaders.text?.isNotBlank() == true
+        setAdvancedFieldsExpanded(alreadyFilled)
+
+        binding.rowToggleAdvanced.setOnClickListener {
+            val currentlyExpanded = binding.llAdvancedFields.visibility == android.view.View.VISIBLE
+            setAdvancedFieldsExpanded(!currentlyExpanded)
+        }
+    }
+
+    private fun setAdvancedFieldsExpanded(expanded: Boolean) {
+        binding.llAdvancedFields.visibility = if (expanded) android.view.View.VISIBLE else android.view.View.GONE
+        binding.ivToggleAdvancedChevron.animate().rotation(if (expanded) 90f else 0f).setDuration(150).start()
+        binding.tvToggleAdvancedLabel.text = if (expanded) {
+            "Sembunyikan Opsi Lanjutan"
+        } else {
+            "Opsi Lanjutan (Path WebSocket, Header HTTP)"
+        }
     }
 
     /**

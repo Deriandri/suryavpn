@@ -176,6 +176,8 @@ class MyVpnService : VpnService() {
 
         // --- "Auto Ping" (Pengaturan Dasar, terpisah dari VPN Setting) ---
         private const val PING_TIMEOUT_MS = 5000
+        /** Port request HTTP Ping (permintaan user: metode HTTP cukup host/URL, tanpa port). Lihat startPingLoop(). */
+        private const val HTTP_KEEP_ALIVE_PORT = 80
 
         // --- Keep-alive SUNGGUHAN lewat tunnel (bagian dari "Auto Ping") ---
         // Beda dari pingHost() di bawah (yang protect() -> LANGSUNG ke internet,
@@ -1434,35 +1436,34 @@ class MyVpnService : VpnService() {
                 if (stoppingIntentionally) break
                 if (!settings.autoPingEnabled) continue // tetap nunggu, siap nyala begitu di-toggle ON
 
-                val elapsedMs = pingHost(config.host, config.port)
-                if (elapsedMs != null) {
-                    StatusBus.log("Auto Ping: ${config.host}:${config.port} balas dalam ${elapsedMs}ms")
-                } else {
-                    StatusBus.log("Auto Ping: ${config.host}:${config.port} tidak merespons (timeout ${PING_TIMEOUT_MS}ms)")
-                }
-
+                // UPDATE (permintaan user): dulu ada DUA baris per siklus --
+                // "Auto Ping: <server> balas dalam Xms" (ping diagnostik
+                // terpisah ke host server asli) lalu "Keep-alive (TCP/HTTP):
+                // ..." -- sekarang disederhanakan jadi SATU baris saja per
+                // siklus, "HTTP Ping <status> (Xms)", selalu lewat HTTP GET
+                // BENERAN ke target keep-alive (bukan cuma buka-tutup socket
+                // TCP), berapa pun pilihan "Metode Keep-alive" di Pengaturan.
                 if (stoppingIntentionally) break
-                val (targetHost, targetPort) = parseKeepAliveTarget(settings.keepAliveTarget)
-                val useHttp = settings.keepAliveMethod == com.example.tunnelapp.model.GeneralSettings.METHOD_HTTP
+                // FIX (laporan user): target keep-alive DULU ikut port yang
+                // diketik user (default 443) dan langsung dipakai apa adanya
+                // -- padahal request di sini HTTP POLOS (bukan HTTPS/TLS),
+                // jadi ke port 443 (yang isinya TLS handshake) SELALU gagal/
+                // timeout walau tunnel & servernya sehat-sehat saja. Metode
+                // HTTP sekarang cukup butuh host/URL SAJA (port yang diketik
+                // user, kalau ada, diabaikan) -- port request DIPAKSA 80
+                // (HTTP polos) supaya cocok dengan cara [httpKeepAliveThroughTunnel]
+                // mengirim request-nya.
+                val (targetHost, _) = parseKeepAliveTarget(settings.keepAliveTarget)
                 // Warna durasi "(...ms)" tergantung cepat/lambatnya (permintaan
                 // user): 1-80ms BIRU, 85ms ke atas MERAH -- lihat
                 // pingMsColorHex(). Ambil dari resource ping_ms_fast/slow
                 // supaya satu sumber kebenaran sama seperti warna lain di app.
                 fun redMs(ms: Long) = "<font color='${pingMsColorHex(ms)}'>${ms}ms</font>"
-                if (useHttp) {
-                    val result = httpKeepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
-                    if (result != null) {
-                        StatusBus.log("HTTP Ping ${result.statusText} (${redMs(result.elapsedMs)})")
-                    } else {
-                        StatusBus.log("HTTP Ping gagal ke $targetHost:$targetPort lewat tunnel")
-                    }
+                val result = httpKeepAliveThroughTunnel(config.socksPort, targetHost, HTTP_KEEP_ALIVE_PORT)
+                if (result != null) {
+                    StatusBus.log("HTTP Ping ${result.statusText} (${redMs(result.elapsedMs)})")
                 } else {
-                    val keepAliveMs = keepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
-                    if (keepAliveMs != null) {
-                        StatusBus.log("Keep-alive (TCP): $targetHost:$targetPort lewat tunnel sukses (${redMs(keepAliveMs)})")
-                    } else {
-                        StatusBus.log("Keep-alive (TCP): $targetHost:$targetPort lewat tunnel gagal")
-                    }
+                    StatusBus.log("Ping timeout")
                 }
             }
         }

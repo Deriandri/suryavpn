@@ -68,6 +68,25 @@ class SettingsActivity : AppCompatActivity() {
                 R.id.btnMethodTcp
             }
         )
+        updateKeepAliveTargetHint(settings.keepAliveMethod)
+        // FIX (permintaan user): metode HTTP cukup butuh host/URL, TIDAK
+        // butuh port (request-nya selalu ke port 80 -- lihat
+        // MyVpnService.HTTP_KEEP_ALIVE_PORT) -- hint field ikut berubah
+        // begitu user gonta-ganti toggle metode, bukan cuma pas layar dibuka.
+        binding.toggleKeepAliveMethod.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            updateKeepAliveTargetHint(
+                if (checkedId == R.id.btnMethodHttp) GeneralSettings.METHOD_HTTP else GeneralSettings.METHOD_TCP
+            )
+        }
+    }
+
+    private fun updateKeepAliveTargetHint(method: String) {
+        binding.tilKeepAliveTarget.hint = if (method == GeneralSettings.METHOD_HTTP) {
+            "Target keep-alive (host/URL saja, tanpa port -- otomatis HTTP port 80)"
+        } else {
+            "Target keep-alive (host, port opsional -- default 443)"
+        }
     }
 
     /**
@@ -90,17 +109,31 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
 
-        val keepAliveTarget = binding.etKeepAliveTarget.text.toString().trim()
-        if (!isValidKeepAliveTarget(keepAliveTarget)) {
-            binding.etKeepAliveTarget.error =
-                "Isi host saja (port otomatis 443), atau host:port (mis. www.google.com:443)"
-            return
-        }
-
         val keepAliveMethod = if (binding.toggleKeepAliveMethod.checkedButtonId == R.id.btnMethodHttp) {
             GeneralSettings.METHOD_HTTP
         } else {
             GeneralSettings.METHOD_TCP
+        }
+
+        // FIX (permintaan user): metode HTTP cukup host/URL, TANPA port --
+        // kalau user masih ngetik "host:port" sambil pilih HTTP, bagian
+        // ":port"-nya dibuang otomatis di sini sebelum divalidasi/disimpan
+        // (request HTTP-nya sendiri selalu ke port 80, lihat
+        // MyVpnService.HTTP_KEEP_ALIVE_PORT -- port yang diketik user tidak
+        // pernah benar-benar dipakai untuk metode ini).
+        val rawKeepAliveTarget = binding.etKeepAliveTarget.text.toString().trim()
+        val keepAliveTarget = if (keepAliveMethod == GeneralSettings.METHOD_HTTP) {
+            rawKeepAliveTarget.substringBeforeLast(':').ifBlank { rawKeepAliveTarget }
+        } else {
+            rawKeepAliveTarget
+        }
+        if (!isValidKeepAliveTarget(keepAliveTarget)) {
+            binding.etKeepAliveTarget.error = if (keepAliveMethod == GeneralSettings.METHOD_HTTP) {
+                "Isi host/URL saja, mis. www.google.com"
+            } else {
+                "Isi host saja (port otomatis 443), atau host:port (mis. www.google.com:443)"
+            }
+            return
         }
 
         GeneralSettingsStore.save(
