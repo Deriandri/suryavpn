@@ -36,6 +36,23 @@ class SshConfigActivity : AppCompatActivity() {
     /** null = mode tambah akun baru. Terisi = mode edit, menimpa profil ini. */
     private var editingProfileId: String? = null
 
+    /**
+     * FITUR BARU (permintaan user): true kalau chip "Raw Passthrough" sudah
+     * punya nilai eksplisit -- baik karena user pernah men-tap chip-nya
+     * sendiri di sesi ini, ATAU karena sedang EDIT profil lama yang memang
+     * sudah tersimpan nilainya (lihat restoreSavedConfig). Selama masih
+     * false, applyDefaultRawModeForEnhancedIfNeeded() boleh menyalakan
+     * Raw Passthrough otomatis begitu mode "SSH TLS Payload Proxy" dipilih;
+     * begitu true, auto-default itu berhenti menimpa pilihan yang sudah ada.
+     */
+    private var rawModeHasExplicitValue = false
+
+    /** Dipakai applyDefaultRawModeForEnhancedIfNeeded() supaya perubahan
+     *  chipRawMode.isChecked yang dilakukan SENDIRI oleh kode (bukan tap
+     *  user) tidak ikut ditandai sebagai "sudah eksplisit" oleh listener
+     *  chipRawMode di setupModeChips(). */
+    private var settingRawModeProgrammatically = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySshConfigBinding.inflate(layoutInflater)
@@ -167,16 +184,31 @@ class SshConfigActivity : AppCompatActivity() {
         }
         chip.isChecked = true
         binding.chipRawMode.isChecked = saved.proxyRawMode
+        // Profil ini SUDAH punya pilihan Raw Passthrough eksplisit tersimpan
+        // -- jangan sampai ditimpa auto-default kalau user gonta-ganti chip
+        // mode selama sesi edit ini (lihat applyDefaultRawModeForEnhancedIfNeeded).
+        rawModeHasExplicitValue = true
     }
 
     private fun setupModeChips() {
-        binding.chipGroupMode.setOnCheckedStateChangeListener { _, _ -> updateFieldVisibilityForMode() }
+        binding.chipGroupMode.setOnCheckedStateChangeListener { _, _ ->
+            applyDefaultRawModeForEnhancedIfNeeded()
+            updateFieldVisibilityForMode()
+        }
         binding.chipGroupEnhancedToggle.setOnCheckedStateChangeListener { _, _ -> updateFieldVisibilityForMode() }
         // Raw Passthrough dulu tidak punya listener sama sekali -- toggle-nya
         // KETAHUAN memengaruhi apakah Header HTTP tambahan kepakai (lihat
         // updateWsAndHeaderFieldState) tapi UI tidak pernah di-refresh saat
-        // di-tap, jadi disambungkan di sini juga.
-        binding.chipRawMode.setOnCheckedChangeListener { _, _ -> updateFieldVisibilityForMode() }
+        // di-tap, jadi disambungkan di sini juga. FITUR BARU (permintaan
+        // user): tap MANUAL user di sini juga menandai rawModeHasExplicitValue
+        // supaya applyDefaultRawModeForEnhancedIfNeeded() tidak lagi menimpa
+        // pilihan user kalau dia balik ke mode "SSH TLS Payload Proxy" lagi
+        // nanti -- kecuali ini perubahan PROGRAMATIK dari auto-default itu
+        // sendiri (settingRawModeProgrammatically), yang tidak dihitung.
+        binding.chipRawMode.setOnCheckedChangeListener { _, _ ->
+            if (!settingRawModeProgrammatically) rawModeHasExplicitValue = true
+            updateFieldVisibilityForMode()
+        }
         // Payload custom diketik manual (bukan dipilih dari chip) -- field ini
         // yang menentukan apakah Path WebSocket & Header HTTP tambahan kepakai
         // atau tidak (lihat updateWsAndHeaderFieldState), jadi harus dipantau
@@ -190,13 +222,41 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     /**
+     * FITUR BARU (permintaan user): begitu mode "SSH SSL" (modeIndex 1),
+     * "SSH TLS Payload Proxy" (modeIndex 2), ATAU "Payload + Remote Proxy"
+     * (modeIndex 3) dipilih, chip "Raw Passthrough" otomatis DINYALAKAN
+     * sebagai default -- tapi tetap bisa dimatikan manual lewat chip-nya
+     * sendiri kapan saja. Auto-default ini HANYA berlaku selama
+     * rawModeHasExplicitValue masih false, yaitu: profil baru yang belum
+     * pernah disentuh chip Raw Passthrough-nya sama sekali di sesi ini.
+     * Begitu user tap chip itu sendiri (atau ini profil lama hasil EDIT,
+     * lihat restoreSavedConfig), pilihannya dihormati & tidak ditimpa lagi
+     * walau mode dipindah-pindah.
+     */
+    private fun applyDefaultRawModeForEnhancedIfNeeded() {
+        val modeIndex = currentModeIndex()
+        if ((modeIndex == 1 || modeIndex == 2 || modeIndex == 3) &&
+            !rawModeHasExplicitValue && !binding.chipRawMode.isChecked
+        ) {
+            settingRawModeProgrammatically = true
+            binding.chipRawMode.isChecked = true
+            settingRawModeProgrammatically = false
+        }
+    }
+
+    /**
      * 0 = SSH, 1 = SSH SSL, 2 = SSH TLS Payload Proxy, 3 = Payload + Remote Proxy.
      *
      * Mode 3 (Payload + Remote Proxy) memakai [com.example.tunnelapp.model.ConnectionMode.REMOTE_PROXY]:
-     * proxy WAJIB diisi (beda dari mode 2 yang proxy-nya opsional), payload custom
+     * proxy WAJIB diisi (beda dari mode 1 & 2 yang proxy-nya opsional), payload custom
      * bisa diisi. TLS/SNI hanya relevan untuk mode payload+proxy biasa; begitu
      * toggle Raw Passthrough dinyalakan, koneksi jalan apa adanya tanpa
      * TLS/SNI sama sekali, jadi field itu disembunyikan.
+     *
+     * FITUR BARU (permintaan user): mode 1 (SSH SSL) sekarang juga ikut punya
+     * proxy/CDN opsional + toggle Raw Passthrough, persis seperti mode 2 --
+     * bedanya, begitu chip "SSH SSL" dipilih, Raw Passthrough-nya AKTIF secara
+     * default (lihat applyDefaultRawModeForEnhancedIfNeeded).
      */
     private fun currentModeIndex(): Int = when {
         binding.chipPayloadRemoteProxy.isChecked -> 3
@@ -206,7 +266,8 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     private fun proxyRawModeEnabled(): Boolean =
-        (currentModeIndex() == 2 || currentModeIndex() == 3) && binding.chipRawMode.isChecked
+        (currentModeIndex() == 1 || currentModeIndex() == 2 || currentModeIndex() == 3) &&
+            binding.chipRawMode.isChecked
 
     /** Mode 3 pakai TLS/SNI kecuali Raw Passthrough dinyalakan -- lihat [currentModeIndex]. */
     private fun usesTlsForMode(modeIndex: Int): Boolean =
@@ -216,7 +277,10 @@ class SshConfigActivity : AppCompatActivity() {
         val modeIndex = currentModeIndex()
         val usesTls = usesTlsForMode(modeIndex)
         val usesPayload = modeIndex == 2 || modeIndex == 3
-        val usesProxy = modeIndex == 2 || modeIndex == 3
+        // FITUR BARU (permintaan user): mode 1 (SSH SSL) sekarang juga menampilkan
+        // container proxy & chip Raw Passthrough, sama seperti mode 2 -- proxy
+        // tetap opsional (kosongkan untuk perilaku SSH SSL polos seperti sebelumnya).
+        val usesProxy = modeIndex == 1 || modeIndex == 2 || modeIndex == 3
         val proxyMandatory = modeIndex == 3
         val usesRawMode = proxyRawModeEnabled()
 
@@ -224,8 +288,11 @@ class SshConfigActivity : AppCompatActivity() {
         binding.containerTlsVersion.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
         binding.chipIgnoreCertErrors.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
         binding.tilPayload.visibility = if (usesPayload) android.view.View.VISIBLE else android.view.View.GONE
-        binding.containerProxy.visibility = if (usesProxy) android.view.View.VISIBLE else android.view.View.GONE
-        binding.chipGroupEnhancedToggle.visibility = if (modeIndex == 2 || modeIndex == 3) android.view.View.VISIBLE else android.view.View.GONE
+        // FITUR BARU (permintaan user): "Remote Proxy" (label + chip Raw Passthrough
+        // + host/port proxy) sekarang satu blok (containerRemoteProxy) dengan SATU
+        // visibility -- lihat activity_ssh_config.xml, chipGroupEnhancedToggle &
+        // containerProxy sudah dipindah jadi anak dari blok ini.
+        binding.containerRemoteProxy.visibility = if (usesProxy) android.view.View.VISIBLE else android.view.View.GONE
 
         binding.tilSni.hint = "SNI / Host WebSocket (kosongkan jika tidak perlu)"
         binding.tilProxyHost.hint = when {
@@ -333,7 +400,9 @@ class SshConfigActivity : AppCompatActivity() {
         val usesPayload = modeIndex == 2 || modeIndex == 3
         val payload = if (usesPayload) binding.etPayload.text.toString() else ""
 
-        val usesProxy = modeIndex == 2 || modeIndex == 3
+        // FITUR BARU (permintaan user): modeIndex 1 (SSH SSL) sekarang juga ikut
+        // usesProxy -- lihat updateFieldVisibilityForMode().
+        val usesProxy = modeIndex == 1 || modeIndex == 2 || modeIndex == 3
         val proxyHost = if (usesProxy) binding.etProxyHost.text.toString().trim() else ""
         val proxyPortText = if (usesProxy) binding.etProxyPort.text.toString().trim() else ""
         val proxyRawMode = usesProxy && proxyRawModeEnabled()

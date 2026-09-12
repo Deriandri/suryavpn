@@ -5,6 +5,16 @@ package com.example.tunnelapp.model
  *
  *  - SSH:             TCP langsung ke server, protokol SSH mentah (tanpa bungkus apa pun).
  *  - SSH_SSL:         TCP langsung + TLS wrap (mirip stunnel) sebelum SSH dimulai.
+ *                      FITUR BARU (permintaan user): sekarang juga boleh punya
+ *                      proxy/CDN opsional (kalau host proxy diisi), dikontrol oleh
+ *                      [ServerConfig.proxyRawMode] -- begitu chip "SSH SSL" dipilih
+ *                      di UI, Raw Passthrough otomatis AKTIF secara default (beda
+ *                      dari SSH_SSL_PAYLOAD/ENHANCED yang juga default aktif tapi
+ *                      baru kalau proxy diisi): TCP connect langsung ke
+ *                      proxyHost:proxyPort (tanpa CONNECT), lalu TLS dengan SNI =
+ *                      [ServerConfig.sslSni] (atau host asli) -- sama seperti
+ *                      varian raw di ENHANCED. Kalau proxy dikosongkan, berperilaku
+ *                      seperti sebelumnya: TLS wrap langsung ke [ServerConfig.host].
  *  - SSH_SSL_PAYLOAD: sama seperti SSH_SSL, ditambah payload HTTP custom yang
  *                      dikirim lewat socket TLS sebelum SSH dimulai (dulu disebut
  *                      "SSH SSL + Payload" di UI, sekarang "SSH TLS Payload Proxy").
@@ -203,7 +213,11 @@ data class ServerConfig(
      */
     fun usesProxy(): Boolean {
         if (mode == ConnectionMode.XRAY) return false
-        val optionalProxyMode = mode == ConnectionMode.SSH_SSL_PAYLOAD ||
+        // FITUR BARU (permintaan user): SSH_SSL sekarang juga boleh punya proxy/CDN
+        // opsional + Raw Passthrough, sama seperti SSH_SSL_PAYLOAD/ENHANCED -- lihat
+        // catatan lengkap di dokumentasi ConnectionMode.SSH_SSL di atas.
+        val optionalProxyMode = mode == ConnectionMode.SSH_SSL ||
+            mode == ConnectionMode.SSH_SSL_PAYLOAD ||
             mode == ConnectionMode.ENHANCED
         return mode == ConnectionMode.REMOTE_PROXY || (optionalProxyMode && !proxyHost.isNullOrBlank())
     }
@@ -306,7 +320,11 @@ fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
         else -> ConnectionMode.SSH
     }
     val usesPayload = modeIndex == 2 || modeIndex == 3
-    val usesProxy = modeIndex == 2 || modeIndex == 3
+    // FITUR BARU (permintaan user): modeIndex 1 (SSH SSL) sekarang juga ikut
+    // usesProxy -- proxy/CDN tetap opsional (lihat ServerConfig.usesProxy(),
+    // proxyHost kosong = tidak dipakai), tapi Raw Passthrough-nya default aktif
+    // begitu mode ini dipilih (lihat SshConfigActivity.applyDefaultRawModeForEnhancedIfNeeded).
+    val usesProxy = modeIndex == 1 || modeIndex == 2 || modeIndex == 3
     val proxyRawModeResolved = usesProxy && proxyRawMode
     val usesTls = modeIndex == 1 || modeIndex == 2
 

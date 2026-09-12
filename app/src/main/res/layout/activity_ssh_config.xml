@@ -263,36 +263,12 @@
                         android:text="Payload + Remote Proxy" />
                 </com.google.android.material.chip.ChipGroup>
 
-                <!-- Toggle Raw Passthrough, dipakai untuk mode "SSH TLS Payload Proxy"
-                     maupun "Payload + Remote Proxy". Untuk "Payload + Remote Proxy",
-                     toggle ini yang menentukan apakah proxy diperlakukan sebagai proxy
-                     HTTP CONNECT biasa tanpa TLS (off, default) atau sebagai titik
-                     singgah raw/CDN yang butuh TLS+SNI untuk routing (on).
-                     WebSocket TIDAK punya menu lagi, selalu dicoba otomatis di semua
-                     mode dengan fallback ke raw kalau server/CDN menolak upgrade-nya. -->
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/chipGroupEnhancedToggle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    app:singleSelection="false"
-                    app:selectionRequired="false"
-                    app:chipSpacingHorizontal="8dp"
-                    android:visibility="gone">
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chipRawMode"
-                        style="@style/Widget.TunnelApp.Chip.Filter"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Raw Passthrough (CDN, skip CONNECT)" />
-                </com.google.android.material.chip.ChipGroup>
-
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/tilSni"
                     style="@style/Field.Outlined"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
                     android:hint="SNI (kosongkan jika tidak perlu)"
                     android:visibility="gone">
 
@@ -379,49 +355,94 @@
                     android:text="Abaikan error sertifikat TLS (self-signed)"
                     android:visibility="gone" />
 
+                <!-- FITUR BARU (permintaan user): grup "Remote Proxy" (label + toggle
+                     Raw Passthrough + host/port proxy) DIPISAH jadi satu blok
+                     tersendiri; sebelumnya chip Raw Passthrough nempel sendirian
+                     tepat di bawah baris chip mode, sedangkan host/port proxy
+                     terpisah jauh di bawah field TLS, jadi tidak kelihatan sebagai
+                     satu kesatuan. Sekarang keduanya digabung dalam satu blok
+                     berlabel "Remote Proxy", diletakkan setelah field TLS/SNI dasar
+                     supaya urutan Metode Koneksi lebih rapi: pilih mode -> field
+                     dasar (SNI/TLS/cert) -> baru field lanjutan proxy remote (kalau
+                     mode-nya memang mendukung, lihat
+                     SshConfigActivity.updateFieldVisibilityForMode; satu
+                     visibility untuk seluruh blok ini, bukan dua terpisah lagi). -->
                 <LinearLayout
-                    android:id="@+id/containerProxy"
+                    android:id="@+id/containerRemoteProxy"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
+                    android:orientation="vertical"
+                    android:layout_marginBottom="8dp"
                     android:visibility="gone">
 
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/tilProxyHost"
-                        style="@style/Field.Outlined"
-                        android:layout_width="0dp"
+                    <TextView
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="2"
-                        android:layout_marginEnd="8dp"
-                        android:hint="Host / IP Proxy (opsional)">
+                        android:text="Remote Proxy"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        android:layout_marginBottom="4dp" />
 
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etProxyHost"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="textUri"
-                            android:textColor="@color/text_primary"
-                            android:textColorHint="@color/text_hint"
-                            android:autofillHints="" />
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/tilProxyPort"
-                        style="@style/Field.Outlined"
-                        android:layout_width="0dp"
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/chipGroupEnhancedToggle"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:hint="Port Proxy">
+                        android:layout_marginBottom="8dp"
+                        app:singleSelection="false"
+                        app:selectionRequired="false"
+                        app:chipSpacingHorizontal="8dp">
 
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etProxyPort"
-                            android:layout_width="match_parent"
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipRawMode"
+                            style="@style/Widget.TunnelApp.Chip.Filter"
+                            android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:inputType="number"
-                            android:textColor="@color/text_primary"
-                            android:textColorHint="@color/text_hint"
-                            android:autofillHints="" />
-                    </com.google.android.material.textfield.TextInputLayout>
+                            android:text="Raw Passthrough (CDN, skip CONNECT)" />
+                    </com.google.android.material.chip.ChipGroup>
+
+                    <LinearLayout
+                        android:id="@+id/containerProxy"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/tilProxyHost"
+                            style="@style/Field.Outlined"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="2"
+                            android:layout_marginEnd="8dp"
+                            android:hint="Host / IP Proxy (opsional)">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/etProxyHost"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="textUri"
+                                android:textColor="@color/text_primary"
+                                android:textColorHint="@color/text_hint"
+                                android:autofillHints="" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/tilProxyPort"
+                            style="@style/Field.Outlined"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:hint="Port Proxy">
+
+                            <com.google.android.material.textfield.TextInputEditText
+                                android:id="@+id/etProxyPort"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:inputType="number"
+                                android:textColor="@color/text_primary"
+                                android:textColorHint="@color/text_hint"
+                                android:autofillHints="" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                    </LinearLayout>
                 </LinearLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
@@ -540,12 +561,22 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Card: DNS -->
+        <!-- Card: DNS; DISEMBUNYIKAN dari layar ini (permintaan user).
+             Field etDns1/etDns2 SENGAJA TIDAK DIHAPUS (cuma visibility=gone)
+             supaya SshConfigActivity.kt (restoreSavedConfig/onSaveClicked,
+             yang masih membaca/menulis binding.etDns1/etDns2 ke
+             SavedConfig.dns1/dns2) tidak perlu diubah & tetap kompilasi;
+             DNS per-profil ini sekarang cuma efektif diisi dari data lama
+             (kalau ada), dan yang dipakai user untuk override DNS sehari-hari
+             cukup lewat "Pengaturan > VPN Setting" (etVpnDns1/etVpnDns2 di
+             SettingsActivity), yang MENIMPA nilai di sini juga kalau diisi
+             (lihat VpnSettingsStore & MyVpnService.applyDnsServers). -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
 
             <LinearLayout
                 android:layout_width="match_parent"
