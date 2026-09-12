@@ -2,15 +2,15 @@ package com.example.tunnelapp.tunnel
 
 import android.util.Log
 import com.example.tunnelapp.model.ServerConfig
-import net.schmizz.sshj.Config
-import net.schmizz.sshj.DefaultConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.connection.channel.direct.Parameters
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
+import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.security.Security
 
 /**
  * Engine SSH KEDUA app ini (permintaan user: "tambah library, bisa pilih di
@@ -25,23 +25,30 @@ import java.net.Socket
  *
  * CATATAN VERIFIKASI (baca ini kalau gagal compile): kelas ini ditulis dari
  * pengetahuan API publik sshj (useCompression(), newLocalPortForwarder(),
- * authPassword(), DefaultConfig.getKeyExchangeFactories(), dll -- semuanya
- * dari dokumentasi/README resmi sshj), TAPI lingkungan penyusunan kode ini
- * tidak punya akses internet utk menjalankan Gradle build & memverifikasi
- * langsung ke versi sshj:0.38.0 yang dipasang. Kalau Android Studio
- * melempar error "unresolved reference" di salah satu pemanggilan API sshj
- * di bawah, itu kemungkinan besar cuma beda nama method/kelas antar versi --
- * laporkan pesan errornya, gampang diperbaiki.
+ * authPassword(), dll -- semuanya dari dokumentasi/README resmi sshj), TAPI
+ * lingkungan penyusunan kode ini tidak punya akses internet utk menjalankan
+ * Gradle build & memverifikasi langsung ke versi sshj:0.38.0 yang dipasang.
+ * Kalau Android Studio melempar error "unresolved reference" di salah satu
+ * pemanggilan API sshj di bawah, itu kemungkinan besar cuma beda nama
+ * method/kelas antar versi -- laporkan pesan errornya, gampang diperbaiki.
  *
- * CATATAN FIX NYATA (sudah kejadian, lihat buildAndroidSafeConfig()): server
- * yang menawarkan Curve25519/X25519 utk key exchange bikin sshj gagal dengan
- * "no such algorithm: X25519 for provider BC" di Android -- SUDAH DIPERBAIKI
- * dengan memfilter algoritma itu dari config sebelum connect(). Kalau nanti
- * muncul error SERUPA ("no such algorithm: ... for provider BC") tapi utk
- * host key/signature (mis. ed25519 host key, bukan KEX), pola perbaikannya
- * SAMA PERSIS -- filter `config.keyAlgorithms`/signature factory yang
- * namanya mengandung "ed25519" dengan cara yang sama seperti keyExchangeFactories
- * di buildAndroidSafeConfig().
+ * CATATAN FIX NYATA -- ROOT CAUSE, BUKAN TAMBAL SATU-SATU (laporan user,
+ * dua error berturutan: "no such algorithm: X25519 for provider BC", lalu
+ * SETELAH X25519 dihindari, "no such algorithm: EC for provider BC" muncul
+ * juga): provider JCE bernama "BC" BAWAAN ANDROID ternyata memang sangat
+ * terbatas (bukan Bouncy Castle asli/lengkap seperti di JVM desktop) --
+ * banyak algoritma modern (X25519, kurva EC penuh, dll) memang tidak ada di
+ * situ. sshj secara internal berulang kali minta provider bernama PERSIS
+ * "BC" utk berbagai operasi kripto (KeyExchange, host key EC, dll), jadi
+ * memfilter algoritma satu-per-satu (percobaan pertama, KHUSUS utk X25519)
+ * terbukti TIDAK CUKUP -- begitu satu algoritma dihindari, algoritma
+ * berikutnya yang sama-sama butuh provider "BC" lengkap ikut gagal juga.
+ * FIX YANG BENAR (dipakai sekarang, lihat ensureBouncyCastleRegistered()):
+ * daftarkan Bouncy Castle ASLI (dependency org.bouncycastle:bcprov-jdk18on,
+ * lihat app/build.gradle.kts) sebagai provider "BC", MENGGANTIKAN versi
+ * Android yang terpotong -- sekali daftar di awal connect(), SEMUA algoritma
+ * yang diminta sshj (X25519, EC, dan apa pun lainnya) langsung tersedia
+ * penuh, tidak perlu filter algoritma satu-satu lagi.
  *
  * ARSITEKTUR: memakai [ConnectRelay] yang SAMA PERSIS dengan [SshTunnelManager]
  * (relay itu murni socket loopback, tidak terikat ke satu library SSH manapun)
@@ -56,11 +63,6 @@ import java.net.Socket
  * yang detail (di sini digeneralisasi).
  */
 class SshjTunnelManager : SshEngineHandle {
-
-    companion object {
-        private const val TAG = "SshjTunnelManager"
-        private const val CONNECT_TIMEOUT_MS = 15000
-    }
 
     /**
      * Bungkus [SSHClient] jadi [SshConnectionHandle] generik supaya
@@ -127,47 +129,45 @@ class SshjTunnelManager : SshEngineHandle {
     private var disconnectWatchThread: Thread? = null
     private val teardownLock = Any()
 
-    /**
-     * FIX (laporan user, error nyata: "no such algorithm: X25519 for
-     * provider BC"): DefaultConfig sshj menawarkan key exchange
-     * "curve25519-sha256"/"curve25519-sha256@libssh.org" (X25519) ke server
-     * SECARA DEFAULT -- implementasi X25519 di sshj secara internal minta
-     * provider JCE bernama PERSIS "BC" (Bouncy Castle) utk operasinya.
-     * Provider "BC" bawaan Android BUKAN Bouncy Castle asli/lengkap seperti
-     * di JVM desktop (beda implementasi & daftar algoritma), jadi lookup itu
-     * gagal -- MESKIPUN server sebenarnya juga menawarkan algoritma KEX lain
-     * yang didukung PENUH di Android (ECDH NIST P-256/384/521, Diffie-Hellman
-     * Group14, dll). trilead-ssh2 (engine lain di app ini) TIDAK PERNAH
-     * menawarkan Curve25519 sama sekali, makanya dia tidak kena masalah yang
-     * sama persis di server yang sama.
-     *
-     * Solusinya BUKAN menambah dependency Bouncy Castle asli (riskan konflik
-     * kelas dengan "BC" bawaan Android sendiri -- masalah klasik lain di
-     * Android+BC) -- cukup BUANG algoritma Curve25519/X25519 dari daftar KEX
-     * yang ditawarkan sshj SEBELUM connect(), supaya negosiasi otomatis
-     * jatuh ke algoritma lain yang memang didukung penuh di Android. Server
-     * modern manapun (OpenSSH dkk) selalu menawarkan lebih dari satu
-     * algoritma KEX, jadi ini TIDAK mengurangi kompatibilitas ke server yang
-     * valid -- cuma menghindari SATU algoritma spesifik yang memang rewel di
-     * Android lewat sshj.
-     */
-    private fun buildAndroidSafeConfig(): Config {
-        val config = DefaultConfig()
-        val safeKex = config.keyExchangeFactories.filterNot { factory ->
-            val name = factory.name?.lowercase().orEmpty()
-            name.contains("curve25519") || name.contains("x25519")
+    companion object {
+        private const val TAG = "SshjTunnelManager"
+        private const val CONNECT_TIMEOUT_MS = 15000
+
+        // Guard supaya registrasi provider cuma dijalankan SEKALI per proses
+        // (bukan per connect()/reconnect) -- Security.insertProviderAt() TIDAK
+        // masalah dipanggil berkali-kali, tapi tidak ada gunanya juga,
+        // sekedar hindari kerja & log berulang tanpa perlu.
+        @Volatile private var bcRegistered = false
+        private val bcRegisterLock = Any()
+
+        /**
+         * FIX ROOT CAUSE (lihat catatan panjang di javadoc kelas ini) --
+         * ganti provider "BC" bawaan Android (terpotong, banyak algoritma
+         * modern hilang) dengan Bouncy Castle ASLI (dependency
+         * org.bouncycastle:bcprov-jdk18on, lihat app/build.gradle.kts).
+         * removeProvider() dulu supaya insertProviderAt() posisi 1 (prioritas
+         * TERTINGGI) tidak bentrok/didahului versi Android yang sudah
+         * terdaftar duluan dengan nama sama.
+         */
+        private fun ensureBouncyCastleRegistered() {
+            if (bcRegistered) return
+            synchronized(bcRegisterLock) {
+                if (bcRegistered) return
+                try {
+                    Security.removeProvider("BC")
+                    Security.insertProviderAt(BouncyCastleProvider(), 1)
+                    Log.i(TAG, "Bouncy Castle asli terdaftar sebagai provider \"BC\" (menggantikan versi Android yang terpotong)")
+                } catch (e: Exception) {
+                    // Non-fatal di titik ini -- kalau ternyata masih ada
+                    // algoritma yang hilang, error "no such algorithm: ...
+                    // for provider BC" yang sama akan muncul lagi nanti pas
+                    // handshake, dan itu ke-log jelas di StatusBus seperti
+                    // sebelumnya, jadi tetap gampang didiagnosis.
+                    Log.e(TAG, "Gagal daftarkan Bouncy Castle asli sebagai provider BC, lanjut pakai provider bawaan Android", e)
+                }
+                bcRegistered = true
+            }
         }
-        if (safeKex.isNotEmpty()) {
-            config.keyExchangeFactories = safeKex
-        } else {
-            // Jaga-jaga (seharusnya tidak pernah terjadi -- DefaultConfig
-            // selalu punya beberapa KEX non-Curve25519 juga): kalau daftar
-            // malah jadi kosong, jangan sampai SEMUA algoritma KEX hilang
-            // (bikin SEMUA server gagal connect) -- lebih aman biarkan daftar
-            // default apa adanya walau berisiko error X25519 yang sama.
-            Log.w(TAG, "Filter KEX Curve25519/X25519 menghasilkan daftar kosong, pakai default apa adanya")
-        }
-        return config
     }
 
     @Throws(Exception::class)
@@ -179,13 +179,15 @@ class SshjTunnelManager : SshEngineHandle {
         compressionEnabled: Boolean,
         onUnexpectedDisconnect: (String) -> Unit
     ) {
+        ensureBouncyCastleRegistered()
+
         val relay = ConnectRelay(config, protect)
         val relayPort = relay.start()
         connectRelay = relay
 
         StatusBus.start(StepId.SSH_HANDSHAKE)
 
-        val client = SSHClient(buildAndroidSafeConfig())
+        val client = SSHClient()
         // MVP: terima host key apa pun -- sama persis kebijakan
         // ServerHostKeyVerifier di SshTunnelManager (trilead).
         client.addHostKeyVerifier(PromiscuousVerifier())

@@ -104,6 +104,18 @@ dependencies {
     // (aman, TIDAK crash), tapi slf4j-android di bawah ini meneruskannya ke
     // Logcat (memudahkan debugging engine ini).
     implementation("org.slf4j:slf4j-android:1.7.36")
+    // FIX (laporan user, error nyata: "no such algorithm: X25519 for
+    // provider BC", lalu "no such algorithm: EC for provider BC"): provider
+    // JCE bernama "BC" BAWAAN ANDROID ternyata sangat terbatas (bukan
+    // Bouncy Castle asli/lengkap seperti di JVM desktop) -- sshj berulang
+    // kali minta provider bernama PERSIS "BC" utk berbagai operasi kripto.
+    // Dependency ini didaftarkan MENGGANTIKAN provider "BC" bawaan Android
+    // saat runtime (lihat SshjTunnelManager.ensureBouncyCastleRegistered())
+    // supaya SEMUA algoritma yang diminta sshj benar-benar tersedia. AMAN
+    // dari konflik kelas duplikat dengan Android sendiri -- implementasi
+    // internal Android ada di package berbeda (com.android.org.bouncycastle),
+    // bukan org.bouncycastle seperti library resmi ini.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
 
     // --- Modul Xray (tahap 3) ---
     // 1. Ambil/compile xray.aar dari proyek resmi XTLS/libXray (https://github.com/XTLS/libXray),
