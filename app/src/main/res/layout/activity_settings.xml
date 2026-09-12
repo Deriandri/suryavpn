@@ -329,7 +329,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:hint="UDPGW Port (opsional)">
+                    android:hint="UDPGW Port (opsional)"
+                    app:placeholderText="mis. 7300 (default badvpn-udpgw)">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etVpnUdpgwPort"

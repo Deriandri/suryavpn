@@ -94,6 +94,13 @@ class UdpgwClient(private val remotePort: Int) {
         // Sama seperti CHANNEL_OPEN_TIMEOUT_MS di Socks5Server: createLocalStreamForwarder()
         // ke channel TCP udpgw ini juga tidak punya timeout bawaan.
         private const val CHANNEL_OPEN_TIMEOUT_MS = 10_000L
+
+        // Lihat catatan lengkap di openChannelIfNeeded(): jeda minimum antar
+        // percobaan buka channel SETELAH percobaan sebelumnya gagal (mis.
+        // server belum menjalankan badvpn-udpgw di port ini) -- mencegah
+        // setiap paket UDP baru langsung memicu percobaan baru yang pasti
+        // gagal lagi selagi masalahnya belum berubah.
+        private const val OPEN_FAIL_COOLDOWN_MS = 15_000L
     }
 
     /** Identitas satu flow UDP: siapa pemiliknya (biasanya DatagramSocket SOCKS5 UDP ASSOCIATE) + tujuan. */
@@ -112,6 +119,11 @@ class UdpgwClient(private val remotePort: Int) {
     @Volatile private var forwarder: LocalStreamForwarder? = null
     @Volatile private var dataOut: DataOutputStream? = null
     @Volatile private var readerThread: Thread? = null
+    // Timestamp (System.currentTimeMillis()) sampai kapan openChannelIfNeeded()
+    // menolak mencoba lagi setelah percobaan terakhir gagal -- lihat
+    // OPEN_FAIL_COOLDOWN_MS. 0 = tidak ada cooldown aktif (belum pernah gagal,
+    // atau percobaan terakhir sukses).
+    @Volatile private var openFailedUntilMs: Long = 0
 
     private val openLock = Any()
     private val writeLock = Any()
@@ -136,6 +148,7 @@ class UdpgwClient(private val remotePort: Int) {
     /** Pasang koneksi SSH yang baru connect/reconnect. Channel TCP ke udpgw TIDAK langsung dibuka di sini (lazy, lihat header class). */
     fun attachConnection(conn: Connection) {
         sshConnection = conn
+        openFailedUntilMs = 0 // koneksi SSH baru -- beri kesempatan baru, jangan warisi cooldown dari sesi SSH sebelumnya
     }
 
     /** Lepas koneksi SSH yang mati (reconnect akan datang) -- tutup channel & buang semua state flow (mapping lama sudah pasti tidak valid lagi di server). */
@@ -236,8 +249,17 @@ class UdpgwClient(private val remotePort: Int) {
 
     private fun openChannelIfNeeded(): DataOutputStream? {
         dataOut?.let { return it }
+        // Kalau percobaan buka channel TERAKHIR gagal, jangan langsung coba
+        // lagi di SETIAP paket UDP berikutnya -- kalau user salah isi port
+        // (atau server memang belum menjalankan badvpn-udpgw sama sekali),
+        // trafik non-DNS device bisa sangat sering (browser modern spam QUIC),
+        // jadi tanpa cooldown ini tiap paket akan memicu percobaan buka
+        // channel baru + log gagal baru, membanjiri Log terminal & membebani
+        // koneksi SSH dengan permintaan buka channel yang pasti gagal terus.
+        if (System.currentTimeMillis() < openFailedUntilMs) return null
         synchronized(openLock) {
             dataOut?.let { return it }
+            if (System.currentTimeMillis() < openFailedUntilMs) return null
             val conn = sshConnection ?: run {
                 Log.w(TAG, "Belum ada koneksi SSH aktif, tidak bisa buka channel udpgw")
                 return null
@@ -263,6 +285,7 @@ class UdpgwClient(private val remotePort: Int) {
                 forwarder = fwd
                 val newOut = DataOutputStream(fwd.outputStream)
                 dataOut = newOut
+                openFailedUntilMs = 0 // reset cooldown -- percobaan berikutnya (kalau channel ini putus lagi nanti) mulai dari nol
                 readerThread = Thread({ readLoop(fwd.inputStream) }, "udpgw-reader").apply {
                     isDaemon = true
                     start()
@@ -272,8 +295,9 @@ class UdpgwClient(private val remotePort: Int) {
             } catch (e: Exception) {
                 openDone.set(true)
                 guard.interrupt()
+                openFailedUntilMs = System.currentTimeMillis() + OPEN_FAIL_COOLDOWN_MS
                 Log.w(TAG, "Gagal buka channel udpgw ke $REMOTE_HOST:$remotePort", e)
-                StatusBus.log("[UDPGW] Gagal buka channel ke $REMOTE_HOST:$remotePort: ${e.message ?: e.javaClass.simpleName}")
+                StatusBus.log("[UDPGW] Gagal buka channel ke $REMOTE_HOST:$remotePort: ${e.message ?: e.javaClass.simpleName} -- dicoba lagi setelah ${OPEN_FAIL_COOLDOWN_MS / 1000}dtk")
                 try { fwd?.close() } catch (_: Exception) {}
                 null
             }
