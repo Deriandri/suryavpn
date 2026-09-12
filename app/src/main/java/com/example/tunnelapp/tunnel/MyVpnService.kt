@@ -576,11 +576,11 @@ class MyVpnService : VpnService() {
         // (applyDnsServers). Diterapkan di sini SEBELUM lastConfig
         // ditetapkan supaya seluruh alur (establishTunnel, reconnect, hard
         // reset) konsisten memakai port yang sama.
-        val config = if (vpnSettings.socksPort > 0) {
+        val config = (if (vpnSettings.socksPort > 0) {
             rawConfig.copy(socksPort = vpnSettings.socksPort)
         } else {
             rawConfig
-        }
+        }).copy(udpgwPort = vpnSettings.udpgwPort) // udpgw SELALU global (VPN Setting), tidak ada per-profil -- lihat ServerConfig.udpgwPort
 
         lastConfig = config
         // Susun daftar akun cadangan SEKALI di sini (bukan tiap kali dibutuhkan
@@ -1151,7 +1151,8 @@ class MyVpnService : VpnService() {
             val candidate = fallbackProfiles[fallbackIndex % fallbackProfiles.size]
             fallbackIndex++
             val built = candidate.config.toServerConfigOrNull() ?: return@repeat
-            return if (vpnSettings.socksPort > 0) built.copy(socksPort = vpnSettings.socksPort) else built
+            val withSocksOverride = if (vpnSettings.socksPort > 0) built.copy(socksPort = vpnSettings.socksPort) else built
+            return withSocksOverride.copy(udpgwPort = vpnSettings.udpgwPort)
         }
         return null
     }

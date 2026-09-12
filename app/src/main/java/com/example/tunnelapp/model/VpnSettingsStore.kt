@@ -32,14 +32,22 @@ import android.content.Context
  * Kosong/0 berarti proxy HTTP tambahan ini tidak dinyalakan sama sekali
  * (perilaku lama).
  *
- * [udpgwPort] DISIMPAN untuk kompatibilitas/pengaturan lanjutan, TAPI
- * SAAT INI TIDAK mengubah perilaku apa pun: engine tunnel di app ini
- * (hev-socks5-tunnel, lihat [com.example.tunnelapp.tunnel.HevSocks5Engine])
- * sudah meneruskan UDP langsung lewat SOCKS5 UDP ASSOCIATE bawaannya sendiri
- * (`udp: 'udp'` di config), BEDA dari aplikasi tunnel lama (mis. berbasis
- * tun2socks/badvpn) yang memang butuh proses "udpgw" terpisah buat UDP.
- * Kolom ini tetap disediakan di UI/penyimpanan supaya siap dipakai kalau
- * suatu saat engine UDP-nya diganti dan benar-benar butuh port ini.
+ * [udpgwPort], kalau diisi (bukan 0), MENYALAKAN [com.example.tunnelapp.tunnel.UdpgwClient]:
+ * UDP NON-DNS (game, QUIC/HTTP3, VoIP) yang device kirim lewat TUN akan
+ * diteruskan lewat protokol udpgw (badvpn-udpgw) ke proses `badvpn-udpgw`
+ * yang berjalan TERPISAH di sisi SERVER SSH (diasumsikan bind ke
+ * 127.0.0.1:<udpgwPort> di sana, diakses lewat channel "direct-tcpip" SSH
+ * yang sama seperti trafik TCP biasa). SSH sendiri memang cuma bisa forward
+ * TCP mentah -- hev-socks5-tunnel meneruskan UDP device lewat SOCKS5 UDP
+ * ASSOCIATE ke [com.example.tunnelapp.tunnel.Socks5Server] seperti biasa
+ * (`udp: 'udp'` di config engine), tapi Socks5Server sendiri sebelumnya
+ * cuma bisa mem-bypass batasan itu utk DNS (lewat DNS-over-TCP) -- UDP
+ * lain dibuang. udpgw inilah yang mengisi celah itu utk UDP non-DNS.
+ * Kosong/0 (default) berarti fitur ini mati -- UDP non-DNS tetap dibuang
+ * seperti sebelumnya, TIDAK ada perubahan perilaku. WAJIB ada proses
+ * `badvpn-udpgw` yang benar-benar berjalan (dan mendengarkan) di sisi
+ * server pada port yang diisi di sini -- kalau tidak, channel-nya akan
+ * gagal dibuka terus & fitur ini tidak berefek walau diaktifkan.
  */
 data class VpnSettings(
     val dns1: String = "",

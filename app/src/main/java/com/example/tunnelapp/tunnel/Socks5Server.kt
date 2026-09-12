@@ -120,6 +120,19 @@ class Socks5Server {
     @Volatile
     private var sshConnection: Connection? = null
 
+    // Client udpgw opsional -- kalau di-set (lihat setUdpgwClient(), dipasang
+    // SshTunnelManager cuma kalau user mengisi VPN Setting > UDPGW Port),
+    // UDP non-DNS di relayUdpPacket() diteruskan lewat ini alih-alih dibuang.
+    // Null (default) = perilaku lama persis: UDP selain DNS tetap dibuang,
+    // sama seperti sebelum fitur ini ada.
+    @Volatile
+    private var udpgwClient: UdpgwClient? = null
+
+    /** Pasang/lepas client udpgw. null = matikan (kembali ke perilaku lama: UDP non-DNS dibuang). */
+    fun setUdpgwClient(client: UdpgwClient?) {
+        udpgwClient = client
+    }
+
     // DIHAPUS (root cause "tunnel connect tapi internet tidak jalan, tanpa
     // error di log"): sebelumnya ada `channelOpenLock` yang menyerialkan
     // SEMUA pembukaan channel (CONNECT & UDP-relay-DNS) di satu lock global,
@@ -472,11 +485,42 @@ class Socks5Server {
         val payload = data.copyOfRange(offset, data.size)
 
         if (destPort != 53) {
-            // UDP selain DNS (mis. QUIC/HTTP3, WebRTC) tidak bisa lewat tunnel
-            // SSH biasa -- ini batasan protokol SSH sendiri (cuma forward TCP),
-            // sama seperti aplikasi tunnel SSH lain (HTTP Custom, dll). Browser
-            // & sebagian besar situs akan otomatis fallback ke TCP kalau QUIC
-            // gagal, jadi ini biasanya tidak terasa selain sedikit lebih lambat.
+            // UDP selain DNS (mis. QUIC/HTTP3, WebRTC, game) TIDAK BISA lewat
+            // "direct-tcpip" channel SSH biasa -- itu batasan protokol SSH
+            // sendiri (cuma forward TCP). Kalau user mengisi VPN Setting >
+            // UDPGW Port, teruskan lewat UdpgwClient (protokol udpgw/
+            // badvpn-udpgw yang dijalankan terpisah oleh admin server) --
+            // lihat dokumentasi lengkap di UdpgwClient. Kalau tidak diisi
+            // (udpgwClient null), perilaku lama tetap: dibuang diam-diam,
+            // browser/situs kebanyakan otomatis fallback ke TCP kalau QUIC
+            // gagal, jadi biasanya cuma sedikit lebih lambat.
+            val client = udpgwClient
+            if (client != null && atyp == 0x01) { // udpgw di sini cuma dukung IPv4, sama seperti bagian lain app ini
+                val destInetAddr = try {
+                    InetAddress.getByName(destHost)
+                } catch (e: Exception) {
+                    return
+                }
+                client.sendPacket(
+                    flowOwner = udpSocket,
+                    destAddr = destInetAddr,
+                    destPort = destPort,
+                    payload = payload
+                ) { respPayload ->
+                    try {
+                        val destAddrBytes = destInetAddr.address
+                        val out = ByteArray(10 + respPayload.size)
+                        out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0x01
+                        System.arraycopy(destAddrBytes, 0, out, 4, 4)
+                        out[8] = ((destPort shr 8) and 0xFF).toByte()
+                        out[9] = (destPort and 0xFF).toByte()
+                        System.arraycopy(respPayload, 0, out, 10, respPayload.size)
+                        udpSocket.send(DatagramPacket(out, out.size, replyToAddr, replyToPort))
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Gagal kirim balik respons UDPGW dari $destHost:$destPort", e)
+                    }
+                }
+            }
             return
         }
 

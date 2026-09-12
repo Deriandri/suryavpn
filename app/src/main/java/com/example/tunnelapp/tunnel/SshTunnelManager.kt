@@ -101,6 +101,15 @@ class SshTunnelManager {
     // ada sesi yang perlu dipertahankan).
     private var socks5Server: Socks5Server? = null
 
+    // Client udpgw -- persisten sepanjang sesi VPN, sama persis pola
+    // [socks5Server] di atas. Instance dibuat ULANG hanya kalau config.udpgwPort
+    // berubah (jarang -- port ini global lewat VPN Setting, lihat
+    // ServerConfig.udpgwPort), supaya ganti port di tengah sesi (reconnect
+    // ke akun lain dengan port udpgw yang beda) tidak salah nyambung ke
+    // channel/instance lama.
+    private var udpgwClient: UdpgwClient? = null
+    private var udpgwClientPort: Int = 0
+
     // Semua operasi teardown (disconnectForReconnect/disconnect) dikunci di
     // sini supaya tidak ada dua thread yang membongkar connection/relay yang
     // sama secara bersamaan (mis. handleTunnelDeath() dari ConnectionMonitor
@@ -238,6 +247,37 @@ class SshTunnelManager {
             throw e
         }
         StatusBus.success(StepId.SOCKS5)
+
+        // (c) Client udpgw -- OPSIONAL, cuma dinyalakan kalau user mengisi
+        // VPN Setting > UDPGW Port (config.udpgwPort > 0). Lihat dokumentasi
+        // lengkap di UdpgwClient soal kenapa ini dibutuhkan (UDP non-DNS
+        // tidak bisa lewat SSH biasa) dan kenapa instance-nya persisten lintas
+        // reconnect (sama alasannya dengan socks5Server di atas).
+        if (config.udpgwPort > 0) {
+            val existingUdpgw = udpgwClient
+            val client = if (existingUdpgw != null && udpgwClientPort == config.udpgwPort) {
+                existingUdpgw
+            } else {
+                // Port berubah (atau belum pernah ada instance) -- buang yang lama kalau ada, buat baru.
+                existingUdpgw?.stop()
+                val fresh = UdpgwClient(config.udpgwPort)
+                fresh.start()
+                udpgwClient = fresh
+                udpgwClientPort = config.udpgwPort
+                fresh
+            }
+            client.attachConnection(conn)
+            socks5Server?.setUdpgwClient(client)
+            StatusBus.log("[UDPGW] Diaktifkan, target 127.0.0.1:${config.udpgwPort} di sisi server")
+        } else {
+            // Tidak diisi -- pastikan tidak ada sisa client udpgw dari sesi/akun
+            // sebelumnya yang masih menempel (mis. reconnect ke akun lain yang
+            // tidak mengisi udpgwPort setelah sebelumnya mengisi).
+            udpgwClient?.stop()
+            udpgwClient = null
+            udpgwClientPort = 0
+            socks5Server?.setUdpgwClient(null)
+        }
 
         // PENTING (deteksi "tunnel mati sendiri"): ConnectionMonitor dipasang
         // DI SINI, SETELAH SOCKS5 lokal benar-benar siap -- BUKAN sesaat
@@ -411,6 +451,7 @@ class SshTunnelManager {
     fun disconnectForReconnect() {
         synchronized(teardownLock) {
             socks5Server?.detachConnection()
+            udpgwClient?.detachConnection()
             try {
                 connection?.close()
             } catch (e: Exception) {
@@ -442,6 +483,11 @@ class SshTunnelManager {
                 Log.e(TAG, "Error stop SOCKS5", e)
             }
             try {
+                udpgwClient?.stop()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stop udpgw client", e)
+            }
+            try {
                 connection?.close()
             } catch (e: Exception) {
                 Log.e(TAG, "Error close SSH", e)
@@ -452,6 +498,8 @@ class SshTunnelManager {
                 Log.e(TAG, "Error stop relay", e)
             }
             socks5Server = null
+            udpgwClient = null
+            udpgwClientPort = 0
             connection = null
             connectRelay = null
         }

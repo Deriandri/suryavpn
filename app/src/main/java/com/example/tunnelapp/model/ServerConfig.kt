@@ -140,6 +140,15 @@ enum class ConnectionMode {
  * @param dns2       DNS sekunder (opsional), cuma dipasang ke TUN kalau diisi --
  *                   tidak ada fallback otomatis, murni tambahan resolver kedua untuk
  *                   OS pilih sendiri kalau yang pertama tidak merespons.
+ * @param udpgwPort  Port lokal (di sisi SERVER SSH, diakses lewat tunnel -- BUKAN
+ *                   port di device) tempat proses `badvpn-udpgw` terpisah berjalan,
+ *                   dipakai [com.example.tunnelapp.tunnel.UdpgwClient] via
+ *                   [com.example.tunnelapp.tunnel.Socks5Server] utk meneruskan UDP
+ *                   NON-DNS (game, QUIC/HTTP3, VoIP) yang tidak bisa lewat SSH biasa.
+ *                   0/default = fitur ini mati, UDP non-DNS tetap dibuang seperti
+ *                   sebelumnya. Field ini SENGAJA selalu diisi dari pengaturan
+ *                   global (VpnSettingsStore.udpgwPort, kartu "VPN Setting"), bukan
+ *                   per-profil -- lihat MyVpnService.startVpn/pickNextFallbackConfig.
  */
 data class ServerConfig(
     val host: String,
@@ -160,7 +169,8 @@ data class ServerConfig(
     val customHeaders: String? = null,
     val ignoreCertErrors: Boolean = false,
     val dns1: String? = null,
-    val dns2: String? = null
+    val dns2: String? = null,
+    val udpgwPort: Int = 0
 ) {
     /**
      * Parse [customHeaders] jadi daftar pasangan (nama, nilai) siap pakai,
