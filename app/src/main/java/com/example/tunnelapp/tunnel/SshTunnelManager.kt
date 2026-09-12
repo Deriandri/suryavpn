@@ -132,6 +132,16 @@ class SshTunnelManager {
         // pernah mencoba jalur ini sama sekali & tidak ada log/percobaan
         // yang membingungkan.
         protectDatagram: ((java.net.DatagramSocket) -> Boolean)? = null,
+        // FITUR BARU: "Performance Mode" (VpnSettingsStore.performanceMode,
+        // kartu "VPN Setting"). true (default) -> TCP_NODELAY dinyalakan di
+        // Connection ini (mematikan algoritma Nagle) supaya tiap paket SSH
+        // langsung dikirim tanpa digabung/ditunda dulu -- lebih cocok utk
+        // "full traffic" satu arah besar (download, speedtest). false ->
+        // Nagle TETAP aktif (perilaku lama sebelum fitur ini ada): paket
+        // kecil digabung dulu, sedikit lebih hemat overhead kalau device
+        // sedang buka banyak koneksi kecil bersamaan ("multi-tasking"),
+        // dengan trade-off latensi per-paket sedikit lebih tinggi.
+        performanceMode: Boolean = true,
         onUnexpectedDisconnect: (String) -> Unit = {}
     ) {
         // (a) Relay lokal -- trilead-ssh2 akan connect ke sini, BUKAN
@@ -143,6 +153,21 @@ class SshTunnelManager {
 
         StatusBus.start(StepId.SSH_HANDSHAKE)
         val conn = Connection("127.0.0.1", relayPort)
+
+        // "Performance Mode" -- lihat javadoc Connection.setTCPNoDelay: aman
+        // dipanggil SEBELUM connect() (nilainya disimpan lalu diterapkan ke
+        // socket begitu socket-nya sendiri sudah dibuat oleh library). Cukup
+        // memengaruhi socket ke relay LOKAL (127.0.0.1:$relayPort) -- relay
+        // itu sendiri yang meneruskan ke server SSH asli lewat ConnectRelay,
+        // jadi tidak menyentuh setting TCP_NODELAY punya relay tsb.
+        try {
+            conn.setTCPNoDelay(performanceMode)
+        } catch (e: Exception) {
+            // Non-fatal: gagal atur TCP_NODELAY bukan alasan buat batalkan
+            // seluruh koneksi SSH, cukup lanjut pakai default library (Nagle
+            // aktif) & catat di log buat debugging.
+            Log.w(TAG, "Gagal atur TCP_NODELAY (Performance Mode=$performanceMode), lanjut pakai default", e)
+        }
 
         // REVERT (laporan user: "terhubung tapi internet tidak jalan" di mode
         // SSH, tepat setelah fitur prioritas cipher cepat ini ditambahkan):

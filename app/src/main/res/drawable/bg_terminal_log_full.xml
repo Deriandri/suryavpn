@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sama persis gradasinya dengan bg_terminal_log.xml, cuma TANPA <corners>
+     (sudut lancip) — dipakai saat log ditampilkan full-screen edge-to-edge
+     (permintaan user: "full tampilan"), beda dari versi kartu mengambang
+     (bg_terminal_log.xml, radius 14dp) yang dipakai sebelumnya. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="270"
+        android:startColor="#1B1F24"
+        android:centerColor="#101317"
+        android:endColor="#000000" />
+</shape>

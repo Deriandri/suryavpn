@@ -48,19 +48,52 @@ import android.content.Context
  * `badvpn-udpgw` yang benar-benar berjalan (dan mendengarkan) di sisi
  * server pada port yang diisi di sini -- kalau tidak, channel-nya akan
  * gagal dibuka terus & fitur ini tidak berefek walau diaktifkan.
+ *
+ * [performanceMode], kalau aktif, menyalakan TCP_NODELAY (Connection.setTCPNoDelay,
+ * lihat SshTunnelManager.connect) di koneksi SSH ke relay lokal -- menonaktifkan
+ * algoritma Nagle supaya tiap paket langsung dikirim tanpa nunggu buffer penuh/
+ * digabung dulu. Cocok utk trafik "full traffic" (download besar, speedtest) yang
+ * mengirim banyak data berurutan. Kalau dimatikan (mode "multi-tasking"), Nagle
+ * tetap aktif -- paket kecil digabung dulu sebelum dikirim, sedikit menghemat
+ * overhead paket utk banyak koneksi kecil bersamaan (browsing/chat/banyak app),
+ * dengan trade-off latensi sedikit lebih tinggi per paket.
+ *
+ * [compressionEnabled] -- JUJUR: engine SSH yang dipakai app ini (fork
+ * jenkinsci/trilead-ssh2, lihat SshTunnelManager) TIDAK mengimplementasikan
+ * algoritma kompresi "zlib"/"zlib@openssh.com" di key exchange SSH sama sekali
+ * (cryptoWishList di library ini cuma pernah menawarkan "none") -- beda dgn
+ * OpenSSH/Dropbear yg support itu. Jadi toggle ini SENGAJA baru tersimpan di
+ * VpnSettingsStore & ditampilkan di UI (paritas layar dgn app referensi), TAPI
+ * BELUM disambungkan ke SshTunnelManager mana pun karena tidak ada API publik
+ * di library ini utk itu -- pasang beneran butuh vendor+patch source
+ * trilead-ssh2 sendiri (nambah codec deflate/inflate di TransportManager),
+ * bukan sekadar ubah kode app ini. Jangan salah kira toggle ini mengecilkan
+ * trafik SSH nyata sampai itu benar-benar dikerjakan.
  */
 data class VpnSettings(
     val dns1: String = "",
     val dns2: String = "",
     val mtu: Int = DEFAULT_MTU,
-    val keepCpuAwake: Boolean = false,
+    // Default true: WakeLock aktif dari awal supaya tunnel tidak putus-putus
+    // di background tanpa user harus menyalakannya manual.
+    val keepCpuAwake: Boolean = true,
     // Nyambung ulang otomatis kalau tunnel putus sendiri (lihat
     // MyVpnService.scheduleReconnectOrGiveUp). Default true supaya perilaku
     // lama (sebelum toggle ini ada) tidak berubah buat user yang sudah pakai.
     val autoReconnect: Boolean = true,
-    val socksPort: Int = 0,
-    val httpPort: Int = 0,
-    val udpgwPort: Int = 0
+    // Default aktif (bukan 0) dengan port standar aplikasi, supaya SOCKS5,
+    // proxy HTTP lokal, dan forwarding UDPGW langsung jalan tanpa user perlu
+    // mengisi manual di kartu "VPN Setting". 0 tetap berarti "nonaktif" kalau
+    // user mengosongkan sendiri field-nya.
+    val socksPort: Int = DEFAULT_SOCKS_PORT,
+    val httpPort: Int = DEFAULT_HTTP_PORT,
+    val udpgwPort: Int = DEFAULT_UDPGW_PORT,
+    // Default true: langsung "mode full traffic" (lihat catatan performanceMode
+    // di atas) tanpa perlu diaktifkan manual, meniru default ON di app referensi.
+    val performanceMode: Boolean = true,
+    // Default true (paritas UI dgn app referensi) -- lihat catatan JUJUR di
+    // atas soal keterbatasan library: belum ada efek nyata ke ukuran trafik.
+    val compressionEnabled: Boolean = true
 ) {
     companion object {
         const val DEFAULT_MTU = 1500
@@ -74,6 +107,15 @@ data class VpnSettings(
         // valid ini (dicek terpisah sebagai kondisi kosong di UI).
         const val MIN_PORT = 1
         const val MAX_PORT = 65535
+
+        // Nilai default port ketika fitur ini "aktif dari awal" (belum
+        // pernah disimpan user). Mengikuti port yang sudah dipakai di
+        // tempat lain pada app ini (mis. ServerConfig.socksPort = 1080
+        // dipakai per-profil; di sini nilainya sengaja beda supaya
+        // override global ini gampang dibedakan saat debugging).
+        const val DEFAULT_SOCKS_PORT = 3080
+        const val DEFAULT_HTTP_PORT = 8880
+        const val DEFAULT_UDPGW_PORT = 7300
     }
 }
 
@@ -87,6 +129,8 @@ object VpnSettingsStore {
     private const val KEY_SOCKS_PORT = "vpn_socks_port"
     private const val KEY_HTTP_PORT = "vpn_http_port"
     private const val KEY_UDPGW_PORT = "vpn_udpgw_port"
+    private const val KEY_PERFORMANCE_MODE = "vpn_performance_mode"
+    private const val KEY_COMPRESSION_ENABLED = "vpn_compression_enabled"
 
     fun load(context: Context): VpnSettings {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -94,11 +138,13 @@ object VpnSettingsStore {
             dns1 = prefs.getString(KEY_DNS1, "").orEmpty(),
             dns2 = prefs.getString(KEY_DNS2, "").orEmpty(),
             mtu = prefs.getInt(KEY_MTU, VpnSettings.DEFAULT_MTU),
-            keepCpuAwake = prefs.getBoolean(KEY_KEEP_CPU_AWAKE, false),
+            keepCpuAwake = prefs.getBoolean(KEY_KEEP_CPU_AWAKE, true),
             autoReconnect = prefs.getBoolean(KEY_AUTO_RECONNECT, true),
-            socksPort = prefs.getInt(KEY_SOCKS_PORT, 0),
-            httpPort = prefs.getInt(KEY_HTTP_PORT, 0),
-            udpgwPort = prefs.getInt(KEY_UDPGW_PORT, 0)
+            socksPort = prefs.getInt(KEY_SOCKS_PORT, VpnSettings.DEFAULT_SOCKS_PORT),
+            httpPort = prefs.getInt(KEY_HTTP_PORT, VpnSettings.DEFAULT_HTTP_PORT),
+            udpgwPort = prefs.getInt(KEY_UDPGW_PORT, VpnSettings.DEFAULT_UDPGW_PORT),
+            performanceMode = prefs.getBoolean(KEY_PERFORMANCE_MODE, true),
+            compressionEnabled = prefs.getBoolean(KEY_COMPRESSION_ENABLED, true)
         )
     }
 
@@ -113,6 +159,8 @@ object VpnSettingsStore {
             .putInt(KEY_SOCKS_PORT, settings.socksPort)
             .putInt(KEY_HTTP_PORT, settings.httpPort)
             .putInt(KEY_UDPGW_PORT, settings.udpgwPort)
+            .putBoolean(KEY_PERFORMANCE_MODE, settings.performanceMode)
+            .putBoolean(KEY_COMPRESSION_ENABLED, settings.compressionEnabled)
             .apply()
     }
 }

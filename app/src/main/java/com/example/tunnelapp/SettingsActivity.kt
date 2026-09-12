@@ -235,6 +235,8 @@ class SettingsActivity : AppCompatActivity() {
         binding.etVpnMtu.setText(settings.mtu.toString())
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
         binding.switchAutoReconnect.isChecked = settings.autoReconnect
+        binding.switchPerformanceMode.isChecked = settings.performanceMode
+        binding.switchCompression.isChecked = settings.compressionEnabled
         // 0 berarti "tidak diisi" -- tampilkan field kosong, bukan "0",
         // supaya konsisten dengan makna kosong = pakai default/nonaktif.
         binding.etVpnSocksPort.setText(if (settings.socksPort > 0) settings.socksPort.toString() else "")
@@ -300,7 +302,9 @@ class SettingsActivity : AppCompatActivity() {
                 autoReconnect = binding.switchAutoReconnect.isChecked,
                 socksPort = socksPort,
                 httpPort = httpPort,
-                udpgwPort = udpgwPort
+                udpgwPort = udpgwPort,
+                performanceMode = binding.switchPerformanceMode.isChecked,
+                compressionEnabled = binding.switchCompression.isChecked
             )
         )
         Toast.makeText(this, "VPN Setting disimpan", Toast.LENGTH_SHORT).show()

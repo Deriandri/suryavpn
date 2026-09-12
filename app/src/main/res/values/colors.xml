@@ -41,9 +41,9 @@
          awalnya gelap ala terminal klasik (hitam + hijau terang), sempat
          diganti ke tema terang "putih ke biruan", SEKARANG (permintaan
          terbaru) balik lagi ke background HITAM tapi smooth (gradasi
-         halus, bukan hitam pekat/flat begitu saja) -- lihat
+         halus, bukan hitam pekat/flat begitu saja); lihat
          drawable/bg_terminal_log.xml. Teks & timestamp ikut dibalik ke
-         varian TERANG (kontras di atas hitam) -- kalau dipakai warna gelap
+         varian TERANG (kontras di atas hitam); kalau dipakai warna gelap
          versi tema putih sebelumnya (#15803D / #0891B2), nyaris tidak
          kebaca di atas hitam, sama seperti masalah kebalikannya dulu waktu
          hijau terang dipakai di atas putih. -->

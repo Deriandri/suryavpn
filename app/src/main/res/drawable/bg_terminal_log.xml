@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Background area isi log (svTerminal). RIWAYAT: sempat diganti ke gradasi
      putih->biru muda, SEKARANG (permintaan terbaru user) balik ke HITAM,
-     tapi "smooth" -- bukan hitam solid/flat begitu saja, melainkan gradasi
+     tapi "smooth", bukan hitam solid/flat begitu saja, melainkan gradasi
      halus dari abu-abu gelap ke hitam pekat, supaya masih ada sedikit
      kedalaman/dimensi (senada dengan gaya gradasi yang sudah dipakai di
      drawable lain di app ini), bukan warna datar sepenuhnya.

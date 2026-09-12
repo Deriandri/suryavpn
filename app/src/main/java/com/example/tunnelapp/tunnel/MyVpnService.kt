@@ -820,6 +820,13 @@ class MyVpnService : VpnService() {
 
                 if (checkStoppedMidway(null)) return@launch
 
+                // "Performance Mode" -- global (VPN Setting), sama seperti httpPort
+                // di bawah: di-load ulang di sini (bukan dari startVpn()) supaya
+                // toggle yang diubah user SESUDAH tunnel sempat konek tapi
+                // SEBELUM reconnect berikutnya tetap ikut kepakai (establishTunnel
+                // ini juga dipanggil ulang tiap reconnect, lihat isReconnect).
+                val performanceMode = VpnSettingsStore.load(this@MyVpnService).performanceMode
+
                 if (config.usesXray()) {
                     // libXray protect socket beroperasi di level fd mentah (Go/gomobile),
                     // bukan java.net.Socket seperti jalur SSH -- pakai overload
@@ -845,6 +852,7 @@ class MyVpnService : VpnService() {
                         } else {
                             null
                         },
+                        performanceMode = performanceMode,
                         onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }
                     )
                     StatusBus.state.value = "SSH tersambung. Mengaktifkan tunnel..."
