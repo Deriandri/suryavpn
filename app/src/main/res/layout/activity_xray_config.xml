@@ -399,6 +399,88 @@
                         android:autofillHints="" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <!-- FITUR BARU (permintaan user, "fingerprint"): TLS/uTLS fingerprint --
+                     bikin ClientHello TLS/Reality app ini meniru pola browser tertentu
+                     (Chrome/Firefox/dst) supaya lebih susah dibedakan DPI dari trafik
+                     browser asli. Sebelumnya field ini ADA di model (realityFingerprint,
+                     default "chrome") & di parser link (parameter "fp="), TAPI tidak ada
+                     di UI sama sekali -- cuma bisa kepakai lewat import link yang sudah
+                     ada fp=..., tidak bisa diganti manual. ChipGroup dipakai (bukan
+                     dropdown baru) biar konsisten dengan gaya pilihan Network/TLS di atas.
+                     Muncul untuk KEDUA mode TLS & Reality (showTlsFields), karena
+                     XrayConfigBuilder memang mengirim "fingerprint" untuk keduanya, bukan
+                     cuma Reality. -->
+                <TextView
+                    android:id="@+id/tvXrayFingerprintLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Fingerprint (uTLS)"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="4dp"
+                    android:visibility="gone" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipGroupXrayFingerprint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone"
+                    app:singleSelection="true"
+                    app:selectionRequired="true"
+                    app:chipSpacingHorizontal="8dp">
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipFpChrome"
+                        style="@style/Widget.TunnelApp.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Chrome" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipFpFirefox"
+                        style="@style/Widget.TunnelApp.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Firefox" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipFpSafari"
+                        style="@style/Widget.TunnelApp.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Safari" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipFpIos"
+                        style="@style/Widget.TunnelApp.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="iOS" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipFpAndroid"
+                        style="@style/Widget.TunnelApp.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Android" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipFpEdge"
+                        style="@style/Widget.TunnelApp.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Edge" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipFpRandom"
+                        style="@style/Widget.TunnelApp.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Random" />
+                </com.google.android.material.chip.ChipGroup>
+
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/tilXrayFlow"
                     style="@style/Field.Outlined"

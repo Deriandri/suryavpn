@@ -123,6 +123,18 @@ class XrayConfigActivity : AppCompatActivity() {
         else -> "none"
     }
 
+    /** Chip fingerprint yang dipilih -> nilai string mentah yang dikirim ke Xray-core
+     *  (persis nama yang dipakai spesifikasi uTLS: chrome/firefox/safari/ios/android/edge/random). */
+    private fun selectedFingerprint(): String = when {
+        binding.chipFpFirefox.isChecked -> "firefox"
+        binding.chipFpSafari.isChecked -> "safari"
+        binding.chipFpIos.isChecked -> "ios"
+        binding.chipFpAndroid.isChecked -> "android"
+        binding.chipFpEdge.isChecked -> "edge"
+        binding.chipFpRandom.isChecked -> "random"
+        else -> "chrome"
+    }
+
     private fun updateDetailFieldVisibility() {
         val network = selectedNetwork()
         val tlsMode = selectedTlsMode()
@@ -136,6 +148,8 @@ class XrayConfigActivity : AppCompatActivity() {
         binding.tilXrayPath.hint = if (network == "grpc") "Nama service (gRPC)" else "Path"
         binding.tilXrayHostHeader.visibility = if (showHostHeader) View.VISIBLE else View.GONE
         binding.tilXraySni.visibility = if (showTlsFields) View.VISIBLE else View.GONE
+        binding.tvXrayFingerprintLabel.visibility = if (showTlsFields) View.VISIBLE else View.GONE
+        binding.chipGroupXrayFingerprint.visibility = if (showTlsFields) View.VISIBLE else View.GONE
         binding.tilXrayFlow.visibility = if (isVless) View.VISIBLE else View.GONE
         binding.containerXrayReality.visibility = if (showReality) View.VISIBLE else View.GONE
         binding.chipGroupXrayInsecure.visibility = if (showTlsFields) View.VISIBLE else View.GONE
@@ -197,6 +211,17 @@ class XrayConfigActivity : AppCompatActivity() {
         binding.etXrayRealitySid.setText(cfg.realityShortId)
         binding.chipXrayAllowInsecure.isChecked = cfg.allowInsecure
 
+        val fingerprintChip = when (cfg.realityFingerprint.lowercase()) {
+            "firefox" -> binding.chipFpFirefox
+            "safari" -> binding.chipFpSafari
+            "ios" -> binding.chipFpIos
+            "android" -> binding.chipFpAndroid
+            "edge" -> binding.chipFpEdge
+            "random", "randomized" -> binding.chipFpRandom
+            else -> binding.chipFpChrome // termasuk "chrome" & nilai tak dikenal -- default aman
+        }
+        fingerprintChip.isChecked = true
+
         updateDetailFieldVisibility()
     }
 
@@ -238,7 +263,8 @@ class XrayConfigActivity : AppCompatActivity() {
             flow = binding.etXrayFlow.text.toString().trim(),
             allowInsecure = binding.chipXrayAllowInsecure.isChecked,
             realityPublicKey = binding.etXrayRealityPbk.text.toString().trim(),
-            realityShortId = binding.etXrayRealitySid.text.toString().trim()
+            realityShortId = binding.etXrayRealitySid.text.toString().trim(),
+            realityFingerprint = selectedFingerprint()
         )
     }
 

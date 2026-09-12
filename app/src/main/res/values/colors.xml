@@ -37,24 +37,25 @@
     <color name="status_pending">#9CA3AF</color>
     <color name="status_pending_bg">#F3F4F6</color>
 
-    <!-- Terminal (kartu "Log"). PERUBAHAN (permintaan user): sebelumnya
-         gelap ala terminal klasik (background hitam + teks hijau terang).
-         Sekarang background diganti tema terang "putih ke biruan" yang
-         smooth, senada dengan tampilan app secara keseluruhan (header/
-         bottom nav ungu, kartu putih); lihat drawable/bg_terminal_log.xml
-         untuk gradasinya. Teks log tetap HIJAU seperti semula (permintaan
-         user), cuma diganti ke hijau yang lebih gelap/pekat supaya tetap
-         kontras di atas background terang (hijau lama #8FE38F kalau
-         dipakai di atas putih jadi nyaris tidak kebaca). Aksennya tetap
-         ditarik dari brand_secondary sama seperti sebelumnya. -->
+    <!-- Terminal (kartu "Log"). RIWAYAT (permintaan user berubah pulang-pergi):
+         awalnya gelap ala terminal klasik (hitam + hijau terang), sempat
+         diganti ke tema terang "putih ke biruan", SEKARANG (permintaan
+         terbaru) balik lagi ke background HITAM tapi smooth (gradasi
+         halus, bukan hitam pekat/flat begitu saja) -- lihat
+         drawable/bg_terminal_log.xml. Teks & timestamp ikut dibalik ke
+         varian TERANG (kontras di atas hitam) -- kalau dipakai warna gelap
+         versi tema putih sebelumnya (#15803D / #0891B2), nyaris tidak
+         kebaca di atas hitam, sama seperti masalah kebalikannya dulu waktu
+         hijau terang dipakai di atas putih. -->
     <color name="terminal_background">#FFFFFF</color>
     <color name="terminal_surface">#FFFFFF</color>
-    <color name="terminal_text">#15803D</color>
+    <color name="terminal_text">#8FE38F</color>
     <color name="terminal_text_dim">#64748B</color>
     <color name="terminal_accent">@color/brand_secondary</color>
     <color name="terminal_divider">#E1E8F5</color>
     <!-- Warna khusus timestamp "[HH:mm:ss]" di setiap baris log (permintaan
-         user), cyan yang cukup gelap supaya tetap kontras di atas background
-         terang (bukan cyan terang ala #00FFFF yang nge-blend ke putih). -->
-    <color name="terminal_timestamp">#0891B2</color>
+         user), cyan TERANG supaya kontras di atas background hitam
+         (kebalikan dari versi gelap #0891B2 yang dipakai waktu bg-nya
+         masih putih). -->
+    <color name="terminal_timestamp">#22D3EE</color>
 </resources>
