@@ -74,10 +74,38 @@ class Socks5Server {
         // nyata. Nama konstanta dipertahankan supaya gampang dinaikkan lagi
         // nanti kalau sudah terverifikasi bukan penyebabnya.
         private const val RELAY_BUFFER_SIZE_BYTES = 8192
+
+        // FIX (root cause "DNS relay ke 8.8.8.8/8.8.4.4 TIMEOUT terus,
+        // padahal akun jalan normal di app tunnel lain"): banyak akun SSH
+        // (terutama versi gratis/trial/"inject") firewall server-nya DROP
+        // diam-diam SEMUA trafik outbound ke port 53 tujuan luar -- direct-
+        // tcpip channel-nya sendiri kebuka, tapi tidak pernah ada balasan
+        // sampai watchdog kita yang menutup paksa. Ini bukan masalah di
+        // client. App tunnel lain kebanyakan memang TIDAK nge-relay DNS
+        // lewat tunnel SSH sama sekali -- mereka resolve DNS langsung di
+        // jaringan device (protect() supaya tidak nyasar loop balik ke TUN
+        // kita sendiri), baru trafik HTTP(S) hasil resolve itu yang lewat
+        // tunnel. Timeout di bawah ini KHUSUS utk percobaan device-side,
+        // sengaja jauh lebih singkat dari DNS_RELAY_TIMEOUT_MS supaya kalau
+        // device-side gagal pun user tidak nunggu dobel lama sebelum jatuh
+        // ke fallback SSH.
+        private const val DEVICE_DNS_TIMEOUT_MS = 4000
     }
 
     private var serverSocket: ServerSocket? = null
     private var acceptThread: Thread? = null
+
+    // Lihat catatan DEVICE_DNS_TIMEOUT_MS di atas. Null kalau caller tidak
+    // menyediakan (mis. dipanggil dari test) -- device-side dilewati begitu
+    // saja, langsung ke jalur SSH lama, supaya tidak breaking existing
+    // behaviour kalau protect() belum tersedia.
+    @Volatile
+    private var protectDatagram: ((DatagramSocket) -> Boolean)? = null
+
+    /** Pasang fungsi protect() dari VpnService, dipakai utk device-side DNS. */
+    fun setProtectDatagram(fn: (DatagramSocket) -> Boolean) {
+        protectDatagram = fn
+    }
 
     @Volatile
     private var running = false
@@ -439,13 +467,49 @@ class Socks5Server {
             return
         }
 
-        // Snapshot koneksi SAAT INI -- kalau persis lagi reconnect (null),
-        // query DNS ini dijatuhkan diam-diam; device/hev-socks5-tunnel akan
-        // mengirim ulang query DNS-nya sendiri sebentar lagi begitu tunnel
-        // baru aktif, jadi tidak perlu ditangani khusus di sini.
-        val conn = sshConnection ?: return
+        // Snapshot koneksi SAAT INI -- BOLEH null (persis lagi reconnect).
+        // Beda dari sebelumnya: dulu null di sini langsung membuang query
+        // DNS diam-diam, TAPI itu cuma perlu kalau memang mau fallback ke
+        // jalur SSH. Device-side DNS di bawah tidak butuh conn sama sekali,
+        // jadi tetap dicoba lebih dulu walau persis lagi di jendela
+        // reconnect -- kalau berhasil, DNS device tidak perlu nunggu SSH
+        // selesai reconnect sama sekali.
+        val conn = sshConnection
 
         Thread({
+            // --- JALUR UTAMA BARU: coba resolve langsung di jaringan device ---
+            // (lihat catatan DEVICE_DNS_TIMEOUT_MS di companion object). Kalau
+            // sukses, SSH sama sekali tidak disentuh utk query DNS ini --
+            // menghindari server yang firewall port 53-nya. Kalau gagal/
+            // timeout (mis. protect() belum siap, atau jaringan device sendiri
+            // blokir DNS langsung), jatuh ke jalur SSH lama di bawah, tanpa ada
+            // perubahan perilaku dari sebelumnya.
+            val deviceResp = tryDeviceDns(payload, destHost)
+            if (deviceResp != null) {
+                try {
+                    val destAddrBytes = InetAddress.getByName(destHost).address
+                    if (destAddrBytes.size == 4) {
+                        val out = ByteArray(10 + deviceResp.size)
+                        out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0x01
+                        System.arraycopy(destAddrBytes, 0, out, 4, 4)
+                        out[8] = ((destPort shr 8) and 0xFF).toByte()
+                        out[9] = (destPort and 0xFF).toByte()
+                        System.arraycopy(deviceResp, 0, out, 10, deviceResp.size)
+                        udpSocket.send(DatagramPacket(out, out.size, replyToAddr, replyToPort))
+                        StatusBus.log("[DNS] $destHost:53 dijawab langsung dari jaringan device (bypass tunnel SSH)")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Gagal kirim balik hasil device-side DNS utk $destHost", e)
+                }
+                return@Thread
+            }
+
+            // --- FALLBACK: jalur lama, relay lewat SSH sebagai DNS-over-TCP ---
+            // conn null di sini artinya device-side GAGAL *dan* SSH sedang
+            // tidak tersedia (mis. persis di jendela reconnect) -- dibuang
+            // diam-diam seperti perilaku asli sebelum fix ini, device/
+            // hev-socks5-tunnel akan mengirim ulang query-nya sendiri.
+            if (conn == null) return@Thread
             var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
             val done = java.util.concurrent.atomic.AtomicBoolean(false)
             // FIX (root cause "hev-socks5-tunnel 'io timeout' berulang cepat,
@@ -519,5 +583,45 @@ class Socks5Server {
                 try { forwarder?.close() } catch (_: Exception) {}
             }
         }, "socks5-dns-relay").apply { isDaemon = true; start() }
+    }
+
+    /**
+     * Coba jawab query DNS [payload] (RFC 1035, format UDP mentah -- BUKAN
+     * DNS-over-TCP) langsung dari jaringan device sendiri ke [destHost]:53,
+     * pakai socket yang di-protect() supaya tidak nyasar loop balik ke TUN
+     * kita sendiri (persis pola ConnectRelay.kt utk socket kontrol SSH).
+     *
+     * Return null (BUKAN throw) kalau protect() belum dipasang, protect()
+     * gagal, atau device tidak dapat balasan dalam DEVICE_DNS_TIMEOUT_MS --
+     * di semua kasus itu caller akan fallback ke relay SSH lama seperti
+     * sebelum fix ini ada.
+     */
+    private fun tryDeviceDns(payload: ByteArray, destHost: String): ByteArray? {
+        val protectFn = protectDatagram ?: return null
+        var socket: DatagramSocket? = null
+        return try {
+            socket = DatagramSocket()
+            if (!protectFn(socket)) {
+                StatusBus.log("[DNS] protect() gagal utk device-side DNS ke $destHost, fallback ke relay SSH")
+                return null
+            }
+            socket.soTimeout = DEVICE_DNS_TIMEOUT_MS
+            val target = InetAddress.getByName(destHost)
+            socket.send(DatagramPacket(payload, payload.size, target, 53))
+
+            val respBuf = ByteArray(65535)
+            val respPacket = DatagramPacket(respBuf, respBuf.size)
+            socket.receive(respPacket)
+            respPacket.data.copyOfRange(respPacket.offset, respPacket.offset + respPacket.length)
+        } catch (e: Exception) {
+            // Timeout/unreachable/dll -- diam-diam, ini memang jalur "coba
+            // dulu", bukan jalur wajib sukses. Log level warning saja biar
+            // tidak berisik kalau device-side memang rutin gagal di jaringan
+            // tertentu (server SSH-nya justru yang lebih longgar).
+            Log.w(TAG, "Device-side DNS ke $destHost gagal/timeout, fallback ke relay SSH", e)
+            null
+        } finally {
+            try { socket?.close() } catch (_: Exception) {}
+        }
     }
 }

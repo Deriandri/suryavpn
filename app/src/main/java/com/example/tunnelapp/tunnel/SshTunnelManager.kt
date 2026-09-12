@@ -115,6 +115,14 @@ class SshTunnelManager {
     fun connect(
         config: ServerConfig,
         protect: (Socket) -> Boolean,
+        // FIX DNS timeout di server yg firewall port 53 outbound -- lihat
+        // catatan lengkap di Socks5Server.DEVICE_DNS_TIMEOUT_MS. Overload
+        // protect() terpisah karena VpnService.protect() punya versi
+        // Socket & DatagramSocket sendiri-sendiri, keduanya perlu di-hook.
+        // Default no-op (selalu gagal protect) supaya caller lama yang
+        // belum di-update tetap kompilasi & tetap fallback otomatis ke
+        // jalur SSH lama, tidak ada breaking change.
+        protectDatagram: (java.net.DatagramSocket) -> Boolean = { false },
         onUnexpectedDisconnect: (String) -> Unit = {}
     ) {
         // (a) Relay lokal -- trilead-ssh2 akan connect ke sini, BUKAN
@@ -211,9 +219,15 @@ class SshTunnelManager {
         try {
             if (existing != null && existing.isRunning()) {
                 existing.attachConnection(conn)
+                // protect() lambda-nya sama persis lintas reconnect (masih
+                // instance MyVpnService yang sama sepanjang sesi VPN), tapi
+                // tetap di-set ulang di sini -- murah & menghindari asumsi
+                // tersembunyi kalau suatu saat caller berubah per-reconnect.
+                existing.setProtectDatagram(protectDatagram)
                 StatusBus.log("SOCKS5 lokal sudah aktif di 127.0.0.1:${config.socksPort} (dipakai ulang, tidak bind ulang)")
             } else {
                 val fresh = Socks5Server()
+                fresh.setProtectDatagram(protectDatagram)
                 fresh.start(config.socksPort)
                 fresh.attachConnection(conn)
                 socks5Server = fresh

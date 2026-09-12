@@ -803,6 +803,13 @@ class MyVpnService : VpnService() {
                     sshTunnelManager.connect(
                         config,
                         protect = { socket -> protect(socket) },
+                        // FIX DNS timeout di server yg firewall port 53 --
+                        // lihat catatan lengkap di Socks5Server. Overload
+                        // protect() KHUSUS DatagramSocket (beda dari yang
+                        // dipakai socket kontrol SSH di atas), dipakai
+                        // Socks5Server utk resolve DNS langsung di jaringan
+                        // device, bypass tunnel.
+                        protectDatagram = { datagramSocket -> protect(datagramSocket) },
                         onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }
                     )
                     StatusBus.state.value = "SSH tersambung. Mengaktifkan tunnel..."
