@@ -36,9 +36,6 @@ class HttpProxyServer {
     companion object {
         private const val TAG = "HttpProxyServer"
         private const val SOCKS_HANDSHAKE_TIMEOUT_MS = 8000
-        // FITUR BARU (maksimalkan kecepatan): sama seperti Socks5Server/StreamPump.
-        // REVERT (laporan user, sama seperti Socks5Server.kt): dikembalikan ke 8KB.
-        private const val PUMP_BUFFER_SIZE_BYTES = 8192
     }
 
     private var serverSocket: ServerSocket? = null
@@ -290,7 +287,7 @@ class HttpProxyServer {
 
     private fun pump(input: InputStream, output: OutputStream) {
         try {
-            val buffer = ByteArray(PUMP_BUFFER_SIZE_BYTES)
+            val buffer = ByteArray(8192)
             while (true) {
                 val read = input.read(buffer)
                 if (read < 0) break
