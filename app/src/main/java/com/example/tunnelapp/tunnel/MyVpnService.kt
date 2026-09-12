@@ -11,6 +11,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Log
@@ -560,6 +561,49 @@ class MyVpnService : VpnService() {
         }
     }
 
+    /**
+     * Warna durasi "(...ms)" di log ping/keep-alive (permintaan user):
+     * 1-80ms dianggap CEPAT (biru, ping_ms_fast), 85ms ke atas dianggap
+     * LAMBAT (merah, ping_ms_slow). 81-84ms (celah kecil di antara ambang
+     * yang diminta user) ikut masuk kategori lambat supaya tidak ada nilai
+     * yang tidak kebagian warna.
+     */
+    private fun pingMsColorHex(ms: Long): String {
+        val colorRes = if (ms in 1..80) R.color.ping_ms_fast else R.color.ping_ms_slow
+        return String.format(
+            "#%06X", 0xFFFFFF and androidx.core.content.ContextCompat.getColor(this, colorRes)
+        )
+    }
+
+    /**
+     * Susun baris banner "Running on <manufacturer> <model> (<device>),
+     * Android <release> (<build id>) API <sdk>. Version <versionName>
+     * Build <versionCode>." -- ditampilkan sebagai baris pertama halaman
+     * Log tiap kali mulai connect (permintaan user, gaya DarkTunnel).
+     * versionName/versionCode diambil dari PackageManager (pola yang sama
+     * dipakai SettingsActivity.appVersion) supaya selalu sinkron dengan
+     * gradle, tidak perlu di-hardcode di sini.
+     */
+    private fun deviceInfoBanner(): String {
+        val pkgInfo = try {
+            packageManager.getPackageInfo(packageName, 0)
+        } catch (e: Exception) {
+            null
+        }
+        val versionName = pkgInfo?.versionName ?: "-"
+        val versionCode = if (pkgInfo != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pkgInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                pkgInfo.versionCode.toLong()
+            }
+        } else 0L
+        return "Running on ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE}), " +
+            "Android ${Build.VERSION.RELEASE} (${Build.ID}) API ${Build.VERSION.SDK_INT}. " +
+            "Version $versionName Build $versionCode."
+    }
+
     private fun startVpn(rawConfig: ServerConfig, profileId: String? = null) {
         if (vpnInterface != null) {
             Log.w(TAG, "VPN sudah berjalan, abaikan permintaan start kedua")
@@ -613,6 +657,11 @@ class MyVpnService : VpnService() {
 
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
         StatusBus.clearLog()
+        // Banner info perangkat & versi app (permintaan user, gaya DarkTunnel):
+        // baris PALING PERTAMA yang tampil di halaman Log tiap kali mulai
+        // connect, mis. "Running on Infinix Infinix X678B (Infinix-X678B),
+        // Android 14 (UP1A.231005.007) API 34. Version 1.0.26 Build 32."
+        StatusBus.log(deviceInfoBanner())
         StatusBus.initSteps(buildStepsFor(config))
         StatusBus.state.value = "Membuat antarmuka VPN (TUN)..."
 
@@ -1395,16 +1444,25 @@ class MyVpnService : VpnService() {
                 if (stoppingIntentionally) break
                 val (targetHost, targetPort) = parseKeepAliveTarget(settings.keepAliveTarget)
                 val useHttp = settings.keepAliveMethod == com.example.tunnelapp.model.GeneralSettings.METHOD_HTTP
-                val methodLabel = if (useHttp) "HTTP" else "TCP"
-                val keepAliveMs = if (useHttp) {
-                    httpKeepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
+                // Warna durasi "(...ms)" tergantung cepat/lambatnya (permintaan
+                // user): 1-80ms BIRU, 85ms ke atas MERAH -- lihat
+                // pingMsColorHex(). Ambil dari resource ping_ms_fast/slow
+                // supaya satu sumber kebenaran sama seperti warna lain di app.
+                fun redMs(ms: Long) = "<font color='${pingMsColorHex(ms)}'>${ms}ms</font>"
+                if (useHttp) {
+                    val result = httpKeepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
+                    if (result != null) {
+                        StatusBus.log("HTTP Ping ${result.statusText} (${redMs(result.elapsedMs)})")
+                    } else {
+                        StatusBus.log("HTTP Ping gagal ke $targetHost:$targetPort lewat tunnel")
+                    }
                 } else {
-                    keepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
-                }
-                if (keepAliveMs != null) {
-                    StatusBus.log("Keep-alive ($methodLabel): $targetHost:$targetPort lewat tunnel sukses (${keepAliveMs}ms)")
-                } else {
-                    StatusBus.log("Keep-alive ($methodLabel): $targetHost:$targetPort lewat tunnel gagal")
+                    val keepAliveMs = keepAliveThroughTunnel(config.socksPort, targetHost, targetPort)
+                    if (keepAliveMs != null) {
+                        StatusBus.log("Keep-alive (TCP): $targetHost:$targetPort lewat tunnel sukses (${redMs(keepAliveMs)})")
+                    } else {
+                        StatusBus.log("Keep-alive (TCP): $targetHost:$targetPort lewat tunnel gagal")
+                    }
                 }
             }
         }
@@ -1705,7 +1763,14 @@ class MyVpnService : VpnService() {
      * kalau berhasil, null kalau gagal di tahap mana pun -- SAMA POLA dengan
      * [keepAliveThroughTunnel], TIDAK memicu reconnect (murni informatif).
      */
-    private fun httpKeepAliveThroughTunnel(socksPort: Int, targetHost: String, targetPort: Int): Long? = try {
+    /**
+     * Dipakai bareng [statusLine] untuk log "HTTP Ping <status> (<ms>ms)"
+     * (permintaan user, format & warna merah pada durasi ms meniru
+     * DarkTunnel) -- lihat pemanggilnya di [startPingLoop].
+     */
+    private data class HttpPingResult(val elapsedMs: Long, val statusText: String)
+
+    private fun httpKeepAliveThroughTunnel(socksPort: Int, targetHost: String, targetPort: Int): HttpPingResult? = try {
         Socket().use { socket ->
             socket.connect(InetSocketAddress("127.0.0.1", socksPort), KEEP_ALIVE_TIMEOUT_MS)
             socket.soTimeout = KEEP_ALIVE_TIMEOUT_MS
@@ -1762,10 +1827,10 @@ class MyVpnService : VpnService() {
                 if (b != '\r'.code) statusLine.write(b)
             }
             val line = statusLine.toByteArray().toString(Charsets.US_ASCII)
-            val gotHttpStatus = Regex("""^HTTP/1\.\d\s+\d{3}""").containsMatchIn(line)
-            if (!gotHttpStatus) return@use null
+            val statusMatch = Regex("""^HTTP/1\.\d\s+(.+)$""").find(line)
+            val statusText = statusMatch?.groupValues?.get(1)?.trim() ?: return@use null
 
-            System.currentTimeMillis() - start
+            HttpPingResult(System.currentTimeMillis() - start, statusText)
         }
     } catch (e: Exception) {
         null

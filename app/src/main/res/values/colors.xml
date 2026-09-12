@@ -58,4 +58,9 @@
          (kebalikan dari versi gelap #0891B2 yang dipakai waktu bg-nya
          masih putih). -->
     <color name="terminal_timestamp">#22D3EE</color>
+    <!-- Warna durasi "(...ms)" pada baris "HTTP Ping"/"Keep-alive" di layar
+         Log (permintaan user): BIRU kalau cepat (1-80ms), MERAH kalau
+         lambat (85ms ke atas) -- lihat MyVpnService.pingMsColorHex(). -->
+    <color name="ping_ms_fast">#3B82F6</color>
+    <color name="ping_ms_slow">@color/status_error</color>
 </resources>

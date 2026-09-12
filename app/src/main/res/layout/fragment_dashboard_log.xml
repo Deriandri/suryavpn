@@ -17,14 +17,18 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Isi log: SEKARANG mengisi seluruh halaman (bukan lagi isi sebuah
-         kartu bermargin) — radius 0 (bg_terminal_log_full, edge-to-edge),
-         padding atas dilebihkan supaya baris log paling atas tidak
-         ketimpa tombol "Hapus Log" yang mengambang di atasnya. -->
+    <!-- Isi log: UPDATE (permintaan user) — bg_terminal_log_full sekarang
+         biru smooth + garis tepi tipis + sudut membulat di setiap sisi
+         (bukan lagi hitam edge-to-edge tanpa sudut). Diberi margin 14dp di
+         semua sisi supaya lekukan sudut & garis tepinya kelihatan (kalau
+         match_parent tanpa margin, sudutnya akan terpotong rata di tepi
+         layar). Padding atas tetap dilebihkan supaya baris log paling atas
+         tidak ketimpa tombol "Hapus Log" yang mengambang di atasnya. -->
     <com.example.tunnelapp.ui.TerminalScrollView
         android:id="@+id/svTerminal"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:layout_margin="14dp"
         android:background="@drawable/bg_terminal_log_full"
         android:scrollbars="vertical"
         android:fadeScrollbars="false"
@@ -50,14 +54,17 @@
          (FrameLayout menumpuknya di atas svTerminal). Latar lebih solid +
          garis tepi tipis (bg_pill_floating, beda dari bg_pill_ghost lama
          yang nyaris transparan) + elevation supaya tetap kebaca/kelihatan
-         sebagai tombol walau warna log di belakangnya berubah-ubah. -->
+         sebagai tombol walau warna log di belakangnya berubah-ubah. Margin
+         disesuaikan (14dp margin svTerminal + 12dp jarak) supaya tombol
+         tetap pas menumpuk di dalam kartu biru barunya, tidak nabrak sudut
+         membulat. -->
     <TextView
         android:id="@+id/btnClearLog"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="16dp"
+        android:layout_marginTop="26dp"
+        android:layout_marginEnd="26dp"
         android:elevation="4dp"
         android:text="Hapus Log"
         android:textColor="@color/terminal_text_dim"

@@ -1,12 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Sama persis gradasinya dengan bg_terminal_log.xml, cuma TANPA <corners>
-     (sudut lancip) — dipakai saat log ditampilkan full-screen edge-to-edge
-     (permintaan user: "full tampilan"), beda dari versi kartu mengambang
-     (bg_terminal_log.xml, radius 14dp) yang dipakai sebelumnya. -->
+<!-- UPDATE (permintaan user terbaru): background diganti jadi BIRU smooth
+     (gradasi halus dari biru tua ke biru gelap keunguan, bukan hitam lagi),
+     ditambah garis tepi (stroke) tipis dan sudut membulat di SETIAP sisi
+     supaya tampilannya elegan seperti kartu mengambang. Karena area ini
+     dipakai full-screen, layout (fragment_dashboard_log.xml) diberi margin
+     di sekeliling svTerminal supaya lekukan sudutnya kelihatan (kalau tanpa
+     margin, sudut membulat akan terpotong rata di tepi layar). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <corners android:radius="20dp" />
     <gradient
         android:angle="270"
-        android:startColor="#1B1F24"
-        android:centerColor="#101317"
-        android:endColor="#000000" />
+        android:startColor="#274B8F"
+        android:centerColor="#17264F"
+        android:endColor="#0B1330" />
+    <stroke
+        android:width="1dp"
+        android:color="#4C74C9" />
 </shape>
