@@ -2,6 +2,8 @@ package com.example.tunnelapp.tunnel
 
 import android.util.Log
 import com.example.tunnelapp.model.ServerConfig
+import net.schmizz.sshj.Config
+import net.schmizz.sshj.DefaultConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.connection.channel.direct.Parameters
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
@@ -23,12 +25,23 @@ import java.net.Socket
  *
  * CATATAN VERIFIKASI (baca ini kalau gagal compile): kelas ini ditulis dari
  * pengetahuan API publik sshj (useCompression(), newLocalPortForwarder(),
- * authPassword(), dll -- semuanya dari dokumentasi/README resmi sshj), TAPI
- * lingkungan penyusunan kode ini tidak punya akses internet utk menjalankan
- * Gradle build & memverifikasi langsung ke versi sshj:0.38.0 yang dipasang.
- * Kalau Android Studio melempar error "unresolved reference" di salah satu
- * pemanggilan API sshj di bawah, itu kemungkinan besar cuma beda nama
- * method/kelas antar versi -- laporkan pesan errornya, gampang diperbaiki.
+ * authPassword(), DefaultConfig.getKeyExchangeFactories(), dll -- semuanya
+ * dari dokumentasi/README resmi sshj), TAPI lingkungan penyusunan kode ini
+ * tidak punya akses internet utk menjalankan Gradle build & memverifikasi
+ * langsung ke versi sshj:0.38.0 yang dipasang. Kalau Android Studio
+ * melempar error "unresolved reference" di salah satu pemanggilan API sshj
+ * di bawah, itu kemungkinan besar cuma beda nama method/kelas antar versi --
+ * laporkan pesan errornya, gampang diperbaiki.
+ *
+ * CATATAN FIX NYATA (sudah kejadian, lihat buildAndroidSafeConfig()): server
+ * yang menawarkan Curve25519/X25519 utk key exchange bikin sshj gagal dengan
+ * "no such algorithm: X25519 for provider BC" di Android -- SUDAH DIPERBAIKI
+ * dengan memfilter algoritma itu dari config sebelum connect(). Kalau nanti
+ * muncul error SERUPA ("no such algorithm: ... for provider BC") tapi utk
+ * host key/signature (mis. ed25519 host key, bukan KEX), pola perbaikannya
+ * SAMA PERSIS -- filter `config.keyAlgorithms`/signature factory yang
+ * namanya mengandung "ed25519" dengan cara yang sama seperti keyExchangeFactories
+ * di buildAndroidSafeConfig().
  *
  * ARSITEKTUR: memakai [ConnectRelay] yang SAMA PERSIS dengan [SshTunnelManager]
  * (relay itu murni socket loopback, tidak terikat ke satu library SSH manapun)
@@ -114,6 +127,49 @@ class SshjTunnelManager : SshEngineHandle {
     private var disconnectWatchThread: Thread? = null
     private val teardownLock = Any()
 
+    /**
+     * FIX (laporan user, error nyata: "no such algorithm: X25519 for
+     * provider BC"): DefaultConfig sshj menawarkan key exchange
+     * "curve25519-sha256"/"curve25519-sha256@libssh.org" (X25519) ke server
+     * SECARA DEFAULT -- implementasi X25519 di sshj secara internal minta
+     * provider JCE bernama PERSIS "BC" (Bouncy Castle) utk operasinya.
+     * Provider "BC" bawaan Android BUKAN Bouncy Castle asli/lengkap seperti
+     * di JVM desktop (beda implementasi & daftar algoritma), jadi lookup itu
+     * gagal -- MESKIPUN server sebenarnya juga menawarkan algoritma KEX lain
+     * yang didukung PENUH di Android (ECDH NIST P-256/384/521, Diffie-Hellman
+     * Group14, dll). trilead-ssh2 (engine lain di app ini) TIDAK PERNAH
+     * menawarkan Curve25519 sama sekali, makanya dia tidak kena masalah yang
+     * sama persis di server yang sama.
+     *
+     * Solusinya BUKAN menambah dependency Bouncy Castle asli (riskan konflik
+     * kelas dengan "BC" bawaan Android sendiri -- masalah klasik lain di
+     * Android+BC) -- cukup BUANG algoritma Curve25519/X25519 dari daftar KEX
+     * yang ditawarkan sshj SEBELUM connect(), supaya negosiasi otomatis
+     * jatuh ke algoritma lain yang memang didukung penuh di Android. Server
+     * modern manapun (OpenSSH dkk) selalu menawarkan lebih dari satu
+     * algoritma KEX, jadi ini TIDAK mengurangi kompatibilitas ke server yang
+     * valid -- cuma menghindari SATU algoritma spesifik yang memang rewel di
+     * Android lewat sshj.
+     */
+    private fun buildAndroidSafeConfig(): Config {
+        val config = DefaultConfig()
+        val safeKex = config.keyExchangeFactories.filterNot { factory ->
+            val name = factory.name?.lowercase().orEmpty()
+            name.contains("curve25519") || name.contains("x25519")
+        }
+        if (safeKex.isNotEmpty()) {
+            config.keyExchangeFactories = safeKex
+        } else {
+            // Jaga-jaga (seharusnya tidak pernah terjadi -- DefaultConfig
+            // selalu punya beberapa KEX non-Curve25519 juga): kalau daftar
+            // malah jadi kosong, jangan sampai SEMUA algoritma KEX hilang
+            // (bikin SEMUA server gagal connect) -- lebih aman biarkan daftar
+            // default apa adanya walau berisiko error X25519 yang sama.
+            Log.w(TAG, "Filter KEX Curve25519/X25519 menghasilkan daftar kosong, pakai default apa adanya")
+        }
+        return config
+    }
+
     @Throws(Exception::class)
     override fun connect(
         config: ServerConfig,
@@ -129,7 +185,7 @@ class SshjTunnelManager : SshEngineHandle {
 
         StatusBus.start(StepId.SSH_HANDSHAKE)
 
-        val client = SSHClient()
+        val client = SSHClient(buildAndroidSafeConfig())
         // MVP: terima host key apa pun -- sama persis kebijakan
         // ServerHostKeyVerifier di SshTunnelManager (trilead).
         client.addHostKeyVerifier(PromiscuousVerifier())
