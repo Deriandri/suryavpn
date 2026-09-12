@@ -49,6 +49,26 @@ object XrayConfigBuilder {
         val outboundObj = JSONObject().apply {
             put("tag", "proxy")
             put("streamSettings", streamSettings)
+            // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan):
+            // mux.cool -- menggabungkan beberapa koneksi TCP/stream kecil
+            // (umum saat browsing web: banyak request paralel ke domain/CDN
+            // berbeda) jadi satu koneksi fisik ke server, jadi tidak perlu
+            // handshake TCP+TLS baru dari nol tiap kali browser buka
+            // koneksi baru -- lumayan berarti di jaringan ber-RTT tinggi
+            // (tiap handshake baru = minimal 1 RTT ekstra, kadang lebih
+            // untuk TLS). concurrency 8 adalah nilai default resmi yang
+            // direkomendasikan dokumentasi Xray-core sendiri (cukup besar
+            // untuk browsing normal, tidak berlebihan sampai membebani CPU).
+            // TIDAK diaktifkan untuk protokol/transport yang mux.cool
+            // resmi TIDAK didukung/direkomendasikan Xray-core (KCP -- based
+            // UDP, dan XHTTP -- sudah punya mekanisme multiplexing sendiri
+            // yang konflik kalau digabung mux.cool sekaligus).
+            if (cfg.network != "kcp" && cfg.network != "xhttp") {
+                put("mux", JSONObject().apply {
+                    put("enabled", true)
+                    put("concurrency", 8)
+                })
+            }
         }
 
         when (cfg.protocol) {

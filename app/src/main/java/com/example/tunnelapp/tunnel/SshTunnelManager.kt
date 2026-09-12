@@ -50,6 +50,45 @@ class SshTunnelManager {
     companion object {
         private const val TAG = "SshTunnelManager"
         private const val CONNECT_TIMEOUT_MS = 15000
+
+        // FITUR BARU (maksimalkan kecepatan): daftar cipher yang punya
+        // percepatan hardware di hampir semua HP modern (AES-NI/ARMv8 Crypto
+        // Extensions) -- nama-nama standar RFC/OpenSSH, sengaja HANYA
+        // dipakai sebagai kunci "naikkan ke depan kalau ada", bukan daftar
+        // pengganti (lihat catatan panjang di connect() soal kenapa ini
+        // aman untuk kompatibilitas).
+        private val FAST_CIPHER_PRIORITY = listOf(
+            "aes128-gcm@openssh.com",
+            "aes256-gcm@openssh.com",
+            "chacha20-poly1305@openssh.com",
+            "aes128-ctr",
+            "aes192-ctr",
+            "aes256-ctr"
+        )
+
+        /**
+         * Ambil daftar LENGKAP cipher yang didukung [conn] (client-side,
+         * bukan dipersempit berdasarkan server), lalu urutkan ulang supaya
+         * cipher di [FAST_CIPHER_PRIORITY] naik ke depan -- SEMUA cipher
+         * lain yang tadinya didukung tetap ikut dikirim di posisi
+         * berikutnya, urutan relatifnya sendiri dipertahankan. Diterapkan
+         * ke DUA arah (client->server & server->client) karena keduanya
+         * dinegosiasikan terpisah oleh SSH.
+         */
+        private fun preferFastCiphers(conn: Connection) {
+            // PENTING (sudah diverifikasi langsung ke source resmi
+            // jenkinsci/trilead-ssh2 di GitHub, BUKAN tebakan): method-nya
+            // bernama setClient2ServerCiphers()/setServer2ClientCiphers()
+            // (pakai "2", warisan penamaan dari ganymed-ssh2) -- BUKAN
+            // setClientToServerCiphers() seperti asumsi awal yang salah.
+            // getAvailableCiphers() sendiri memang STATIC di class Connection.
+            val available = Connection.getAvailableCiphers()?.toList().orEmpty()
+            if (available.isEmpty()) return
+            val reordered = (FAST_CIPHER_PRIORITY.filter { it in available } +
+                available.filter { it !in FAST_CIPHER_PRIORITY }).toTypedArray()
+            conn.setClient2ServerCiphers(reordered)
+            conn.setServer2ClientCiphers(reordered)
+        }
     }
 
     private var connection: Connection? = null
@@ -87,6 +126,22 @@ class SshTunnelManager {
 
         StatusBus.start(StepId.SSH_HANDSHAKE)
         val conn = Connection("127.0.0.1", relayPort)
+
+        // REVERT (laporan user: "terhubung tapi internet tidak jalan" di mode
+        // SSH, tepat setelah fitur prioritas cipher cepat ini ditambahkan):
+        // handshake SSH tetap sukses (status "Terhubung" muncul), tapi
+        // kemungkinan implementasi cipher AES-GCM/CTR di fork trilead-ssh2
+        // ini punya bug halus yang bikin data SETELAH handshake gagal
+        // diverifikasi/rusak -- persis gejala yang dilaporkan. Karena saya
+        // tidak punya server/device nyata untuk mengetes langsung dampak
+        // reorder cipher ini, DIMATIKAN DULU (bukan dihapus total -- kode
+        // preferFastCiphers() masih ada di companion object kalau nanti mau
+        // dicoba lagi setelah diverifikasi lebih hati-hati, mis. cipher demi
+        // cipher satu-satu) sampai ada cara mengetesnya dengan aman.
+        // try { preferFastCiphers(conn) } catch (e: Exception) {
+        //     Log.w(TAG, "Gagal atur prioritas cipher cepat, pakai urutan default library", e)
+        // }
+
         try {
             conn.connect(
                 object : ServerHostKeyVerifier {

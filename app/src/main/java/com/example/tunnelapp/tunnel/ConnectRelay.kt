@@ -37,6 +37,11 @@ class ConnectRelay(
     companion object {
         private const val TAG = "ConnectRelay"
         private const val CONNECT_TIMEOUT_MS = 15000
+        // FITUR BARU (maksimalkan kecepatan): 256KB -- cukup besar untuk
+        // bandwidth-delay product jaringan seluler ber-RTT tinggi tanpa
+        // boros memori berlebihan per koneksi (tunnel ini biasanya cuma
+        // pegang 1 koneksi TCP utama ke server, jadi aman dinaikkan).
+        private const val SOCKET_BUFFER_SIZE_BYTES = 262_144
         private const val MAX_PROXY_RESPONSE_BYTES = 8192
 
         // PENTING (bug fix "freeze"/SSH tidak jalan): tanpa timeout ini, socket
@@ -161,6 +166,30 @@ class ConnectRelay(
             rawSocket.close()
             throw IOException(msg)
         }
+
+        // REVERT (laporan user: "terhubung tapi internet tidak jalan" di mode
+        // SSH -- MASIH terjadi walau prioritas cipher & tcp-buffer-size hev
+        // sudah dimatikan duluan). Kandidat baru yang tadinya saya anggap
+        // aman: TCP_NODELAY mengubah POLA TIMING pengiriman paket -- untuk
+        // app kelas "bug host"/SSH TLS Payload/Remote Proxy seperti ini,
+        // pola timing paket seringkali BAGIAN DARI TRIK mengelabui deteksi
+        // ISP (mis. payload/WebSocket/TLS yang sengaja dipecah dengan cara
+        // tertentu) -- mengubahnya bisa bikin trik itu gagal dikenali server
+        // meski TCP connect awal tetap sukses. SO_RCVBUF/SO_SNDBUF yang
+        // dipaksa besar juga saya matikan sekalian karena sama-sama belum
+        // pernah dites di server/device nyata. DIMATIKAN DULU semua sampai
+        // ada cara aman untuk mengetes dampaknya satu per satu.
+        // try {
+        //     rawSocket.tcpNoDelay = true
+        // } catch (e: Exception) {
+        //     Log.w(TAG, "Gagal set TCP_NODELAY (lanjut pakai default)", e)
+        // }
+        // try {
+        //     rawSocket.receiveBufferSize = SOCKET_BUFFER_SIZE_BYTES
+        //     rawSocket.sendBufferSize = SOCKET_BUFFER_SIZE_BYTES
+        // } catch (e: Exception) {
+        //     Log.w(TAG, "Gagal naikkan SO_RCVBUF/SO_SNDBUF (lanjut pakai default OS)", e)
+        // }
 
         // (proxy) Kalau mode PROXY, atau ENHANCED dengan host proxy diisi,
         // TCP connect diarahkan ke proxy dulu -- bukan langsung ke server SSH.
