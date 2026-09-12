@@ -235,7 +235,9 @@ class SshConfigActivity : AppCompatActivity() {
      */
     private fun applyDefaultRawModeForEnhancedIfNeeded() {
         val modeIndex = currentModeIndex()
-        if ((modeIndex == 1 || modeIndex == 2 || modeIndex == 3) &&
+        // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
+        // mode ini tidak lagi punya Remote Proxy sama sekali, lihat updateFieldVisibilityForMode().
+        if ((modeIndex == 2 || modeIndex == 3) &&
             !rawModeHasExplicitValue && !binding.chipRawMode.isChecked
         ) {
             settingRawModeProgrammatically = true
@@ -266,7 +268,7 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     private fun proxyRawModeEnabled(): Boolean =
-        (currentModeIndex() == 1 || currentModeIndex() == 2 || currentModeIndex() == 3) &&
+        (currentModeIndex() == 2 || currentModeIndex() == 3) &&
             binding.chipRawMode.isChecked
 
     /** Mode 3 pakai TLS/SNI kecuali Raw Passthrough dinyalakan -- lihat [currentModeIndex]. */
@@ -277,10 +279,10 @@ class SshConfigActivity : AppCompatActivity() {
         val modeIndex = currentModeIndex()
         val usesTls = usesTlsForMode(modeIndex)
         val usesPayload = modeIndex == 2 || modeIndex == 3
-        // FITUR BARU (permintaan user): mode 1 (SSH SSL) sekarang juga menampilkan
-        // container proxy & chip Raw Passthrough, sama seperti mode 2 -- proxy
-        // tetap opsional (kosongkan untuk perilaku SSH SSL polos seperti sebelumnya).
-        val usesProxy = modeIndex == 1 || modeIndex == 2 || modeIndex == 3
+        // DIKEMBALIKAN (permintaan user): mode 1 (SSH SSL) tidak lagi menampilkan
+        // blok Remote Proxy/Raw Passthrough -- kembali ke perilaku SSH SSL polos
+        // (TLS wrap langsung ke host, tanpa proxy/CDN sama sekali).
+        val usesProxy = modeIndex == 2 || modeIndex == 3
         val proxyMandatory = modeIndex == 3
         val usesRawMode = proxyRawModeEnabled()
 
@@ -400,9 +402,9 @@ class SshConfigActivity : AppCompatActivity() {
         val usesPayload = modeIndex == 2 || modeIndex == 3
         val payload = if (usesPayload) binding.etPayload.text.toString() else ""
 
-        // FITUR BARU (permintaan user): modeIndex 1 (SSH SSL) sekarang juga ikut
-        // usesProxy -- lihat updateFieldVisibilityForMode().
-        val usesProxy = modeIndex == 1 || modeIndex == 2 || modeIndex == 3
+        // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
+        // lihat updateFieldVisibilityForMode().
+        val usesProxy = modeIndex == 2 || modeIndex == 3
         val proxyHost = if (usesProxy) binding.etProxyHost.text.toString().trim() else ""
         val proxyPortText = if (usesProxy) binding.etProxyPort.text.toString().trim() else ""
         val proxyRawMode = usesProxy && proxyRawModeEnabled()

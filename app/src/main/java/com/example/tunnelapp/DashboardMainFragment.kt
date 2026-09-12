@@ -404,10 +404,10 @@ class DashboardMainFragment : Fragment() {
             else -> ConnectionMode.SSH
         }
         val usesPayload = modeIndex == 2 || modeIndex == 3
-        // FITUR BARU (permintaan user): modeIndex 1 (SSH SSL) sekarang juga ikut
-        // usesProxy -- disalin dari SshConfigActivity/ServerConfig.toServerConfigOrNull
-        // supaya konsisten, lihat catatan lengkap di ServerConfig.kt.
-        val usesProxy = modeIndex == 1 || modeIndex == 2 || modeIndex == 3
+        // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
+        // disalin dari SshConfigActivity/ServerConfig.toServerConfigOrNull supaya
+        // konsisten, lihat catatan lengkap di ServerConfig.kt.
+        val usesProxy = modeIndex == 2 || modeIndex == 3
         val proxyRawMode = usesProxy && saved.proxyRawMode
         val usesTls = modeIndex == 1 || modeIndex == 2
 

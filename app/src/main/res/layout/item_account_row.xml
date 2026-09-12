@@ -21,6 +21,15 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
+        <!-- REDESIGN (permintaan user: "susunan tulisan konfigurasi agar
+             enak dipandang"). Sebelumnya btnRowShare/Edit/Delete satu baris
+             dengan avatar+badge+title, jadi title/host cuma kebagian sisa
+             ruang sempit dan sering keputus jadi "host...4..." yang nyaris
+             tidak terbaca. Sekarang baris atas HANYA avatar + badge/title/
+             subtitle (lebar penuh kartu), ikon aksi dipindah gabung ke
+             baris bawah bareng status "Aktif"/"Jadikan Aktif" (status di
+             kiri, aksi di kanan), title/host jadi jauh lebih jarang
+             terpotong. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -70,7 +79,7 @@
 
                 <TextView
                     android:id="@+id/tvRowTitle"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="host:port"
                     android:textColor="@color/text_primary"
@@ -87,7 +96,7 @@
                      (tvRowTitle sendiri sudah cukup, persis perilaku lama). -->
                 <TextView
                     android:id="@+id/tvRowSubtitle"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="1dp"
                     android:text="host:port"
@@ -97,6 +106,54 @@
                     android:ellipsize="end"
                     android:visibility="gone" />
             </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="10dp"
+            android:layout_marginStart="56dp">
+
+            <TextView
+                android:id="@+id/tvRowActiveBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_pill_active"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:text="✓ Aktif"
+                android:textColor="@color/status_success"
+                android:textStyle="bold"
+                android:textSize="11sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvRowSetActive"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_btn_neutral_outline"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:text="Jadikan Aktif"
+                android:textColor="@color/text_secondary"
+                android:textStyle="bold"
+                android:textSize="11sp"
+                android:clickable="true"
+                android:focusable="true"
+                android:visibility="gone" />
+
+            <!-- Spacer: dorong ikon aksi ke ujung kanan baris, senada
+                 dengan status di kiri (lihat catatan REDESIGN di atas). -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
 
             <!-- FITUR BARU (permintaan user): Bagikan akun ini sebagai kode
                  teks singkat (lihat ConfigActivity.onShareRowClicked &
@@ -135,46 +192,6 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:contentDescription="Hapus" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="10dp"
-            android:layout_marginStart="56dp">
-
-            <TextView
-                android:id="@+id/tvRowActiveBadge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/bg_pill_active"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp"
-                android:text="✓ Aktif"
-                android:textColor="@color/status_success"
-                android:textStyle="bold"
-                android:textSize="11sp"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/tvRowSetActive"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/bg_btn_neutral_outline"
-                android:paddingStart="10dp"
-                android:paddingEnd="10dp"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp"
-                android:text="Jadikan Aktif"
-                android:textColor="@color/text_secondary"
-                android:textStyle="bold"
-                android:textSize="11sp"
-                android:clickable="true"
-                android:focusable="true"
-                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
