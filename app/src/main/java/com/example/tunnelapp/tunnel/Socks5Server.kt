@@ -56,6 +56,11 @@ class Socks5Server {
         // force-close). Watchdog manual di bawah membatasi SATU query DNS
         // maksimal sekian lama sebelum channel-nya ditutup paksa sendiri.
         private const val DNS_RELAY_TIMEOUT_MS = 8000L
+        // Watchdog utk createLocalStreamForwarder() di handleConnect() --
+        // sama alasannya dengan DNS_RELAY_TIMEOUT_MS: operasi ini bisa
+        // menggantung tanpa batas kalau server/jaringan macet, dan channel
+        // SSH biasa (bukan Socket asli) tidak bisa dipasangi setSoTimeout().
+        private const val CHANNEL_OPEN_TIMEOUT_MS = 10000L
         // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan): buffer
         // relay TUN<->channel SSH dinaikkan dari 8KB -> 32KB. Ini MURNI
         // loopback lokal (127.0.0.1, bukan jaringan asli), jadi aman
@@ -87,17 +92,25 @@ class Socks5Server {
     @Volatile
     private var sshConnection: Connection? = null
 
-    // PENTING (defense-in-depth, konsisten dengan sebelumnya): trilead-ssh2
-    // TIDAK dijamin aman kalau createLocalStreamForwarder() (operasi "buka
-    // channel baru" di level protokol SSH) dipanggil dari beberapa thread
-    // SECARA BERSAMAAN -- permintaan buka channel yang nyelonong bareng bisa
-    // saling menabrak di level protokol dan merusak koneksi SSH itu sendiri
-    // (dampaknya: SEMUA request lain di koneksi yang sama ikut ke-reset,
-    // bukan cuma yang nabrak). Kunci ini memastikan "buka channel" selalu
-    // antre satu-satu; transfer data SETELAH channel terbuka tetap jalan
-    // paralel seperti biasa (lock ini cuma dipegang sebentar, bukan selama
-    // koneksi hidup).
-    private val channelOpenLock = Any()
+    // DIHAPUS (root cause "tunnel connect tapi internet tidak jalan, tanpa
+    // error di log"): sebelumnya ada `channelOpenLock` yang menyerialkan
+    // SEMUA pembukaan channel (CONNECT & UDP-relay-DNS) di satu lock global,
+    // atas dasar kekhawatiran "trilead-ssh2 tidak aman dipanggil concurrent".
+    // Dicek langsung ke source resmi fork yang dipakai project ini
+    // (org.jenkins-ci:trilead-ssh2, lihat app/build.gradle.kts) --
+    // ChannelManager.openDirectTCPIPChannel() mengalokasikan ID channel di
+    // bawah lock PER-CHANNEL-nya sendiri (`synchronized(c)`), lalu
+    // waitUntilChannelOpen(c) juga menunggu di monitor `c` itu sendiri, BUKAN
+    // di lock global -- library ini memang didesain untuk banyak
+    // channel/session concurrent dari banyak thread. Jadi lock global di
+    // atas TIDAK diperlukan untuk keamanan trilead-ssh2, dan efek sampingnya
+    // justru berbahaya: createLocalStreamForwarder() TIDAK punya timeout,
+    // jadi begitu satu destinasi lambat/macet, SEMUA koneksi & query DNS
+    // baru lain ikut menunggu di lock yang sama -- persis kelihatan seperti
+    // "internet mati total" walau status tunnel masih "Terhubung", dan
+    // tidak ada exception yang dilempar (makanya tidak ada apa pun di log).
+    // Sekarang setiap channel dibuka independen; yang macet cuma menunda
+    // channel itu sendiri (lihat CHANNEL_OPEN_TIMEOUT_MS di handleConnect).
 
     fun isRunning(): Boolean = running
 
@@ -133,7 +146,10 @@ class Socks5Server {
                         start()
                     }
                 } catch (e: Exception) {
-                    if (running) Log.e(TAG, "Error accept SOCKS5", e)
+                    if (running) {
+                        Log.e(TAG, "Error accept SOCKS5", e)
+                        StatusBus.log("[SOCKS5] Error accept: ${e.message ?: e.javaClass.simpleName}")
+                    }
                 }
             }
         }, "socks5-accept").apply { start() }
@@ -205,6 +221,7 @@ class Socks5Server {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handle SOCKS5 client", e)
+            StatusBus.log("[SOCKS5] Error handle client: ${e.message ?: e.javaClass.simpleName}")
             try { client.close() } catch (_: Exception) {}
         }
     }
@@ -235,10 +252,29 @@ class Socks5Server {
         }
 
         var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
-        try {
-            forwarder = synchronized(channelOpenLock) {
-                conn.createLocalStreamForwarder(targetHost, targetPort)
+        // Watchdog: kalau createLocalStreamForwarder() (buka "direct-tcpip"
+        // channel ke targetHost:targetPort lewat SSH) tidak selesai dalam
+        // CHANNEL_OPEN_TIMEOUT_MS, tutup paksa forwarder-nya begitu ia
+        // akhirnya kebentuk -- ini membuat request YANG MACET gagal dengan
+        // jelas (IOException, ke-log), TANPA menahan koneksi/channel lain
+        // sama sekali (tidak ada lock global lagi, lihat catatan di field
+        // sshConnection di atas).
+        val openDone = java.util.concurrent.atomic.AtomicBoolean(false)
+        val openTimeoutGuard = Thread({
+            try {
+                Thread.sleep(CHANNEL_OPEN_TIMEOUT_MS)
+                if (!openDone.get()) {
+                    Log.w(TAG, "Buka channel ke $targetHost:$targetPort timeout -- menutup paksa")
+                    StatusBus.log("[SOCKS5] Buka channel ke $targetHost:$targetPort TIMEOUT -- ditutup paksa")
+                    try { forwarder?.close() } catch (_: Exception) {}
+                }
+            } catch (_: InterruptedException) {
             }
+        }, "socks5-channel-open-timeout").apply { isDaemon = true; start() }
+        try {
+            forwarder = conn.createLocalStreamForwarder(targetHost, targetPort)
+            openDone.set(true)
+            openTimeoutGuard.interrupt()
 
             // --- Reply sukses (alamat bind di-nol-kan, umum untuk server SOCKS5 minimal) ---
             output.write(byteArrayOf(0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0))
@@ -275,8 +311,16 @@ class Socks5Server {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error CONNECT SOCKS5", e)
+            StatusBus.log("[SOCKS5] CONNECT $targetHost:$targetPort gagal: ${e.message ?: e.javaClass.simpleName}")
             try { client.close() } catch (_: Exception) {}
         } finally {
+            // Jaga-jaga: kalau exception terjadi SEBELUM openDone.set(true)
+            // (createLocalStreamForwarder gagal/exception, bukan timeout),
+            // guard thread di atas masih tidur menunggu -- bangunkan &
+            // hentikan sekarang juga, tidak perlu nunggu penuh
+            // CHANNEL_OPEN_TIMEOUT_MS cuma untuk mati sendiri.
+            openDone.set(true)
+            openTimeoutGuard.interrupt()
             // PENTING (bug fix INTI -- ini penyebab "internet cuma jalan
             // sebentar lalu hilang"): sebelumnya cuma socket SOCKS5 lokal
             // (`client`) yang ditutup di sini -- channel SSH "direct-tcpip"
@@ -404,32 +448,36 @@ class Socks5Server {
         Thread({
             var forwarder: com.trilead.ssh2.LocalStreamForwarder? = null
             val done = java.util.concurrent.atomic.AtomicBoolean(false)
-            var timeoutGuard: Thread? = null
-            try {
-                forwarder = synchronized(channelOpenLock) {
-                    conn.createLocalStreamForwarder(destHost, 53)
-                }
-                val forwarderRef = forwarder
-
-                // Watchdog manual: forwarder.inputStream bukan Socket asli, jadi
-                // tidak bisa dipasangi setSoTimeout biasa. Kalau satu query DNS
-                // ini tidak selesai (kirim + terima balasan) dalam
-                // DNS_RELAY_TIMEOUT_MS, tutup paksa channel-nya -- itu akan
-                // membuat fIn.readFully() di bawah yang sedang blocking langsung
-                // gagal (IOException), ditangkap normal seperti kegagalan lain.
-                timeoutGuard = Thread({
-                    try {
-                        Thread.sleep(DNS_RELAY_TIMEOUT_MS)
-                        if (!done.get()) {
-                            Log.w(TAG, "DNS relay ke $destHost timeout -- menutup paksa channel")
-                            try { forwarderRef.close() } catch (_: Exception) {}
-                        }
-                    } catch (_: InterruptedException) {
+            // FIX (root cause "hev-socks5-tunnel 'io timeout' berulang cepat,
+            // DNS device tidak pernah kejawab"): watchdog SEBELUMNYA baru
+            // dipasang SETELAH createLocalStreamForwarder() (buka channel)
+            // selesai -- kalau justru PEMBUKAAN channel itu sendiri yang
+            // macet (server SSH tidak pernah membalas permintaan buka
+            // direct-tcpip ke <dns>:53, mis. karena diblokir firewall),
+            // panggilan itu bisa menggantung SANGAT lama (dibatasi timeout
+            // internal trilead-ssh2 yang defaultnya besar, bukan
+            // DNS_RELAY_TIMEOUT_MS kita) -- watchdog kita sendiri belum
+            // sempat menyala sama sekali. Sekarang watchdog dipasang
+            // SEBELUM createLocalStreamForwarder() dipanggil, supaya fase
+            // "buka channel" ikut ditimeout juga, bukan cuma fase "baca
+            // balasan" setelah channel terbuka.
+            val timeoutGuard = Thread({
+                try {
+                    Thread.sleep(DNS_RELAY_TIMEOUT_MS)
+                    if (!done.get()) {
+                        Log.w(TAG, "DNS relay ke $destHost timeout -- menutup paksa channel")
+                        StatusBus.log("[DNS] Relay ke $destHost:53 TIMEOUT (>${DNS_RELAY_TIMEOUT_MS}ms) -- kemungkinan port 53 diblokir/di-drop server")
+                        try { forwarder?.close() } catch (_: Exception) {}
                     }
-                }, "socks5-dns-relay-timeout").apply { isDaemon = true; start() }
+                } catch (_: InterruptedException) {
+                }
+            }, "socks5-dns-relay-timeout").apply { isDaemon = true; start() }
+            try {
+                forwarder = conn.createLocalStreamForwarder(destHost, 53)
+                val fwd = forwarder!!
 
-                val fOut = forwarder.outputStream
-                val fIn = DataInputStream(forwarder.inputStream)
+                val fOut = fwd.outputStream
+                val fIn = DataInputStream(fwd.inputStream)
 
                 // DNS-over-TCP (RFC 1035): payload didahului panjang 2 byte
                 fOut.write(byteArrayOf(((payload.size shr 8) and 0xFF).toByte(), (payload.size and 0xFF).toByte()))
@@ -456,6 +504,7 @@ class Socks5Server {
                 udpSocket.send(DatagramPacket(out, out.size, replyToAddr, replyToPort))
             } catch (e: Exception) {
                 Log.e(TAG, "Gagal relay DNS via DNS-over-TCP ke $destHost", e)
+                StatusBus.log("[DNS] Relay ke $destHost:53 GAGAL: ${e.message ?: e.javaClass.simpleName}")
             } finally {
                 // PENTING (bug fix -- leak yang sama persis dengan handleConnect,
                 // TAPI lebih parah di sini: query DNS terjadi jauh lebih sering
@@ -466,7 +515,7 @@ class Socks5Server {
                 // dibiarkan menggantung selamanya di sshConnection untuk SETIAP
                 // domain yang pernah di-resolve sejak tunnel connect.
                 done.set(true)
-                timeoutGuard?.interrupt()
+                timeoutGuard.interrupt()
                 try { forwarder?.close() } catch (_: Exception) {}
             }
         }, "socks5-dns-relay").apply { isDaemon = true; start() }
