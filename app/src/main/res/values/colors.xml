@@ -36,8 +36,8 @@
          sebelumnya di-hardcode langsung di file drawable (bg_btn_neutral_outline,
          bg_btn_edit_outline, bg_pill_active, bg_pill_brand_soft) sebagai hex
          literal. Dipindah jadi @color bernama di sini SUPAYA masing-masing
-         bisa punya versi gelap terpisah lewat values-night/colors.xml --
-         kalau tetap hex literal di drawable, tombol/pill itu akan selalu
+         bisa punya versi gelap terpisah lewat values-night/colors.xml.
+         Kalau tetap hex literal di drawable, tombol/pill itu akan selalu
          tampil terang (mis. putih pekat) walau seluruh app sudah pindah ke
          tema gelap. Nilai di bawah ini SAMA PERSIS dengan hex asli, jadi
          tampilan tema terang tidak berubah sama sekali. -->

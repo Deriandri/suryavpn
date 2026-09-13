@@ -4,18 +4,18 @@
 
     File ini HANYA berisi override untuk warna yang berperan sebagai
     "surface" (latar belakang halaman/kartu, teks, garis pembatas, wash
-    lembut tombol/pill) -- yaitu warna yang di values/colors.xml didesain
+    lembut tombol/pill), yaitu warna yang di values/colors.xml didesain
     dengan asumsi latar terang. Semua warna lain (brand_primary, warna hero
     gradient, warna terminal log, dll) SENGAJA TIDAK di-override di sini:
     warna-warna itu sudah berupa aksen/gradasi tetap yang dirancang untuk
     tampil sama baik di atas latar terang maupun gelap (mis. kartu hero ungu
-    & area log yang memang selalu gelap terlepas dari tema aplikasi -- lihat
+    & area log yang memang selalu gelap terlepas dari tema aplikasi, lihat
     catatan panjang di colors.xml/drawable/bg_terminal_log.xml).
 
     Resource dengan nama SAMA di sini otomatis dipakai Android menggantikan
     versi di values/colors.xml saat sistem dalam mode gelap (baik ikut
     system dark mode, maupun dipaksa lewat AppCompatDelegate.MODE_NIGHT_YES
-    dari toggle "Tampilan" di layar Pengaturan -- lihat ThemeStore.kt &
+    dari toggle "Tampilan" di layar Pengaturan, lihat ThemeStore.kt &
     TunnelApplication.kt). Tidak perlu ubah apa pun di layout/kode Kotlin:
     semua tempat sudah merujuk lewat @color/nama, bukan hex langsung.
 -->
@@ -31,7 +31,7 @@
     <color name="text_hint">#767E8A</color>
 
     <!-- Status: warna solid (ikon/teks) dibiarkan sama seperti tema terang
-         supaya makna warnanya tetap konsisten -- hanya wash/background
+         supaya makna warnanya tetap konsisten, hanya wash/background
          lembutnya yang digelapkan supaya tidak jadi kotak terang menyala
          di atas kartu gelap. -->
     <color name="status_success_bg">#153521</color>
@@ -41,7 +41,7 @@
     <color name="status_pending_bg">#25282E</color>
 
     <!-- Wash lembut tombol "Jadikan Aktif" / outline "Edit" / pill "Aktif"
-         & chip tipe akun -- lihat catatan di values/colors.xml. -->
+         & chip tipe akun, lihat catatan di values/colors.xml. -->
     <color name="btn_neutral_outline_start">#22252B</color>
     <color name="btn_neutral_outline_end">#2A2E35</color>
     <color name="btn_edit_outline_bg">#23233F</color>

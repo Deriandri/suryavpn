@@ -19,7 +19,7 @@
         android:padding="16dp"
         android:animateLayoutChanges="true">
 
-        <!-- Header -- REDESIGN (permintaan user: teks dipindah ke tengah,
+        <!-- Header, REDESIGN (permintaan user: teks dipindah ke tengah,
              tampilan lebih profesional/smooth): lencana ikon gradasi bulat
              + judul + subjudul semua center, ditutup garis aksen tipis. -->
         <LinearLayout
@@ -68,7 +68,7 @@
                 android:background="@drawable/bg_header_accent_divider" />
         </LinearLayout>
 
-        <!-- Card: Tampilan (FITUR BARU, permintaan user "tema dark") --
+        <!-- Card: Tampilan (FITUR BARU, permintaan user "tema dark"),
              lihat ThemeStore.kt & SettingsActivity.applyThemeChoice(). -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"

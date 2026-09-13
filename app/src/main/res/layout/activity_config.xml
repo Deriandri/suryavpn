@@ -25,7 +25,7 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- Header -- REDESIGN (permintaan user: teks dipindah ke tengah,
+            <!-- Header, REDESIGN (permintaan user: teks dipindah ke tengah,
                  tampilan lebih profesional/smooth): lencana ikon gradasi bulat
                  + judul + subjudul semua center, ditutup garis aksen tipis. -->
             <LinearLayout

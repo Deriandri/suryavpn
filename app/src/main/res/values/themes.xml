@@ -5,12 +5,12 @@
 
          RIWAYAT (penting supaya bug lama tidak terulang): dulu app ini
          SENGAJA dikunci ke "Light" karena "DayNight" polos pernah bikin
-         teks jadi abu-abu sangat terang & tidak terbaca di mode gelap --
+         teks jadi abu-abu sangat terang & tidak terbaca di mode gelap,
          itu terjadi karena ketika itu HANYA colorOnSurface/colorSurface dkk
          yang didefinisikan di sini, sedangkan values/colors.xml TIDAK
          punya padanan gelap sama sekali (app_background, card_background,
          text_primary, dst. cuma py satu nilai, didesain untuk latar
-         terang) -- Material3 lalu mencampur warna gelap bawaannya sendiri
+         terang), Material3 lalu mencampur warna gelap bawaannya sendiri
          dengan warna terang app ini, hasilnya kontras berantakan.
 
          SEKARANG diperbaiki dengan benar: ditambahkan padanan gelap yang
