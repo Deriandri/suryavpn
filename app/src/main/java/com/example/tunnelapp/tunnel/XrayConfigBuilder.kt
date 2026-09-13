@@ -198,6 +198,19 @@ object XrayConfigBuilder {
                 stream.put("tlsSettings", JSONObject().apply {
                     put("serverName", cfg.sni.ifBlank { cfg.hostHeader.ifBlank { cfg.address } })
                     put("allowInsecure", cfg.allowInsecure)
+                    // FIX "tunnel nyala tapi trafik nyata gak balik" (khusus network=="ws"):
+                    // kalau ALPN dibiarkan kosong, TLS stack bisa nego ke "h2" (banyak
+                    // reverse-proxy/CDN di baliknya prioritaskan h2 kalau client
+                    // menawarkannya), padahal transport ws BUTUH http/1.1 murni --
+                    // TLS handshake tetap sukses (makanya step sebelumnya kelihatan
+                    // hijau), tapi request WS upgrade-nya sendiri tidak pernah nyampe
+                    // ke backend asli. v2rayNG/NekoBox/HTTP Custom & sejenisnya SELALU
+                    // set ini eksplisit -- di sini disamakan: pakai alpn dari link kalau
+                    // ada, kalau tidak fallback ke default aman per transport.
+                    val alpnList = resolveAlpn(cfg)
+                    if (alpnList.isNotEmpty()) {
+                        put("alpn", JSONArray().apply { alpnList.forEach { put(it) } })
+                    }
                     if (cfg.realityFingerprint.isNotBlank()) put("fingerprint", cfg.realityFingerprint)
                 })
             }
@@ -215,5 +228,25 @@ object XrayConfigBuilder {
         }
 
         return stream
+    }
+
+    /**
+     * ALPN untuk TLS: pakai apa yang tertulis di link (bisa berisi lebih dari satu,
+     * dipisah koma, mis. "h2,http/1.1") kalau ada, kalau tidak fallback ke default
+     * de-facto ekosistem Xray per jenis transport -- KHUSUSNYA "ws" WAJIB
+     * "http/1.1" murni (lihat catatan panjang di pemanggilnya), sedangkan "h2"
+     * ya wajar minta "h2". Transport lain (tcp/grpc/kcp/dst.) dibiarkan kosong
+     * (tidak set field alpn sama sekali -- perilaku Xray default, yang untuk
+     * transport-transport itu memang tidak bermasalah).
+     */
+    private fun resolveAlpn(cfg: XrayOutboundConfig): List<String> {
+        if (cfg.alpn.isNotBlank()) {
+            return cfg.alpn.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        }
+        return when (cfg.network) {
+            "ws", "httpupgrade", "xhttp" -> listOf("http/1.1")
+            "h2" -> listOf("h2")
+            else -> emptyList()
+        }
     }
 }

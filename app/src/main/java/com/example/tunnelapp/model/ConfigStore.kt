@@ -51,7 +51,14 @@ data class SavedConfig(
     // TIDAK memengaruhi logika koneksi sama sekali. Kosong = fallback ke
     // host:port (SSH) atau remark/address:port (Xray), sama seperti perilaku
     // sebelum fitur ini ada.
-    val accountName: String = ""
+    val accountName: String = "",
+    // FITUR BARU (permintaan user, "kunci akun"): kalau true, akun ini
+    // tidak boleh diedit atau dihapus lewat UI (tombol pensil/hapus di
+    // ConfigActivity dinonaktifkan & dipudarkan) sampai dibuka kuncinya
+    // lagi lewat ikon gembok di baris yang sama -- murni proteksi UI dari
+    // ketidaksengajaan, TIDAK mengenkripsi/menyembunyikan data & TIDAK
+    // memengaruhi logika koneksi sama sekali.
+    val isLocked: Boolean = false
 )
 
 object ConfigStore {

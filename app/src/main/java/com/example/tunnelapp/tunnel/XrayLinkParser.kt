@@ -53,6 +53,13 @@ data class XrayOutboundConfig(
     // Kalau true, skip verifikasi sertifikat TLS (allowInsecure). Hati-hati -- cuma
     // buat testing, jangan dipakai untuk server produksi yang sertifikatnya valid.
     val allowInsecure: Boolean = false,
+    // Dipakai kalau tlsMode != "none". Kosong = pakai default otomatis sesuai
+    // transport (lihat XrayConfigBuilder) -- KHUSUSNYA untuk network=="ws":
+    // WAJIB "http/1.1", BUKAN dibiarkan kosong/default TLS Android (yang bisa
+    // ke-nego h2 dan bikin request WS tidak pernah nyampe ke backend asli di
+    // balik CDN/reverse-proxy, walau TLS handshake sendiri sukses -- gejala
+    // persis "tunnel nyala tapi tidak ada trafik nyata balik").
+    val alpn: String = "",
     // REALITY-only.
     val realityPublicKey: String = "",
     val realityShortId: String = "",
@@ -134,6 +141,7 @@ object XrayLinkParser {
             tlsMode = if (tlsRaw == "tls" || tlsRaw == "reality") tlsRaw else "none",
             sni = json.optString("sni", ""),
             allowInsecure = false,
+            alpn = json.optString("alpn", ""),
             realityFingerprint = json.optString("fp", "chrome").ifBlank { "chrome" }
         )
     }
@@ -186,6 +194,7 @@ object XrayLinkParser {
             sni = params["sni"] ?: "",
             flow = if (protocol == XrayProtocol.VLESS) (params["flow"] ?: "") else "",
             allowInsecure = params["allowInsecure"] == "1" || params["allowInsecure"]?.lowercase() == "true",
+            alpn = params["alpn"] ?: "",
             realityPublicKey = params["pbk"] ?: "",
             realityShortId = params["sid"] ?: "",
             realityFingerprint = (params["fp"] ?: "chrome").ifBlank { "chrome" }
@@ -240,6 +249,7 @@ object XrayLinkBuilder {
         json.put("path", if (c.network == "grpc") c.serviceName else c.path)
         json.put("tls", if (c.tlsMode == "none") "" else c.tlsMode)
         json.put("sni", c.sni)
+        json.put("alpn", c.alpn)
         json.put("fp", c.realityFingerprint)
         val b64 = Base64.encodeToString(json.toString().toByteArray(), Base64.NO_WRAP)
         return "vmess://$b64"
@@ -256,6 +266,7 @@ object XrayLinkBuilder {
         }
         if (c.hostHeader.isNotBlank()) params["host"] = c.hostHeader
         if (c.sni.isNotBlank()) params["sni"] = c.sni
+        if (c.alpn.isNotBlank()) params["alpn"] = c.alpn
         if (c.protocol == XrayProtocol.VLESS && c.flow.isNotBlank()) params["flow"] = c.flow
         if (c.allowInsecure) params["allowInsecure"] = "1"
         if (c.realityPublicKey.isNotBlank()) params["pbk"] = c.realityPublicKey

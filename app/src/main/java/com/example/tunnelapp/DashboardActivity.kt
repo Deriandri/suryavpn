@@ -99,19 +99,48 @@ class DashboardActivity : AppCompatActivity() {
                 R.id.nav_dashboard -> true
                 R.id.nav_config -> {
                     startActivity(Intent(this, ConfigActivity::class.java))
-                    true
+                    // FIX BUG (laporan user): dulu `true` di sini bikin
+                    // BottomNavigationView menganggap "Konfigurasi" itu
+                    // beneran jadi tab yang lagi aktif DI LAYAR INI --
+                    // padahal tap ini cuma buka ConfigActivity di ATAS
+                    // Dashboard (bukan pindah konten di dalam Dashboard,
+                    // beda dari tab Main/Log yang pakai ViewPager2). Begitu
+                    // user pencet Back dari ConfigActivity balik ke
+                    // Dashboard, onCreate() TIDAK jalan lagi (activity yang
+                    // sama cuma di-resume) jadi highlight "Konfigurasi" itu
+                    // nyangkut terus padahal konten yang tampil sudah balik
+                    // ke Dashboard (Main atau Log). `false` supaya
+                    // BottomNavigationView tidak memindahkan status
+                    // terpilihnya ke item ini -- highlight "Dashboard" tetap
+                    // seperti semula. Ditambah reset eksplisit di onResume()
+                    // di bawah sebagai jaring pengaman kalau ada jalur lain
+                    // yang sempat mengubah selectedItemId.
+                    false
                 }
                 R.id.nav_settings -> {
                     startActivity(Intent(this, SettingsActivity::class.java))
-                    true
+                    false
                 }
                 R.id.nav_tools -> {
                     startActivity(Intent(this, ToolsActivity::class.java))
-                    true
+                    false
                 }
                 else -> false
             }
         }
+    }
+
+    /**
+     * Jaring pengaman FIX BUG di atas: tiap kali Dashboard ini kembali
+     * terlihat (mis. user pencet Back dari ConfigActivity/SettingsActivity/
+     * ToolsActivity), pastikan highlight bottom nav SELALU balik ke
+     * "Dashboard" -- karena secara konten, layar yang sedang tampil memang
+     * selalu Dashboard (Main atau Log), tidak pernah benar-benar salah satu
+     * dari tiga tab lainnya.
+     */
+    override fun onResume() {
+        super.onResume()
+        binding.bottomNav.selectedItemId = R.id.nav_dashboard
     }
 
     /**

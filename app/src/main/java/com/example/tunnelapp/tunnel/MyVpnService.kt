@@ -3,6 +3,7 @@ package com.example.tunnelapp.tunnel
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.graphics.drawable.Icon
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -26,6 +27,7 @@ import com.example.tunnelapp.model.VpnSettingsStore
 // ekstensi Kotlin TIDAK otomatis ketemu hanya karena tipe datanya (SavedConfig)
 // diakses lewat nama lengkap (fully-qualified), harus di-import eksplisit.
 import com.example.tunnelapp.model.toServerConfigOrNull
+import com.example.tunnelapp.model.ProfileStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -59,6 +61,30 @@ class MyVpnService : VpnService() {
         private const val TAG = "MyVpnService"
         const val ACTION_CONNECT = "com.example.tunnelapp.CONNECT"
         const val ACTION_DISCONNECT = "com.example.tunnelapp.DISCONNECT"
+        // FITUR BARU (permintaan user): tombol aksi di NOTIFIKASI (bukan cuma
+        // buka app lalu tekan tombol manual). Sengaja DUA action terpisah,
+        // bukan menimpa ACTION_CONNECT yang sudah ada:
+        //  - ACTION_QUICK_CONNECT: tombol "Connect" di notifikasi. Beda dari
+        //    ACTION_CONNECT (yang WAJIB bawa ServerConfig lengkap lewat Intent
+        //    extras dari DashboardMainFragment/Activity) -- notifikasi TIDAK
+        //    punya extras itu, jadi action ini bikin ServerConfig sendiri dari
+        //    akun aktif tersimpan di ProfileStore (lihat
+        //    [activeProfileServerConfigOrNull]). No-op kalau tunnel sudah
+        //    jalan (vpnInterface != null), supaya tidak dobel-connect.
+        //  - ACTION_RECONNECT: tombol "Reconnect" di notifikasi -- restart
+        //    paksa tunnel yang lagi aktif (stop lalu connect ulang) pakai
+        //    config yang SAMA PERSIS ([lastConfig]), berguna kalau koneksi
+        //    kerasa macet/lambat tanpa perlu buka app dulu. Fallback ke akun
+        //    aktif ProfileStore kalau [lastConfig] entah kenapa sudah kosong.
+        const val ACTION_QUICK_CONNECT = "com.example.tunnelapp.QUICK_CONNECT"
+        const val ACTION_RECONNECT = "com.example.tunnelapp.RECONNECT"
+        // Jeda sebelum kirim ulang ACTION_QUICK_CONNECT setelah stopVpn() di
+        // ACTION_RECONNECT -- kasih waktu shutdown lama (TUN/SSH/Xray
+        // dibongkar) beres dulu supaya tidak tabrakan pakai fd/port yang
+        // sama. stopVpn() sendiri sudah dibatasi timeout per langkah (lihat
+        // runBlockingWithTimeout), jadi 1.5 detik ini cukup longgar buat
+        // kasus normal tanpa bikin tombol Reconnect kerasa lambat.
+        private const val RECONNECT_NOTIFICATION_DELAY_MS = 1500L
 
         const val EXTRA_HOST = "extra_host"
         const val EXTRA_PORT = "extra_port"
@@ -508,6 +534,58 @@ class MyVpnService : VpnService() {
                 stopVpn()
                 return START_NOT_STICKY
             }
+            ACTION_QUICK_CONNECT -> {
+                // No-op kalau tunnel sudah jalan -- tombol "Connect" di
+                // notifikasi cuma relevan kalau memang belum tersambung.
+                if (vpnInterface == null) {
+                    val config = activeProfileServerConfigOrNull()
+                    if (config != null) {
+                        startVpn(config, ProfileStore.getActiveId(this))
+                    } else {
+                        StatusBus.log("Tidak ada akun tersimpan untuk Connect dari notifikasi.")
+                    }
+                }
+                return START_STICKY
+            }
+            ACTION_RECONNECT -> {
+                // Kalau tidak ada tunnel yang jalan sama sekali (harusnya
+                // jarang -- notifikasi cuma tampil selagi tunnel aktif),
+                // "Reconnect" cukup berlaku seperti "Connect" biasa.
+                if (vpnInterface == null && !stopping.get()) {
+                    val config = activeProfileServerConfigOrNull()
+                    if (config != null) {
+                        startVpn(config, ProfileStore.getActiveId(this))
+                    } else {
+                        StatusBus.log("Tidak ada akun tersimpan untuk Reconnect dari notifikasi.")
+                    }
+                    return START_STICKY
+                }
+                // PENTING: sengaja TIDAK memanggil startVpn() langsung dari
+                // instance Service ini juga (walau lewat coroutine yang
+                // "menunggu" shutdown lama beres) -- stopVpn() di bawah
+                // berakhir dengan stopSelf(), dan memanggil startVpn() lagi
+                // di instance yang sedang/baru saja dihancurkan Android itu
+                // rawan (bisa IllegalStateException di beberapa versi Android
+                // kalau startForeground() dipanggil setelah stopSelf()
+                // diproses sistem). Jauh lebih aman: stop tunnel yang lama,
+                // lalu kirim Intent BARU ke Service ini lewat
+                // startForegroundService() -- Android yang urus siklus
+                // hidupnya sendiri (pakai instance lama kalau masih hidup,
+                // atau bikin instance baru kalau sudah benar-benar mati),
+                // sama seperti tombol Connect biasa dari Dashboard, cuma
+                // dipicu ulang otomatis setelah delay singkat di sini.
+                stopVpn()
+                android.os.Handler(mainLooper).postDelayed({
+                    val quickConnectIntent = Intent(this, MyVpnService::class.java)
+                        .setAction(ACTION_QUICK_CONNECT)
+                    try {
+                        startForegroundService(quickConnectIntent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Gagal reconnect otomatis dari notifikasi", e)
+                    }
+                }, RECONNECT_NOTIFICATION_DELAY_MS)
+                return START_NOT_STICKY
+            }
             ACTION_CONNECT -> {
                 val modeStr = intent.getStringExtra(EXTRA_MODE)
                 val mode = try {
@@ -576,6 +654,43 @@ class MyVpnService : VpnService() {
      * yang diminta user) ikut masuk kategori lambat supaya tidak ada nilai
      * yang tidak kebagian warna.
      */
+    /**
+     * Bangun [ServerConfig] dari akun AKTIF yang tersimpan di [ProfileStore]
+     * (dipilih user lewat Dashboard) -- dipakai tombol "Connect"/"Reconnect"
+     * di NOTIFIKASI, yang (beda dari ACTION_CONNECT biasa) tidak punya Intent
+     * extras berisi ServerConfig lengkap karena tidak lewat
+     * DashboardMainFragment. Pakai [toServerConfigOrNull] yang sama dengan
+     * fitur fallback akun cadangan, supaya logikanya (mode SSH/Xray, validasi
+     * host/username/proxy) SATU sumber kebenaran, tidak diduplikasi. Null
+     * kalau tidak ada akun tersimpan sama sekali atau akun aktifnya tidak
+     * valid.
+     */
+    private fun activeProfileServerConfigOrNull(): ServerConfig? =
+        ProfileStore.getActive(this)?.config?.toServerConfigOrNull()
+
+    /**
+     * Host yang enak dibaca buat ditampilkan di notifikasi/log -- BEDA dari
+     * [ServerConfig.host] mentah, yang SENGAJA kosong ("") untuk mode Xray
+     * (lihat [toServerConfigOrNull]: host asli Xray ada di dalam [xrayLink]
+     * yang sudah di-parse, bukan di field host). Tanpa fungsi ini, notifikasi
+     * mode Xray menampilkan "Tunnel aktif ()" -- kosong tidak jelas.
+     * Fallback ke "server" generik kalau xrayLink pun gagal di-parse (mis.
+     * rusak), supaya tidak pernah muncul tanda kurung kosong ke user.
+     */
+    private fun displayHost(config: ServerConfig): String {
+        if (config.host.isNotBlank()) return config.host
+        val link = config.xrayLink
+        if (!link.isNullOrBlank()) {
+            try {
+                val address = XrayLinkParser.parse(link).address
+                if (address.isNotBlank()) return address
+            } catch (e: Exception) {
+                // Link rusak/tidak bisa di-parse -- jatuh ke fallback di bawah.
+            }
+        }
+        return "server"
+    }
+
     private fun pingMsColorHex(ms: Long): String {
         val colorRes = if (ms in 1..80) R.color.ping_ms_fast else R.color.ping_ms_slow
         return String.format(
@@ -1011,7 +1126,7 @@ class MyVpnService : VpnService() {
                 startPingLoop(config)
 
                 StatusBus.state.value = "Tunnel aktif — semua trafik device lewat SSH"
-                updateNotification("Tunnel aktif (${config.host})")
+                updateNotification("Tunnel aktif (${displayHost(config)})")
             } catch (e: Exception) {
                 // Kalau exception ini muncul GARA-GARA kita sendiri sedang
                 // membatalkan (mis. verifyTunnelReallyWorks gagal karena
@@ -1450,13 +1565,44 @@ class MyVpnService : VpnService() {
                 if (stoppingIntentionally) break
                 if (!settings.autoPingEnabled) continue // tetap nunggu, siap nyala begitu di-toggle ON
 
-                // UPDATE (permintaan user): dulu ada DUA baris per siklus --
-                // "Auto Ping: <server> balas dalam Xms" (ping diagnostik
-                // terpisah ke host server asli) lalu "Keep-alive (TCP/HTTP):
-                // ..." -- sekarang disederhanakan jadi SATU baris saja per
-                // siklus, "HTTP Ping <status> (Xms)", selalu lewat HTTP GET
-                // BENERAN ke target keep-alive (bukan cuma buka-tutup socket
-                // TCP), berapa pun pilihan "Metode Keep-alive" di Pengaturan.
+                // UPDATE (permintaan user, lagi): baris "HTTP Ping" tunggal
+                // dulu bikin angka ms kelihatan besar terus dibanding app lain
+                // (mis. HTTP Custom) -- soalnya "HTTP Ping" itu ngukur
+                // JALUR PENUH: SOCKS5 lokal -> tunnel SSH/Xray -> KELUAR ke
+                // targetHost (mis. www.google.com) -> tunggu targetHost
+                // BENERAN balas HTTP -> balik lagi. Itu SELALU jauh lebih
+                // lambat daripada ping murni ke server tunnel sendiri, karena
+                // ikut nanggung latency server->internet DAN waktu proses
+                // targetHost. App lain yang nunjukin angka kecil biasanya
+                // cuma TCP connect langsung ke port SSH/Xray server (persis
+                // [pingHost] di bawah), TIDAK lewat tunnel & TIDAK keluar ke
+                // internet lagi.
+                //
+                // Sekarang dipisah lagi jadi DUA baris per siklus:
+                //  1. "Ping <host> (Xms)" -- [pingHost] langsung ke
+                //     [ServerConfig.host]:[ServerConfig.port] ASLI, bypass
+                //     tunnel (protect()-ed persis kayak socket kontrol
+                //     SSH/Xray) -- INI yang sebanding dengan angka HTTP
+                //     Custom/app sejenis.
+                //  2. "HTTP Ping <status> (Xms)" -- TETAP jalan seperti
+                //     sebelumnya, fungsinya keep-alive anti-idle BENERAN
+                //     lewat tunnel (bukan cuma diagnostik), jadi TIDAK
+                //     dihapus supaya koneksi tidak diputus paksa firewall/NAT
+                //     operator seluler.
+                if (stoppingIntentionally) break
+                // Warna durasi "(...ms)" tergantung cepat/lambatnya (permintaan
+                // user): 1-80ms BIRU, 85ms ke atas MERAH -- lihat
+                // pingMsColorHex(). Ambil dari resource ping_ms_fast/slow
+                // supaya satu sumber kebenaran sama seperti warna lain di app.
+                fun redMs(ms: Long) = "<font color='${pingMsColorHex(ms)}'>${ms}ms</font>"
+
+                val rawPingMs = pingHost(config.host, config.port)
+                if (rawPingMs != null) {
+                    StatusBus.log("Ping ${config.host} (${redMs(rawPingMs)})")
+                } else {
+                    StatusBus.log("Ping ${config.host} timeout")
+                }
+
                 if (stoppingIntentionally) break
                 // FIX (laporan user): target keep-alive DULU ikut port yang
                 // diketik user (default 443) dan langsung dipakai apa adanya
@@ -1468,11 +1614,6 @@ class MyVpnService : VpnService() {
                 // (HTTP polos) supaya cocok dengan cara [httpKeepAliveThroughTunnel]
                 // mengirim request-nya.
                 val (targetHost, _) = parseKeepAliveTarget(settings.keepAliveTarget)
-                // Warna durasi "(...ms)" tergantung cepat/lambatnya (permintaan
-                // user): 1-80ms BIRU, 85ms ke atas MERAH -- lihat
-                // pingMsColorHex(). Ambil dari resource ping_ms_fast/slow
-                // supaya satu sumber kebenaran sama seperti warna lain di app.
-                fun redMs(ms: Long) = "<font color='${pingMsColorHex(ms)}'>${ms}ms</font>"
                 val result = httpKeepAliveThroughTunnel(config.socksPort, targetHost, HTTP_KEEP_ALIVE_PORT)
                 if (result != null) {
                     StatusBus.log("HTTP Ping ${result.statusText} (${redMs(result.elapsedMs)})")
@@ -2000,12 +2141,42 @@ class MyVpnService : VpnService() {
             PendingIntent.FLAG_IMMUTABLE
         )
 
+        // FITUR BARU (permintaan user): tombol aksi "Connect"/"Reconnect"
+        // LANGSUNG di notifikasi, tanpa perlu buka app dulu. Keduanya
+        // PendingIntent.getService() ke Service ini sendiri (bukan Activity)
+        // -- lihat ACTION_QUICK_CONNECT/ACTION_RECONNECT di onStartCommand()
+        // buat logikanya. requestCode beda (1/2) supaya dua PendingIntent ini
+        // tidak saling timpa (kalau requestCode sama & extras beda, Android
+        // bisa menganggapnya PendingIntent yang "sama").
+        val connectIntent = PendingIntent.getService(
+            this, 1,
+            Intent(this, MyVpnService::class.java).setAction(ACTION_QUICK_CONNECT),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val reconnectIntent = PendingIntent.getService(
+            this, 2,
+            Intent(this, MyVpnService::class.java).setAction(ACTION_RECONNECT),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val connectAction = Notification.Action.Builder(
+            Icon.createWithResource(this, R.drawable.ic_power),
+            "Connect",
+            connectIntent
+        ).build()
+        val reconnectAction = Notification.Action.Builder(
+            Icon.createWithResource(this, R.drawable.ic_refresh),
+            "Reconnect",
+            reconnectIntent
+        ).build()
+
         return Notification.Builder(this, channelId)
             .setContentTitle("SuryaVPN")
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_vpn_status)
             .setContentIntent(contentIntent)
             .setOngoing(true)
+            .addAction(connectAction)
+            .addAction(reconnectAction)
             .build()
     }
 

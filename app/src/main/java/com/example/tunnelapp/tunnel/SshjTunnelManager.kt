@@ -58,9 +58,12 @@ import java.security.Security
  * abstraksi [SshConnectionHandle]/[DirectTcpipForwarder] (lihat SshEngineTypes.kt).
  *
  * FITUR YANG BELUM DIPORTASI dari trilead-ssh2 (non-esensial, tunnel tetap
- * jalan penuh tanpa ini): reorder cipher cepat (preferFastCiphers), ekstraksi
- * "Server Message"/banner lewat reflection, dan pesan error per-ConnectionMode
- * yang detail (di sini digeneralisasi).
+ * jalan penuh tanpa ini): reorder cipher cepat (preferFastCiphers), dan pesan
+ * error per-ConnectionMode yang detail (di sini digeneralisasi).
+ *
+ * "Server Message"/banner SUDAH diportasi (lihat connect(), setelah
+ * authPassword() sukses) -- BEDA dengan trilead yang butuh reflection, sshj
+ * mengekspornya lewat API publik resmi client.userAuth.banner.
  */
 class SshjTunnelManager : SshEngineHandle {
 
@@ -223,6 +226,18 @@ class SshjTunnelManager : SshEngineHandle {
             try { client.disconnect() } catch (_: Exception) {}
             relay.stop()
             throw e
+        }
+        StatusBus.log("Auth complete")
+        // "Server Message"/banner (SSH_MSG_USERAUTH_BANNER, RFC 4252 SS5.4) --
+        // beda dengan trilead-ssh2 (lihat SshTunnelManager.extractServerBanner()),
+        // sshj MENGEKSPOR ini lewat API publik resmi: SSHClient.getUserAuth().getBanner()
+        // (lihat net.schmizz.sshj.SSHClient.getUserAuth() & UserAuth.getBanner()),
+        // jadi TIDAK perlu reflection ke field internal seperti versi trilead.
+        // CATATAN: sshj mengembalikan "" (bukan null) kalau server tidak kirim
+        // banner sama sekali -- makanya dicek isNotBlank(), sama persis
+        // perilaku extractServerBanner() versi trilead.
+        client.userAuth.banner?.takeIf { it.isNotBlank() }?.let { banner ->
+            StatusBus.log("Server Message:\n$banner")
         }
         StatusBus.success(StepId.SSH_AUTH)
 

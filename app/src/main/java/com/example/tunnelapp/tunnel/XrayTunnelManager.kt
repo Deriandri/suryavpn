@@ -1,6 +1,8 @@
 package com.example.tunnelapp.tunnel
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.util.Log
 import com.example.tunnelapp.model.ServerConfig
 import libXray.DialerController
@@ -115,7 +117,7 @@ class XrayTunnelManager(private val context: Context) {
             // Trojan; socket itu HARUS di-protect() (VpnService.protect()) supaya
             // tidak ikut terjebak balik ke TUN interface milik app sendiri (infinite
             // loop, tunnel "connect" tapi internet macet total).
-            registerProtect(protectFd)
+            registerProtect(protectFd, config)
 
             val request = JSONObject().apply {
                 put("apiVersion", LIBXRAY_API_VERSION)
@@ -166,12 +168,105 @@ class XrayTunnelManager(private val context: Context) {
      * interface milik app sendiri -> tunnel "connect" (runXray sukses) tapi
      * internet macet total. Makanya WAJIB panggil KEDUANYA di sini.
      */
-    private fun registerProtect(protectFd: (Int) -> Boolean) {
+    private fun registerProtect(protectFd: (Int) -> Boolean, config: ServerConfig) {
         val controller = object : DialerController {
             override fun protectFd(fd: Long): Boolean = protectFd(fd.toInt())
         }
         LibXray.registerDialerController(controller)
-        LibXray.setDNS(controller, "1.1.1.1:53")
+        LibXray.setDNS(controller, resolveDnsAddr(config))
+    }
+
+    /**
+     * FIX "akun berbasis domain bug-SNI (mis. ava.game.naver.com) gagal cuma di
+     * engine Xray, padahal jalan normal di app lain / mode SSH app ini sendiri" --
+     * root cause-nya BUKAN ALPN (sudah dicoba, tidak menyelesaikan), tapi DNS.
+     *
+     * Sebelumnya baris ini SELALU hardcode "1.1.1.1:53" -- ini justru BERTENTANGAN
+     * dengan filosofi jalur SSH di app ini sendiri (lihat MyVpnService.applyDnsServers():
+     * kalau config.dns1/dns2 kosong, SENGAJA TIDAK dipasang DNS default ke TUN sama
+     * sekali, supaya DNS asli device/operator yang dipakai -- karena trik bug-SNI itu
+     * BERGANTUNG pada resolusi domain lewat DNS OPERATOR/CARRIER, yang mengarahkan
+     * domain seperti ava.game.naver.com ke gateway zero-rating operator, BUKAN ke IP
+     * publik asli domain itu). Hardcode ke 1.1.1.1 (DNS publik Cloudflare) membuat
+     * domain itu ke-resolve ke IP ASLI Naver -- TCP+TLS tetap bisa konek (server asli
+     * Naver punya sertifikat valid untuk domainnya sendiri, makanya step XRAY_START
+     * tetap kelihatan sukses), tapi server itu jelas bukan proxy VLESS operator, jadi
+     * tidak pernah membalas apa pun yang dikenali WS/VLESS -- persis gejala "tunnel
+     * nyala tapi tidak ada trafik nyata balik".
+     *
+     * Xray-core WAJIB tetap dikasih SATU resolver eksplisit lewat setDNS() (bukan
+     * dibiarkan kosong) -- itu satu-satunya jalur DNS internalnya yang benar-benar
+     * di-protect() lewat controller di atas; tanpa ini pun DNS-nya BISA looping balik
+     * ke TUN sendiri (beda kasus dari yang dijelaskan applyDnsServers, yang cuma soal
+     * DNS di level TUN builder Android, bukan level resolver internal Go/libXray).
+     * Makanya di sini urutannya:
+     *   1. config.dns1/dns2 (kalau user/provider isi manual, sama seperti jalur SSH)
+     *   2. DNS asli dari jaringan fisik device (WWAN/WiFi, BUKAN network VPN milik
+     *      app sendiri) -- inilah yang bikin trik bug-SNI berbasis DNS operator tetap
+     *      jalan, karena precise resolver yang dipakai persis DNS bawaan SIM/operator.
+     *   3. 1.1.1.1 cuma sebagai fallback TERAKHIR kalau device gagal dideteksi (mis.
+     *      WiFi tanpa DNS custom & API di bawah minSdk) -- perilaku lama, tidak hilang
+     *      total, cuma diturunkan prioritasnya.
+     */
+    private fun resolveDnsAddr(config: ServerConfig): String {
+        val manual = config.dns1?.trim()?.takeIf { it.isNotEmpty() }
+            ?: config.dns2?.trim()?.takeIf { it.isNotEmpty() }
+        if (manual != null) {
+            Log.i(TAG, "DNS internal Xray pakai DNS1/DNS2 dari konfigurasi akun: $manual")
+            return formatDnsAddr(manual)
+        }
+        val physicalDns = physicalNetworkDns()
+        if (physicalDns != null) {
+            Log.i(TAG, "DNS internal Xray pakai DNS jaringan fisik device (WWAN/WiFi): $physicalDns")
+            return formatDnsAddr(physicalDns)
+        }
+        Log.w(TAG, "Gagal deteksi DNS jaringan fisik device, fallback ke 1.1.1.1 -- akun berbasis " +
+            "bug-SNI/domain-fronting kemungkinan TIDAK akan jalan dengan DNS ini")
+        return "1.1.1.1:53"
+    }
+
+    /**
+     * FIX "invalid DNS server ...: too many colons in address" -- alamat IPv6
+     * (BANYAK operator seluler Indonesia kasih DNS IPv6 lewat WWAN, mis.
+     * "2400:9800:2:2::245") WAJIB dibungkus kurung siku sebelum ditempeli
+     * ":<port>", persis notasi host:port standar (RFC 3986) yang dipakai Go
+     * net.Dial -- "ip:port" polos cuma valid untuk IPv4. Tanpa ini, setiap titik
+     * dua di alamat IPv6 dihitung sebagai pemisah host:port oleh Go, makanya
+     * errornya "too many colons".
+     */
+    private fun formatDnsAddr(ip: String): String =
+        if (ip.contains(':')) "[$ip]:53" else "$ip:53"
+
+    /**
+     * Cari IP DNS dari network FISIK aktif (WWAN seluler/WiFi), BUKAN network VPN
+     * milik app sendiri (kalau tanpa filter ini, di sistem tertentu getActiveNetwork()
+     * bisa saja mengembalikan network VPN sendiri setelah tunnel aktif -- LinkProperties
+     * network VPN tidak relevan sama sekali di sini).
+     */
+    private fun physicalNetworkDns(): String? = try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val allDns = cm.allNetworks
+            .asSequence()
+            .mapNotNull { net ->
+                val caps = cm.getNetworkCapabilities(net) ?: return@mapNotNull null
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return@mapNotNull null
+                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) return@mapNotNull null
+                cm.getLinkProperties(net)?.dnsServers
+            }
+            .flatten()
+            .mapNotNull { it.hostAddress }
+            .toList()
+        // Prioritaskan IPv4 kalau device punya keduanya -- bukan karena IPv6 tidak
+        // valid (sudah didukung penuh lewat formatDnsAddr() di atas), murni supaya
+        // lebih konsisten dengan kebiasaan mayoritas server VLESS/trojan (address
+        // outbound-nya sendiri kebanyakan IPv4/domain, jadi resolver IPv4 lebih
+        // "aman" default-nya) -- IPv6 tetap dipakai apa adanya kalau memang cuma
+        // itu yang tersedia di jaringan device (persis kasus operator yang cuma
+        // kasih DNS IPv6 lewat WWAN).
+        allDns.firstOrNull { !it.contains(':') } ?: allDns.firstOrNull()
+    } catch (e: Exception) {
+        Log.w(TAG, "Gagal query DNS jaringan fisik device", e)
+        null
     }
 
     fun disconnect() {

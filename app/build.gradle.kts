@@ -70,6 +70,12 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.4")
 
+    // --- FITUR BARU (permintaan user, "enkripsi file konfig"): kunci master
+    // AES256-GCM disimpan di Android Keystore (bukan file biasa) lewat
+    // MasterKey, dipakai EncryptedSharedPreferences untuk mengenkripsi file
+    // penyimpanan akun (lihat model/SecurePrefsFactory.kt & ProfileStore.kt).
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // --- Dashboard geser-kesamping (swipe) Main <-> Log ---
     implementation("androidx.viewpager2:viewpager2:1.1.0")
     implementation("androidx.fragment:fragment-ktx:1.8.2")

@@ -1,35 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- REDESIGN (permintaan user: "profesional, modern, smooth"). Sebelumnya
-     root-nya LinearLayout polos (satu baris di antara baris lain, dipisah
-     "dividerRow" tipis) yang ditumpuk di DALAM satu MaterialCardView besar
-     "Akun Tersimpan" di activity_config.xml. Sekarang root-nya SENDIRI
-     sebuah MaterialCardView (style Card.Account — sudut lebih bulat +
-     elevasi tipis), jadi tiap akun kartu sendiri-sendiri dengan jarak
-     (marginBottom) di antaranya — makanya dividerRow yang dulu DIHAPUS
-     (tidak perlu lagi, "pemisah" sekarang jarak antar kartu itu sendiri;
-     lihat juga ConfigActivity.refreshAccountsList() yang dulu
-     menyembunyikan dividerRow di baris terakhir, sekarang dihapus juga). -->
-<com.google.android.material.card.MaterialCardView
+<!-- REDESIGN (permintaan user: "gabungkan card akun tersimpan, rapikan
+     susunannya"). Sebelumnya root-nya MaterialCardView sendiri (style
+     Card.Account) dengan marginBottom, jadi tiap akun kartu terpisah-pisah
+     bertumpuk di dalam activity_config.xml. Sekarang root-nya LinearLayout
+     polos, jadi BARIS BIASA di dalam satu kartu besar "Akun Tersimpan"
+     (lihat activity_config.xml) — dipisah oleh "dividerRow" tipis di atas
+     tiap baris (disembunyikan untuk baris PERTAMA lewat
+     ConfigActivity.refreshAccountsList(), persis pola divider antara baris
+     "Konfigurasi SSH"/"Konfigurasi Xray" di kartu atasnya). -->
+<LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
-    style="@style/Card.Account"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="12dp">
+    android:orientation="vertical">
+
+    <View
+        android:id="@+id/dividerRow"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/divider"
+        android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp">
 
         <!-- REDESIGN (permintaan user: "susunan tulisan konfigurasi agar
-             enak dipandang"). Sebelumnya btnRowShare/Edit/Delete satu baris
-             dengan avatar+badge+title, jadi title/host cuma kebagian sisa
-             ruang sempit dan sering keputus jadi "host...4..." yang nyaris
-             tidak terbaca. Sekarang baris atas HANYA avatar + badge/title/
-             subtitle (lebar penuh kartu), ikon aksi dipindah gabung ke
-             baris bawah bareng status "Aktif"/"Jadikan Aktif" (status di
-             kiri, aksi di kanan), title/host jadi jauh lebih jarang
-             terpotong. -->
+             enak dipandang"). Baris atas HANYA avatar + badge/title/
+             subtitle (lebar penuh), ikon aksi digabung ke baris bawah
+             bareng status "Aktif"/"Jadikan Aktif" (status di kiri, aksi di
+             kanan), supaya title/host jarang terpotong. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -159,6 +162,23 @@
                  teks singkat (lihat ConfigActivity.onShareRowClicked &
                  model/ConfigIO.buildShareCode). Ditaruh SEBELUM Edit/Hapus
                  (urutan tindakan makin "berat" dari kiri ke kanan). -->
+            <!-- FITUR BARU (permintaan user, "kunci akun"): gembok untuk
+                 kunci/buka kunci akun ini. Kalau terkunci, tombol Edit &
+                 Hapus di sebelah kanan otomatis dipudarkan & diblokir
+                 (lihat ConfigActivity.bindAccountRow/onLockRowClicked).
+                 Ditaruh PALING KIRI dari grup ikon aksi (proteksi dulu,
+                 baru aksi lain) sebelum ikon Bagikan/Edit/Hapus. -->
+            <ImageView
+                android:id="@+id/btnRowLock"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:padding="7dp"
+                android:src="@drawable/ic_lock_open"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:focusable="true"
+                android:contentDescription="Kunci akun" />
+
             <ImageView
                 android:id="@+id/btnRowShare"
                 android:layout_width="34dp"
@@ -194,4 +214,4 @@
                 android:contentDescription="Hapus" />
         </LinearLayout>
     </LinearLayout>
-</com.google.android.material.card.MaterialCardView>
+</LinearLayout>

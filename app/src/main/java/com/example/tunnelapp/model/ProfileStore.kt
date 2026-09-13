@@ -42,9 +42,22 @@ data class SavedProfile(
  * dikonfigurasi user sebelum update TIDAK hilang/perlu dimasukkan ulang.
  */
 object ProfileStore {
-    private const val PREFS_NAME = "tunnelapp_profiles"
+    // FITUR BARU (permintaan user, "enkripsi file konfig"): file penyimpanan
+    // akun sekarang TERENKRIPSI (lihat SecurePrefsFactory.kt) dengan nama
+    // baru "tunnelapp_profiles_secure" -- sengaja beda dari nama file lama
+    // "tunnelapp_profiles" (PREFS_NAME_LEGACY_PLAIN) karena EncryptedSharedPreferences
+    // tidak bisa langsung dipakai untuk membuka file yang isinya masih teks
+    // biasa (akan gagal/rusak kalau dipaksa baca sebagai data terenkripsi).
+    // Data lama di file plaintext dipindah otomatis sekali lewat
+    // [migratePlainToSecureIfNeeded], lalu file plaintext-nya DIKOSONGKAN
+    // (supaya password tidak nganggur dobel di disk dalam bentuk tidak
+    // terenkripsi).
+    private const val PREFS_NAME = "tunnelapp_profiles_secure"
+    private const val PREFS_NAME_LEGACY_PLAIN = "tunnelapp_profiles"
     private const val KEY_IDS = "ids"
     private const val KEY_ACTIVE_ID = "active_id"
+
+    @Volatile private var cachedSecurePrefs: android.content.SharedPreferences? = null
 
     // --- API publik ---------------------------------------------------
 
@@ -113,6 +126,16 @@ object ProfileStore {
     }
 
     /**
+     * FITUR BARU (permintaan user, "kunci akun"): kunci/buka kunci SATU akun
+     * lewat id-nya. Dipanggil dari ikon gembok per-baris di
+     * ConfigActivity -- lihat catatan [SavedConfig.isLocked].
+     */
+    fun setLocked(context: Context, id: String, locked: Boolean) {
+        val current = get(context, id) ?: return
+        upsert(context, id, current.config.copy(isLocked = locked))
+    }
+
+    /**
      * Akun yang lagi aktif dipakai (dipanggil dari Dashboard saat Connect
      * ditekan & saat menampilkan ringkasan profil). Kalau pointer aktifnya
      * ternyata mengarah ke id yang sudah dihapus/rusak, otomatis jatuh balik
@@ -156,8 +179,52 @@ object ProfileStore {
 
     // --- Helper serialisasi per-profil ----------------------------------
 
-    private fun prefs(context: Context) =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    // FITUR BARU (permintaan user, "enkripsi file konfig"): dulu langsung
+    // `context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)` (teks biasa).
+    // Sekarang lewat [SecurePrefsFactory] (terenkripsi AES-256-GCM, kunci di
+    // Android Keystore -- lihat SecurePrefsFactory.kt), di-cache supaya
+    // MasterKey tidak dibuat ulang tiap panggilan, dan otomatis memindah
+    // data lama dari file plaintext sekali lewat [migratePlainToSecureIfNeeded].
+    private fun prefs(context: Context): android.content.SharedPreferences {
+        cachedSecurePrefs?.let { return it }
+        synchronized(this) {
+            cachedSecurePrefs?.let { return it }
+            val secure = SecurePrefsFactory.create(context, PREFS_NAME)
+            migratePlainToSecureIfNeeded(context, secure)
+            cachedSecurePrefs = secure
+            return secure
+        }
+    }
+
+    /**
+     * Sekali pindah: kalau file terenkripsi masih kosong ("ids" belum ada)
+     * TAPI file plaintext lama ("tunnelapp_profiles") punya data, salin
+     * semua isinya ke file terenkripsi lalu KOSONGKAN file plaintext-nya --
+     * supaya password akun tidak nganggur dobel di disk dalam bentuk tidak
+     * terenkripsi setelah update ini. Kalau tidak ada data lama sama sekali
+     * (instal baru), tidak ada yang perlu dipindah.
+     */
+    private fun migratePlainToSecureIfNeeded(context: Context, secure: android.content.SharedPreferences) {
+        if (secure.contains(KEY_IDS)) return // sudah pernah diinisialisasi di penyimpanan aman
+
+        val plain = context.getSharedPreferences(PREFS_NAME_LEGACY_PLAIN, Context.MODE_PRIVATE)
+        if (plain.all.isEmpty()) return // tidak ada data lama untuk dipindah
+
+        val editor = secure.edit()
+        for ((key, value) in plain.all) {
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
+                is Float -> editor.putFloat(key, value)
+                is Set<*> -> @Suppress("UNCHECKED_CAST") editor.putStringSet(key, value as Set<String>)
+            }
+        }
+        editor.apply()
+
+        plain.edit().clear().apply()
+    }
 
     private fun idList(prefs: android.content.SharedPreferences): List<String> =
         prefs.getString(KEY_IDS, "").orEmpty()
@@ -187,6 +254,7 @@ object ProfileStore {
         editor.putString(k(id, "dns1"), c.dns1)
         editor.putString(k(id, "dns2"), c.dns2)
         editor.putString(k(id, "accountName"), c.accountName)
+        editor.putBoolean(k(id, "isLocked"), c.isLocked)
     }
 
     private fun readConfig(prefs: android.content.SharedPreferences, id: String): SavedConfig? {
@@ -210,7 +278,8 @@ object ProfileStore {
             ignoreCertErrors = prefs.getBoolean(k(id, "ignoreCertErrors"), false),
             dns1 = prefs.getString(k(id, "dns1"), "").orEmpty(),
             dns2 = prefs.getString(k(id, "dns2"), "").orEmpty(),
-            accountName = prefs.getString(k(id, "accountName"), "").orEmpty()
+            accountName = prefs.getString(k(id, "accountName"), "").orEmpty(),
+            isLocked = prefs.getBoolean(k(id, "isLocked"), false)
         )
     }
 
@@ -219,7 +288,7 @@ object ProfileStore {
             "host", "port", "username", "password", "modeIndex", "sni", "payload",
             "proxyHost", "proxyPort", "tlsVersion", "useWebSocket", "wsPath",
             "proxyRawMode", "xrayLink", "customHeaders", "ignoreCertErrors", "dns1", "dns2",
-            "accountName"
+            "accountName", "isLocked"
         )) {
             editor.remove(k(id, field))
         }

@@ -149,14 +149,16 @@ class ConfigActivity : AppCompatActivity() {
         }
         binding.llAccountEmpty.visibility = View.GONE
 
-        // REDESIGN (permintaan user, tampilan modern): tiap akun sekarang
-        // kartu MaterialCardView sendiri-sendiri (lihat item_account_row.xml,
-        // style Card.Account) -- jadi tidak perlu lagi divider manual antar
-        // baris seperti sebelumnya (dividerRow dihapus dari layout), jarak
-        // antar kartu sudah cukup jadi "pemisah" visualnya sendiri.
+        // REDESIGN (permintaan user: "gabungkan card akun tersimpan, rapikan
+        // susunannya"): semua akun sekarang baris biasa di dalam SATU kartu
+        // besar "Akun Tersimpan" (lihat activity_config.xml), dipisah garis
+        // tipis "dividerRow" antar baris -- disembunyikan khusus untuk baris
+        // PERTAMA (index == 0) supaya tidak dobel dengan garis header di
+        // atasnya, sama seperti pola divider SSH/Xray di kartu atasnya.
         val inflater = LayoutInflater.from(this)
-        profiles.forEach { profile ->
+        profiles.forEachIndexed { index, profile ->
             val row = ItemAccountRowBinding.inflate(inflater, binding.llAccountsContainer, false)
+            row.dividerRow.visibility = if (index == 0) View.GONE else View.VISIBLE
             bindAccountRow(row, profile, isActive = profile.id == activeId)
             binding.llAccountsContainer.addView(row.root)
         }
@@ -172,6 +174,12 @@ class ConfigActivity : AppCompatActivity() {
         // fitur ini ada -- host:port/detail sebagai judul utama, tanpa subtitle.
         val hasCustomName = config.accountName.isNotBlank()
 
+        // FITUR BARU (permintaan user, "kunci akun"): openEditScreen disimpan
+        // sebagai lambda dulu (bukan langsung dipasang ke btnRowEdit di tiap
+        // cabang isXray seperti sebelumnya), supaya bisa DIBUNGKUS satu kali
+        // dengan pengecekan isLocked di bawah -- lihat komentar
+        // [SavedConfig.isLocked].
+        val openEditScreen: () -> Unit
         if (isXray) {
             val parsed = runCatching { XrayLinkParser.parse(config.xrayLink) }.getOrNull()
             val detail = if (parsed != null) "${parsed.address}:${parsed.port}" else "Link belum valid"
@@ -179,7 +187,7 @@ class ConfigActivity : AppCompatActivity() {
             row.ivRowIcon.setImageResource(R.drawable.ic_account_xray)
             row.tvRowTypeBadge.text = "XRAY"
             row.tvRowTitle.text = if (hasCustomName) config.accountName else detail
-            row.btnRowEdit.setOnClickListener {
+            openEditScreen = {
                 startActivity(
                     Intent(this, XrayConfigActivity::class.java)
                         .putExtra(XrayConfigActivity.EXTRA_PROFILE_ID, profile.id)
@@ -203,7 +211,7 @@ class ConfigActivity : AppCompatActivity() {
             row.ivRowIcon.setImageResource(R.drawable.ic_account_ssh)
             row.tvRowTypeBadge.text = modeName
             row.tvRowTitle.text = if (hasCustomName) config.accountName else detail
-            row.btnRowEdit.setOnClickListener {
+            openEditScreen = {
                 startActivity(
                     Intent(this, SshConfigActivity::class.java)
                         .putExtra(SshConfigActivity.EXTRA_PROFILE_ID, profile.id)
@@ -231,9 +239,39 @@ class ConfigActivity : AppCompatActivity() {
 
         // FITUR BARU (permintaan user): bagikan akun ini sendirian sebagai
         // kode teks singkat -- lihat onShareRowClicked & model/ConfigIO.kt.
+        // (Bagikan TETAP bisa dipakai walau akun terkunci -- kunci cuma
+        // menahan Edit/Hapus, bukan Bagikan, karena bagikan tidak mengubah
+        // atau menghapus apa pun.)
         row.btnRowShare.setOnClickListener { onShareRowClicked(profile) }
 
+        // FITUR BARU (permintaan user, "kunci akun"): gembok terbuka/tertutup
+        // sesuai config.isLocked, ditap untuk toggle (lewat dialog
+        // konfirmasi di onLockRowClicked). Edit & Hapus dipudarkan (alpha)
+        // dan diblokir kalau akun ini sedang terkunci -- tetap CLICKABLE
+        // (bukan disabled total) supaya user yang menekannya masih dapat
+        // Toast penjelasan, bukan cuma diam tidak bereaksi.
+        row.btnRowLock.setImageResource(
+            if (config.isLocked) R.drawable.ic_lock_closed else R.drawable.ic_lock_open
+        )
+        row.btnRowLock.setOnClickListener { onLockRowClicked(row, profile) }
+
+        val lockedAlpha = if (config.isLocked) 0.35f else 1f
+        row.btnRowEdit.alpha = lockedAlpha
+        row.btnRowDelete.alpha = lockedAlpha
+
+        row.btnRowEdit.setOnClickListener {
+            if (config.isLocked) {
+                Toast.makeText(this, "Akun ini terkunci. Buka kunci dulu untuk mengedit.", Toast.LENGTH_SHORT).show()
+            } else {
+                openEditScreen()
+            }
+        }
+
         row.btnRowDelete.setOnClickListener {
+            if (config.isLocked) {
+                Toast.makeText(this, "Akun ini terkunci. Buka kunci dulu untuk menghapus.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
             // Pakai nama akun kalau ada (row.tvRowTitle sudah menampilkan itu
             // di atas), fallback ke host:port -- konsisten dengan tvRowTitle.
             val label = row.tvRowTitle.text
@@ -247,6 +285,33 @@ class ConfigActivity : AppCompatActivity() {
                 }
                 .show()
         }
+    }
+
+    /**
+     * FITUR BARU (permintaan user, "kunci akun"): tampilkan dialog konfirmasi
+     * sebelum benar-benar mengunci/membuka kunci akun -- supaya ketapak jari
+     * tidak sengaja tidak langsung mengubah status penting ini tanpa sadar.
+     * Lihat [SavedConfig.isLocked] & [ProfileStore.setLocked].
+     */
+    private fun onLockRowClicked(row: ItemAccountRowBinding, profile: SavedProfile) {
+        val label = row.tvRowTitle.text
+        val currentlyLocked = profile.config.isLocked
+        val title = if (currentlyLocked) "Buka kunci akun?" else "Kunci akun?"
+        val message = if (currentlyLocked)
+            "Akun \"$label\" akan bisa diedit atau dihapus lagi seperti biasa."
+        else
+            "Akun \"$label\" tidak akan bisa diedit atau dihapus sampai kuncinya dibuka lagi."
+        val positiveText = if (currentlyLocked) "Buka Kunci" else "Kunci"
+
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage(message)
+            .setNegativeButton("Batal", null)
+            .setPositiveButton(positiveText) { _, _ ->
+                ProfileStore.setLocked(this, profile.id, !currentlyLocked)
+                refreshAccountsList()
+            }
+            .show()
     }
 
     // --- Bagikan satu akun (permintaan user) ----------------------------
