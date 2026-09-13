@@ -182,7 +182,9 @@ fun buildShareCode(config: SavedConfig, exportLockMode: ConfigLockMode = config.
 
 /**
  * Pintu masuk impor TUNGGAL: terima teks mentah apa pun yang user
- * tempel/pilih dari file -- kode bagikan satu akun ("SVPN1:..."), JSON
+ * tempel/pilih dari file -- kode bagikan satu akun ("SVPN1:..."), teks
+ * Base64 hasil "Salin ke Clipboard" (Base64 dari file .spn terenkripsi
+ * utuh, lihat [encryptWholeFileBytes]/[decryptWholeFileBytes]), JSON
  * amplop hasil "Ekspor Semua" (banyak akun), ATAU JSON satu akun polos
  * (tanpa amplop, mis. hasil edit manual) -- lalu kembalikan daftar
  * [SavedConfig] yang berhasil dibaca. Entry yang rusak/tidak dikenal di
@@ -205,8 +207,35 @@ fun importConfigsFromText(rawText: String): List<SavedConfig> {
         }
     }
 
+    // PERBAIKAN (permintaan user, "hasil salin clipboard ngk bisa
+    // diimpor lagi"): teks hasil tombol "Salin ke Clipboard" (lihat
+    // [ConfigActivity.onExportToClipboardClicked]) BUKAN JSON polos
+    // ataupun kode "SVPN1:..." -- itu Base64 dari BYTE BINER terenkripsi
+    // UTUH, format yang SAMA persis dengan isi file .spn (lihat
+    // [encryptWholeFileBytes]), cuma dibungkus Base64 supaya bisa
+    // disalin sebagai teks biasa alih-alih file. Sebelum fitur ini,
+    // [importConfigsFromText] cuma tahu cara baca "SVPN1:..." atau JSON
+    // mentah -- teks Base64 terenkripsi ini gagal di-parse JSON sama
+    // sekali & diam-diam dianggap "tidak ada konfigurasi valid".
+    //
+    // Coba jalur ini DULU: decode Base64-nya, lalu coba dekripsi lewat
+    // [decryptWholeFileBytes] (SAMA seperti pembacaan file .spn di
+    // [ConfigActivity]'s importFileLauncher). Kalau berhasil, hasilnya
+    // pasti JSON amplop "profiles" yang sama seperti hasil Ekspor Semua
+    // biasa -- tinggal diteruskan ke parsing JSON yang sudah ada di
+    // bawah. Kalau GAGAL (bukan hasil ekspor clipboard sama sekali,
+    // mis. teks JSON envelope polos yang ditempel manual), fallback diam-
+    // diam ke [text] apa adanya -- tidak mengubah perilaku lama sama
+    // sekali untuk kasus itu.
+    val decodedFromClipboard = try {
+        decryptWholeFileBytes(Base64.decode(text, Base64.DEFAULT))
+    } catch (e: Exception) {
+        null
+    }
+    val effectiveText = decodedFromClipboard ?: text
+
     return try {
-        when (val root = JSONTokener(text).nextValue()) {
+        when (val root = JSONTokener(effectiveText).nextValue()) {
             is JSONObject -> {
                 if (root.has("profiles")) {
                     val arr = root.getJSONArray("profiles")

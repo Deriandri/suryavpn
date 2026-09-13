@@ -7,6 +7,7 @@ import androidx.core.widget.doOnTextChanged
 import com.example.tunnelapp.databinding.ActivityXrayConfigBinding
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
+import com.example.tunnelapp.model.ConfigLockMode
 import com.example.tunnelapp.tunnel.XrayLinkBuilder
 import com.example.tunnelapp.tunnel.XrayLinkParser
 import com.example.tunnelapp.tunnel.XrayOutboundConfig
@@ -45,6 +46,16 @@ class XrayConfigActivity : AppCompatActivity() {
     /** null = mode tambah akun baru. Terisi = mode edit, menimpa profil ini. */
     private var editingProfileId: String? = null
 
+    /**
+     * PERBAIKAN (permintaan user, "lockMode ke-reset diam-diam saat
+     * disimpan ulang"): lockMode & isLocked config LAMA sebelum diedit --
+     * dipakai [onSaveClicked] supaya kedua field itu dipertahankan apa
+     * adanya, bukan ke-reset ke NONE/false tiap kali profil ini disimpan
+     * ulang (lihat dokumentasi yang sama di [SshConfigActivity.originalConfig]).
+     */
+    private var originalLockMode: ConfigLockMode = ConfigLockMode.NONE
+    private var originalIsLocked: Boolean = false
+
     /** Hasil urai terakhir, dipakai sebagai basis .copy() supaya field lanjutan
      *  yang tidak ada di form (headerType, seed, xhttpMode, dst) tidak hilang. */
     private var lastParsedConfig: XrayOutboundConfig? = null
@@ -65,6 +76,8 @@ class XrayConfigActivity : AppCompatActivity() {
         editingProfileId?.let { ProfileStore.get(this, it)?.config }?.let { saved ->
             binding.etAccountName.setText(saved.accountName)
             binding.etXrayLink.setText(saved.xrayLink)
+            originalLockMode = saved.lockMode
+            originalIsLocked = saved.isLocked
             // Kalau sudah ada akun tersimpan sebelumnya, langsung urai saat layar
             // dibuka juga -- tidak perlu tunggu tempel/ketik baru dulu.
             autoParseSilently()
@@ -319,7 +332,9 @@ class XrayConfigActivity : AppCompatActivity() {
                 wsPath = "",
                 proxyRawMode = false,
                 xrayLink = xrayLink,
-                accountName = accountName
+                accountName = accountName,
+                isLocked = originalIsLocked,
+                lockMode = originalLockMode
             )
         )
 

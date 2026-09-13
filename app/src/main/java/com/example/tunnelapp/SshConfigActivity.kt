@@ -3,6 +3,7 @@ package com.example.tunnelapp
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.example.tunnelapp.databinding.ActivitySshConfigBinding
+import com.example.tunnelapp.model.ConfigLockMode
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
 
@@ -35,6 +36,25 @@ class SshConfigActivity : AppCompatActivity() {
 
     /** null = mode tambah akun baru. Terisi = mode edit, menimpa profil ini. */
     private var editingProfileId: String? = null
+
+    /**
+     * FITUR BARU (permintaan user, "payload & remote proxy tetap harus
+     * terkunci, akun server tetap bisa diedit"): config ASLI dari profil
+     * yang sedang diedit (null kalau mode tambah akun baru). Dipakai untuk
+     * dua hal saat Simpan (lihat [onSaveClicked]):
+     *  1. Mempertahankan [SavedConfig.lockMode] & [SavedConfig.isLocked]
+     *     apa adanya -- SEBELUM fitur ini, kedua field itu selalu ke-reset
+     *     diam-diam jadi NONE/false tiap kali profil manapun disimpan
+     *     ulang lewat layar ini, karena [onSaveClicked] membangun
+     *     [SavedConfig] baru dari nol tanpa pernah membawa nilai lama itu.
+     *  2. Kalau lockMode-nya [ConfigLockMode.LOCK_PAYLOAD_PROXY], nilai
+     *     ASLI payload/proxyHost/proxyPort/proxyRawMode diambil dari sini
+     *     (bukan dari form) karena field-field itu dinonaktifkan &
+     *     disamarkan di layar (lihat [applyPayloadProxyLockIfNeeded]) --
+     *     supaya nilai aslinya TIDAK ikut hilang/terhapus cuma karena user
+     *     menyimpan ulang perubahan lain (mis. ganti nama akun).
+     */
+    private var originalConfig: SavedConfig? = null
 
     /**
      * FITUR BARU (permintaan user): true kalau chip "Raw Passthrough" sudah
@@ -151,6 +171,7 @@ class SshConfigActivity : AppCompatActivity() {
             binding.etPort.setText("22")
             return
         }
+        originalConfig = saved
         binding.etAccountName.setText(saved.accountName)
         binding.etHost.setText(saved.host)
         binding.etPort.setText(if (saved.port > 0) saved.port.toString() else "22")
@@ -188,6 +209,57 @@ class SshConfigActivity : AppCompatActivity() {
         // -- jangan sampai ditimpa auto-default kalau user gonta-ganti chip
         // mode selama sesi edit ini (lihat applyDefaultRawModeForEnhancedIfNeeded).
         rawModeHasExplicitValue = true
+
+        // PERBAIKAN (permintaan user, "kunci payload & remote proxy malah
+        // kebuka semua"): dipanggil PALING TERAKHIR di sini, setelah semua
+        // field di atas (termasuk etPayload/etProxyHost/etProxyPort) sudah
+        // diisi nilai aslinya -- supaya field itu bisa langsung ditimpa
+        // kosong & dinonaktifkan kalau memang perlu dikunci, lihat
+        // dokumentasi [applyPayloadProxyLockIfNeeded].
+        applyPayloadProxyLockIfNeeded(saved)
+    }
+
+    /**
+     * PERBAIKAN (permintaan user, "kunci payload & remote proxy malah
+     * kebuka semua, seharusnya akun server yang tetap bisa diedit"): kalau
+     * profil yang sedang diedit lockMode-nya
+     * [ConfigLockMode.LOCK_PAYLOAD_PROXY] (hasil impor dari orang lain yang
+     * memang mengunci dua field ini saat ekspor -- lihat dokumentasi
+     * [ConfigLockMode]), field Payload & seluruh blok Remote Proxy (host
+     * proxy, port proxy, toggle Raw Passthrough) DIKOSONGKAN tampilannya &
+     * DINONAKTIFKAN (tidak bisa diketik/diubah) -- beda dari akun
+     * server (host/username/password/SNI) yang SENGAJA dibiarkan apa
+     * adanya, tetap kelihatan & bisa diedit seperti biasa.
+     *
+     * Nilai ASLI payload/proxy tetap TERSIMPAN utuh di [originalConfig]
+     * (tidak pernah dihapus dari data-nya sendiri, cuma disembunyikan dari
+     * TAMPILAN form) -- dipakai lagi oleh [onSaveClicked] supaya nilai itu
+     * tidak ikut hilang begitu user menyimpan perubahan lain (mis. ganti
+     * nama akun) selagi field ini terkunci, dan tetap dipakai apa adanya
+     * saat aplikasi connect ke server ini.
+     */
+    private fun applyPayloadProxyLockIfNeeded(saved: SavedConfig) {
+        if (saved.lockMode != ConfigLockMode.LOCK_PAYLOAD_PROXY) return
+
+        val lockedHint = "🔒 Terkunci oleh pembuat konfigurasi"
+
+        binding.etPayload.setText("")
+        binding.etPayload.isEnabled = false
+        binding.tilPayload.isEnabled = false
+        binding.tilPayload.hint = lockedHint
+
+        binding.etProxyHost.setText("")
+        binding.etProxyHost.isEnabled = false
+        binding.tilProxyHost.isEnabled = false
+        binding.tilProxyHost.hint = lockedHint
+
+        binding.etProxyPort.setText("")
+        binding.etProxyPort.isEnabled = false
+        binding.tilProxyPort.isEnabled = false
+        binding.tilProxyPort.hint = "🔒 Terkunci"
+
+        binding.chipRawMode.isChecked = false
+        binding.chipRawMode.isEnabled = false
     }
 
     private fun setupModeChips() {
@@ -399,25 +471,56 @@ class SshConfigActivity : AppCompatActivity() {
             return
         }
 
+        val payloadProxyLocked = originalConfig?.lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY
+
         val usesPayload = modeIndex == 2 || modeIndex == 3
-        val payload = if (usesPayload) binding.etPayload.text.toString() else ""
+        // PERBAIKAN (permintaan user, "kunci payload & remote proxy malah
+        // kebuka semua"): kalau field ini sedang dikunci (lihat
+        // [applyPayloadProxyLockIfNeeded]), form-nya SENGAJA dikosongkan &
+        // dinonaktifkan di layar -- nilai yang benar-benar disimpan HARUS
+        // diambil dari [originalConfig], bukan dari form, supaya nilai
+        // ASLI-nya tidak ikut terhapus cuma karena user menyimpan
+        // perubahan lain (mis. ganti nama akun) selagi field ini terkunci.
+        val payload = when {
+            payloadProxyLocked -> originalConfig?.payload.orEmpty()
+            usesPayload -> binding.etPayload.text.toString()
+            else -> ""
+        }
 
         // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
         // lihat updateFieldVisibilityForMode().
         val usesProxy = modeIndex == 2 || modeIndex == 3
-        val proxyHost = if (usesProxy) binding.etProxyHost.text.toString().trim() else ""
-        val proxyPortText = if (usesProxy) binding.etProxyPort.text.toString().trim() else ""
-        val proxyRawMode = usesProxy && proxyRawModeEnabled()
-
-        if (proxyRawMode && proxyHost.isEmpty()) {
-            binding.etProxyHost.error = "Raw Passthrough butuh host/IP proxy atau CDN diisi"
-            return
+        val proxyHost = when {
+            payloadProxyLocked -> originalConfig?.proxyHost.orEmpty()
+            usesProxy -> binding.etProxyHost.text.toString().trim()
+            else -> ""
         }
-        // Mode 3 (Payload + Remote Proxy) mewajibkan proxy diisi walau raw mode
-        // tidak aktif -- beda dari mode 2 yang proxy-nya opsional.
-        if (modeIndex == 3 && proxyHost.isEmpty()) {
-            binding.etProxyHost.error = "Payload + Remote Proxy butuh host/IP proxy diisi"
-            return
+        val proxyPortText = when {
+            payloadProxyLocked -> originalConfig?.proxyPort.orEmpty()
+            usesProxy -> binding.etProxyPort.text.toString().trim()
+            else -> ""
+        }
+        val proxyRawMode = when {
+            payloadProxyLocked -> originalConfig?.proxyRawMode ?: false
+            usesProxy -> proxyRawModeEnabled()
+            else -> false
+        }
+
+        // Validasi Raw Passthrough/Payload+Remote Proxy di bawah ini cuma
+        // relevan kalau field-nya memang diisi lewat FORM -- kalau sedang
+        // terkunci ([payloadProxyLocked]), nilai aslinya sudah pasti valid
+        // (tersimpan begitu saat pertama kali diimpor), jadi dilewati saja.
+        if (!payloadProxyLocked) {
+            if (proxyRawMode && proxyHost.isEmpty()) {
+                binding.etProxyHost.error = "Raw Passthrough butuh host/IP proxy atau CDN diisi"
+                return
+            }
+            // Mode 3 (Payload + Remote Proxy) mewajibkan proxy diisi walau raw mode
+            // tidak aktif -- beda dari mode 2 yang proxy-nya opsional.
+            if (modeIndex == 3 && proxyHost.isEmpty()) {
+                binding.etProxyHost.error = "Payload + Remote Proxy butuh host/IP proxy diisi"
+                return
+            }
         }
 
         val usesTls = usesTlsForMode(modeIndex)
@@ -430,6 +533,14 @@ class SshConfigActivity : AppCompatActivity() {
         // [ProfileStore] sendiri-sendiri -- menyimpan profil SSH ini TIDAK
         // pernah menyentuh profil lain sama sekali, jadi tidak perlu lagi
         // baca+pertahankan field profil lain di sini.
+        //
+        // PERBAIKAN (permintaan user, "lockMode ke-reset diam-diam"):
+        // isLocked & lockMode SEKARANG dipertahankan apa adanya dari
+        // [originalConfig] (config lama SEBELUM diedit) -- sebelumnya
+        // fungsi ini selalu membuat [SavedConfig] baru dari nol tanpa
+        // membawa kedua field itu, jadi ke-reset diam-diam jadi
+        // false/NONE tiap kali profil manapun disimpan ulang lewat layar
+        // ini, termasuk akun yang tadinya terkunci.
         editingProfileId = ProfileStore.upsert(
             this,
             editingProfileId,
@@ -452,7 +563,9 @@ class SshConfigActivity : AppCompatActivity() {
                 ignoreCertErrors = ignoreCertErrors,
                 dns1 = dns1,
                 dns2 = dns2,
-                accountName = accountName
+                accountName = accountName,
+                isLocked = originalConfig?.isLocked ?: false,
+                lockMode = originalConfig?.lockMode ?: ConfigLockMode.NONE
             )
         )
 
