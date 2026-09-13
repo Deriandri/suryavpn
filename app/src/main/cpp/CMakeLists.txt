@@ -147,6 +147,21 @@ ExternalProject_Add(
         -DANDROID_PLATFORM=${ANDROID_PLATFORM}
         -DANDROID_NDK=${ANDROID_NDK}
         -DCMAKE_BUILD_TYPE=Release
+        # FIX (error build nyata: "if given arguments: hwaddress IN_LIST
+        # ANDROID_SANITIZE -- Unknown arguments specified", CMake Error di
+        # android.toolchain.cmake/flags.cmake milik NDK sendiri): badvpn
+        # punya `cmake_minimum_required(VERSION ...)` versi LAMA di
+        # CMakeLists.txt-nya sendiri, yang me-reset "policy stack" CMake utk
+        # scope project itu ke versi compatibility lama -- efeknya CMP0057
+        # (yang bikin `if(x IN_LIST y)` dikenali sebagai operator) balik ke
+        # OLD (nonaktif) walau CMake yang dipakai sudah baru. flags.cmake
+        # milik NDK r27 SENDIRI memakai sintaks `IN_LIST` ini, jadi kalau
+        # tidak dipaksa NEW di sini, toolchain file NDK-nya sendiri yang
+        # gagal parse -- BUKAN kode badvpn. `CMAKE_POLICY_DEFAULT_CMP0057`
+        # berlaku sebagai default utk SEMUA scope project (termasuk yang
+        # cmake_minimum_required-nya lebih lama) kalau project itu sendiri
+        # tidak eksplisit set kebijakan ini, jadi aman diforward ke sini.
+        -DCMAKE_POLICY_DEFAULT_CMP0057=NEW
         # Badvpn satu repo berisi BANYAK komponen (ncd, badvpn-server, dll)
         # yang sebagian besar butuh dependency Linux-only (Linux netlink,
         # dll) tidak relevan/tidak bisa dicompile utk Android -- dua flag
