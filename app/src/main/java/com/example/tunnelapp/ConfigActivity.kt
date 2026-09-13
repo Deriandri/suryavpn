@@ -1,10 +1,16 @@
 package com.example.tunnelapp
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
@@ -14,6 +20,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import com.example.tunnelapp.databinding.ActivityConfigBinding
 import com.example.tunnelapp.databinding.ItemAccountRowBinding
 import com.example.tunnelapp.model.ConfigLockMode
@@ -25,6 +32,7 @@ import com.example.tunnelapp.model.encryptWholeFileBytes
 import com.example.tunnelapp.model.importConfigsFromText
 import com.example.tunnelapp.model.profilesToJson
 import com.example.tunnelapp.tunnel.XrayLinkParser
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -69,37 +77,37 @@ class ConfigActivity : AppCompatActivity() {
     // makanya sebagai property class, bukan dibuat on-demand di dalam
     // fungsi klik tombol.
     //
-    // exportPendingBytes menampung isi file yang MAU ditulis, diisi sesaat
-    // sebelum exportFileLauncher.launch() dipanggil (lihat onExportAllClicked)
-    // -- ActivityResultContracts.CreateDocument tidak bisa membawa "extra
-    // data" apa pun selain URI hasil pilihan user, jadi isi filenya harus
-    // "dititipkan" lewat variabel ini, baru ditulis di callback saat URI-nya
-    // sudah didapat.
+    // FITUR BARU (permintaan user, "bikin otomatis dengan izin user"): file
+    // .spn sekarang otomatis ditulis ke folder tetap Download/SuryaVPN/ --
+    // TIDAK ada lagi dialog file-picker (SAF) tiap kali ekspor. Nama folder
+    // "SuryaVPN" konsisten dipakai baik lewat MediaStore (Android 10+, lihat
+    // [saveExportViaMediaStore]) maupun lewat File API langsung (Android 9,
+    // lihat [saveExportLegacy]).
     //
-    // FITUR BARU (permintaan user, "sekalian ganti biner"): sekarang berupa
-    // ByteArray (bukan String JSON polos lagi) -- isinya sudah hasil
-    // [encryptWholeFileBytes], jadi apa yang ditulis ke file .spn memang
-    // biner terenkripsi utuh, bukan JSON yang cuma sebagian fieldnya
-    // dikunci.
-    private var exportPendingBytes: ByteArray? = null
+    // pendingExportBytes/pendingExportFilename menampung ekspor yang MAU
+    // ditulis kalau ternyata di Android 9 izin WRITE_EXTERNAL_STORAGE belum
+    // ada -- diisi SAAT itu juga di [onExportAllClicked], baru benar-benar
+    // ditulis begitu permission dialog dijawab lewat
+    // [storagePermissionLauncher] (mirip pola exportPendingBytes versi
+    // sebelumnya, cuma sekarang nunggu izin, bukan nunggu URI dari SAF).
+    private var pendingExportBytes: ByteArray? = null
+    private var pendingExportFilename: String? = null
 
-    // MIME "application/octet-stream" (bukan "application/json") supaya SAF
-    // tidak memaksa ganti balik ekstensi nama file ke .json -- ekstensi
-    // .spn di [onExportAllClicked] tetap dipakai apa adanya. Sekarang juga
-    // memang sesuai isinya: file yang ditulis biner, bukan teks JSON.
-    private val exportFileLauncher = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream")
-    ) { uri ->
-        val bytes = exportPendingBytes
-        exportPendingBytes = null
-        if (uri == null || bytes == null) return@registerForActivityResult
-        try {
-            contentResolver.openOutputStream(uri)?.use { out ->
-                out.write(bytes)
-            }
-            Toast.makeText(this, "Konfigurasi berhasil diekspor", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Gagal menulis file: ${e.message}", Toast.LENGTH_LONG).show()
+    private val storagePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val bytes = pendingExportBytes
+        val filename = pendingExportFilename
+        pendingExportBytes = null
+        pendingExportFilename = null
+        if (granted && bytes != null && filename != null) {
+            writeExportAutomatically(bytes, filename)
+        } else if (!granted) {
+            Toast.makeText(
+                this,
+                "Izin penyimpanan ditolak -- tidak bisa menyimpan file konfigurasi",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -129,6 +137,58 @@ class ConfigActivity : AppCompatActivity() {
             return@registerForActivityResult
         }
         performImport(text)
+    }
+
+    /**
+     * Tulis [bytes] ke Download/SuryaVPN/[filename] -- jalur berbeda
+     * tergantung versi Android:
+     *  - Android 10+ (API 29+): lewat [MediaStore.Downloads], SUDAH otomatis
+     *    scoped-storage-compliant, TIDAK perlu izin apa pun (lihat
+     *    [onExportAllClicked] -- permission dialog di-skip total di jalur ini).
+     *  - Android 9 (API 28): folder publik Download harus ditulis langsung
+     *    lewat File API, WAJIB izin WRITE_EXTERNAL_STORAGE terlebih dulu
+     *    (lihat [storagePermissionLauncher]).
+     */
+    private fun writeExportAutomatically(bytes: ByteArray, filename: String) {
+        val savedOk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            saveExportViaMediaStore(bytes, filename)
+        } else {
+            saveExportLegacy(bytes, filename)
+        }
+        if (savedOk) {
+            Toast.makeText(
+                this, "Tersimpan di Download/SuryaVPN/$filename", Toast.LENGTH_LONG
+            ).show()
+        } else {
+            Toast.makeText(this, "Gagal menyimpan file konfigurasi", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun saveExportViaMediaStore(bytes: ByteArray, filename: String): Boolean = try {
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, filename)
+            put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+            put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/SuryaVPN")
+        }
+        val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+        if (uri == null) {
+            false
+        } else {
+            contentResolver.openOutputStream(uri)?.use { out -> out.write(bytes) }
+            true
+        }
+    } catch (e: Exception) {
+        false
+    }
+
+    private fun saveExportLegacy(bytes: ByteArray, filename: String): Boolean = try {
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val folder = File(downloadsDir, "SuryaVPN")
+        if (!folder.exists()) folder.mkdirs()
+        File(folder, filename).writeBytes(bytes)
+        true
+    } catch (e: Exception) {
+        false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -520,12 +580,14 @@ class ConfigActivity : AppCompatActivity() {
     }
 
     /**
-     * Ekspor SEMUA akun tersimpan jadi satu file JSON (lihat
-     * [profilesToJson]) lewat SAF (ACTION_CREATE_DOCUMENT) -- user bebas
-     * pilih nama & lokasi filenya sendiri, isinya baru ditulis di
-     * [exportFileLauncher] setelah URI-nya didapat. Nama file default
-     * disisipi tanggal supaya beberapa kali ekspor tidak saling timpa
-     * kalau disimpan di folder yang sama.
+     * Ekspor SEMUA akun tersimpan jadi satu file .spn biner terenkripsi
+     * (lihat [profilesToJson] & [encryptWholeFileBytes]). FITUR BARU
+     * (permintaan user, "bikin otomatis dengan izin user"): TIDAK ada lagi
+     * dialog SAF (file-picker) -- ditulis otomatis ke Download/SuryaVPN/
+     * lewat [writeExportAutomatically], minta izin WRITE_EXTERNAL_STORAGE
+     * dulu kalau perlu (cuma Android 9, lihat dokumentasi
+     * [storagePermissionLauncher]). Nama file disisipi timestamp supaya
+     * beberapa kali ekspor tidak saling timpa.
      */
     private fun onExportAllClicked() {
         val profiles = ProfileStore.getAll(this)
@@ -543,9 +605,26 @@ class ConfigActivity : AppCompatActivity() {
             // envelope JSON (bukan cuma field yang dikunci per-akun)
             // dienkripsi jadi satu blob biner di sini, SEBELUM ditulis ke
             // file -- lihat dokumentasi [encryptWholeFileBytes].
-            exportPendingBytes = encryptWholeFileBytes(json)
+            val bytes = encryptWholeFileBytes(json)
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-            exportFileLauncher.launch("suryavpn-config-$stamp.spn")
+            val filename = "suryavpn-config-$stamp.spn"
+
+            // FITUR BARU (permintaan user, "bikin otomatis dengan izin
+            // user"): Android 10+ (API 29+) lewat MediaStore TIDAK butuh
+            // izin runtime apa pun (scoped storage) -> langsung tulis.
+            // Android 9 (API 28) masih perlu WRITE_EXTERNAL_STORAGE --
+            // minta izin dulu kalau belum ada, baru tulis di callback
+            // [storagePermissionLauncher].
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                PackageManager.PERMISSION_GRANTED
+            ) {
+                writeExportAutomatically(bytes, filename)
+            } else {
+                pendingExportBytes = bytes
+                pendingExportFilename = filename
+                storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
         }
     }
 
