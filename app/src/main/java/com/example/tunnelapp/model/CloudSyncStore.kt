@@ -38,11 +38,30 @@ object CloudSyncStore {
     private const val KEY_LAST_SYNC_SUMMARY = "last_sync_summary"
     private const val KEY_MANAGED_IDS = "managed_ids"
 
+    // FITUR BARU (permintaan user, "url dimasukin ke dalam file zip
+    // aplikasi tadi"): URL cloud config bawaan, di-hardcode di sini supaya
+    // app SUDAH otomatis tersambung ke config ini sejak pertama dibuka --
+    // user TIDAK perlu isi URL manual sama sekali di dialog "Cloud Config".
+    // Dipakai HANYA sebagai nilai default awal (lihat [load] di bawah): kalau
+    // user mengganti/mengosongkan URL-nya sendiri lewat dialog itu nanti,
+    // pilihan user itu yang dipakai seterusnya -- default ini tidak pernah
+    // memaksa masuk lagi menimpa pengaturan yang sudah pernah disimpan.
+    private const val DEFAULT_CLOUD_URL =
+        "https://raw.githubusercontent.com/Deriandri/suryaconfik/refs/heads/main/confik.json"
+
     fun load(context: Context): CloudSyncSettings {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return CloudSyncSettings(
-            cloudUrl = prefs.getString(KEY_CLOUD_URL, "").orEmpty(),
-            autoSyncEnabled = prefs.getBoolean(KEY_AUTO_SYNC_ENABLED, false),
+            // getString(key, default) cuma mengembalikan default kalau key-nya
+            // BELUM PERNAH ditulis sama sekali (mis. instal baru) -- begitu
+            // [saveSettings] pernah dipanggil (termasuk kalau user sengaja
+            // mengosongkan jadi ""), nilai TERSIMPAN itu yang selalu dipakai,
+            // bukan DEFAULT_CLOUD_URL lagi.
+            cloudUrl = prefs.getString(KEY_CLOUD_URL, DEFAULT_CLOUD_URL).orEmpty(),
+            // Auto-sync juga default AKTIF supaya akun langsung tersinkron
+            // sendiri begitu user pertama buka layar Konfigurasi, tanpa
+            // perlu menyalakan toggle-nya manual dulu.
+            autoSyncEnabled = prefs.getBoolean(KEY_AUTO_SYNC_ENABLED, true),
             lastSyncTimeMillis = prefs.getLong(KEY_LAST_SYNC_TIME, 0L),
             lastSyncSummary = prefs.getString(KEY_LAST_SYNC_SUMMARY, "").orEmpty(),
             managedProfileIds = prefs.getString(KEY_MANAGED_IDS, "").orEmpty()
