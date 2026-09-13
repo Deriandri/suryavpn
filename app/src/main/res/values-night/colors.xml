@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    FITUR BARU (permintaan user, "tema dark").
+
+    File ini HANYA berisi override untuk warna yang berperan sebagai
+    "surface" (latar belakang halaman/kartu, teks, garis pembatas, wash
+    lembut tombol/pill) -- yaitu warna yang di values/colors.xml didesain
+    dengan asumsi latar terang. Semua warna lain (brand_primary, warna hero
+    gradient, warna terminal log, dll) SENGAJA TIDAK di-override di sini:
+    warna-warna itu sudah berupa aksen/gradasi tetap yang dirancang untuk
+    tampil sama baik di atas latar terang maupun gelap (mis. kartu hero ungu
+    & area log yang memang selalu gelap terlepas dari tema aplikasi -- lihat
+    catatan panjang di colors.xml/drawable/bg_terminal_log.xml).
+
+    Resource dengan nama SAMA di sini otomatis dipakai Android menggantikan
+    versi di values/colors.xml saat sistem dalam mode gelap (baik ikut
+    system dark mode, maupun dipaksa lewat AppCompatDelegate.MODE_NIGHT_YES
+    dari toggle "Tampilan" di layar Pengaturan -- lihat ThemeStore.kt &
+    TunnelApplication.kt). Tidak perlu ubah apa pun di layout/kode Kotlin:
+    semua tempat sudah merujuk lewat @color/nama, bukan hex langsung.
+-->
+<resources>
+    <!-- Surfaces -->
+    <color name="app_background">#121316</color>
+    <color name="card_background">#1C1E22</color>
+    <color name="divider">#2E3136</color>
+
+    <!-- Text -->
+    <color name="text_primary">#F3F4F6</color>
+    <color name="text_secondary">#A1A8B4</color>
+    <color name="text_hint">#767E8A</color>
+
+    <!-- Status: warna solid (ikon/teks) dibiarkan sama seperti tema terang
+         supaya makna warnanya tetap konsisten -- hanya wash/background
+         lembutnya yang digelapkan supaya tidak jadi kotak terang menyala
+         di atas kartu gelap. -->
+    <color name="status_success_bg">#153521</color>
+    <color name="status_error_bg">#3A1A1A</color>
+    <color name="status_running_bg">#3A2A0E</color>
+    <color name="status_pending">#8B93A1</color>
+    <color name="status_pending_bg">#25282E</color>
+
+    <!-- Wash lembut tombol "Jadikan Aktif" / outline "Edit" / pill "Aktif"
+         & chip tipe akun -- lihat catatan di values/colors.xml. -->
+    <color name="btn_neutral_outline_start">#22252B</color>
+    <color name="btn_neutral_outline_end">#2A2E35</color>
+    <color name="btn_edit_outline_bg">#23233F</color>
+    <color name="pill_active_bg_start">#123321</color>
+    <color name="pill_active_bg_end">#175C33</color>
+    <color name="pill_brand_soft_bg_start">#23233F</color>
+    <color name="pill_brand_soft_bg_end">#2B2A55</color>
+</resources>

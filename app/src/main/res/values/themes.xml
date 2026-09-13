@@ -1,17 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- PENTING (fix bug tampilan): pakai varian "Light" secara eksplisit,
-         BUKAN "DayNight". Semua warna di app ini (app_background, card_background,
-         text_primary, dst.) sudah didesain untuk latar terang, tapi
-         "DayNight" tetap mengikuti mode gelap/terang SISTEM Android. Kalau HP
-         user memakai dark mode, Material3 otomatis memilih warna teks
-         "colorOnSurface" versi gelap (abu-abu terang, dirancang untuk latar
-         gelap) walau colorSurface/app_background di sini tetap dipaksa terang,
-         hasilnya teks abu-abu sangat terang di atas kartu putih, nyaris
-         tidak terbaca. Ini penyebab utama tulisan di field akun/server
-         terlihat pudar. "Light" mengunci teori warna terang terlepas dari
-         setting sistem, konsisten dengan seluruh palet warna di colors.xml. -->
-    <style name="Theme.TunnelApp" parent="Theme.Material3.Light.NoActionBar">
+    <!-- FITUR BARU (permintaan user, "tema dark"): sekarang pakai varian
+         "DayNight", BUKAN "Light" lagi.
+
+         RIWAYAT (penting supaya bug lama tidak terulang): dulu app ini
+         SENGAJA dikunci ke "Light" karena "DayNight" polos pernah bikin
+         teks jadi abu-abu sangat terang & tidak terbaca di mode gelap --
+         itu terjadi karena ketika itu HANYA colorOnSurface/colorSurface dkk
+         yang didefinisikan di sini, sedangkan values/colors.xml TIDAK
+         punya padanan gelap sama sekali (app_background, card_background,
+         text_primary, dst. cuma py satu nilai, didesain untuk latar
+         terang) -- Material3 lalu mencampur warna gelap bawaannya sendiri
+         dengan warna terang app ini, hasilnya kontras berantakan.
+
+         SEKARANG diperbaiki dengan benar: ditambahkan padanan gelap yang
+         LENGKAP di values-night/colors.xml (app_background, card_background,
+         divider, text_primary/secondary/hint, wash pill/tombol, dst),
+         sehingga setiap @color/xxx di bawah ini otomatis resolve ke versi
+         gelap yang SUDAH didesain khusus, bukan bawaan Material3. Toggle
+         Terang/Gelap/Ikuti Sistem ada di layar Pengaturan -> kartu
+         "Tampilan" (lihat ThemeStore.kt & TunnelApplication.kt). -->
+    <style name="Theme.TunnelApp" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorPrimaryDark">@color/brand_primary_dark</item>
         <item name="colorOnPrimary">@color/brand_on_primary</item>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BARU (permintaan user: header "Pengaturan"/"Konfigurasi" dipindah ke
+     tengah & dibuat lebih profesional/smooth) — lencana ikon bulat gradasi
+     biru di atas judul halaman, gaya sama seperti avatar akun/badge ikon
+     hero (bg_avatar_ssh.xml/bg_hero_icon_badge.xml) supaya konsisten
+     dengan bahasa desain app ini, tapi file terpisah supaya bisa diubah
+     sendiri tanpa ikut mempengaruhi avatar akun SSH. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="@color/hero_gradient_start"
+        android:endColor="@color/brand_primary_dark" />
+    <stroke android:width="1dp" android:color="#33FFFFFF" />
+</shape>

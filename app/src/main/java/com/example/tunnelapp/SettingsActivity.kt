@@ -11,9 +11,12 @@ import android.util.Log
 import android.util.Patterns
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import com.example.tunnelapp.databinding.ActivitySettingsBinding
 import com.example.tunnelapp.model.GeneralSettings
 import com.example.tunnelapp.model.GeneralSettingsStore
+import com.example.tunnelapp.model.ThemeMode
+import com.example.tunnelapp.model.ThemeStore
 import com.example.tunnelapp.model.VpnSettings
 import com.example.tunnelapp.model.VpnSettingsStore
 
@@ -43,6 +46,8 @@ class SettingsActivity : AppCompatActivity() {
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        loadThemeIntoForm()
+
         loadVpnSettingsIntoForm()
         binding.btnSaveVpnSetting.setOnClickListener { saveVpnSettingsFromForm() }
         binding.btnBatteryUsage.setOnClickListener { requestIgnoreBatteryOptimizations() }
@@ -53,6 +58,44 @@ class SettingsActivity : AppCompatActivity() {
         binding.tvAppVersion.text = "SuryaVPN — versi ${appVersionName()}"
 
         setupBottomNav()
+    }
+
+    /**
+     * FITUR BARU (permintaan user, "tema dark"): isi toggle Terang/Gelap/
+     * Ikuti Sistem dari [ThemeStore], lalu pasang listener yang langsung
+     * menerapkan & menyimpan pilihan begitu user menekan salah satu opsi
+     * (tidak perlu tombol "Simpan" terpisah -- beda dari kartu Pengaturan
+     * Dasar/VPN Setting di bawah, karena efeknya harus terasa instan supaya
+     * user bisa langsung lihat hasilnya).
+     */
+    private fun loadThemeIntoForm() {
+        binding.toggleThemeMode.check(
+            when (ThemeStore.load(this)) {
+                ThemeMode.LIGHT -> R.id.btnThemeLight
+                ThemeMode.DARK -> R.id.btnThemeDark
+                ThemeMode.SYSTEM -> R.id.btnThemeSystem
+            }
+        )
+        binding.toggleThemeMode.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            val mode = when (checkedId) {
+                R.id.btnThemeLight -> ThemeMode.LIGHT
+                R.id.btnThemeDark -> ThemeMode.DARK
+                else -> ThemeMode.SYSTEM
+            }
+            applyThemeChoice(mode)
+        }
+    }
+
+    /**
+     * Simpan pilihan ke [ThemeStore] lalu terapkan lewat
+     * [AppCompatDelegate.setDefaultNightMode] -- ini otomatis me-recreate
+     * SEMUA Activity yang lagi terbuka (termasuk layar ini sendiri) supaya
+     * warna langsung berubah tanpa perlu tutup-buka app manual.
+     */
+    private fun applyThemeChoice(mode: ThemeMode) {
+        ThemeStore.save(this, mode)
+        AppCompatDelegate.setDefaultNightMode(mode.toNightMode())
     }
 
     /** Isi form Pengaturan Dasar dari [GeneralSettingsStore]. */

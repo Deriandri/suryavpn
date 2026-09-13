@@ -63,6 +63,22 @@ android {
     }
 }
 
+// FIX (error build: "Duplicate class com.google.crypto.tink.* found in modules
+// tink-1.12.0.jar ... dan tink-android-1.8.0.jar ..."):
+// androidx.security:security-crypto (di bawah) sudah membawa
+// com.google.crypto.tink:tink-android:1.8.0 sebagai dependency bawaannya.
+// Salah satu dependency lain di proyek ini (kemungkinan besar libs/xray.aar,
+// yang menyertakan library Tink versi non-Android untuk fitur VLESS
+// Encryption/ML-KEM) juga membawa com.google.crypto.tink:tink:1.12.0. Kedua
+// artifact ini punya nama class Java yang SAMA PERSIS (com.google.crypto.tink.*),
+// sehingga tugas ':app:checkDebugDuplicateClasses' menganggapnya bentrok dan
+// build gagal. Solusinya: buang salah satu (variant "tink" biasa) dari SEMUA
+// configuration, supaya yang tersisa cuma "tink-android" (dipakai oleh
+// security-crypto untuk EncryptedSharedPreferences lewat Android Keystore).
+configurations.all {
+    exclude(group = "com.google.crypto.tink", module = "tink")
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")

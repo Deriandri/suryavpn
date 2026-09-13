@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BARU (permintaan user: header lebih profesional/smooth) — garis aksen
+     tipis bergradasi biru di bawah judul+subjudul halaman, murni dekoratif
+     (senada dengan bg_section_accent_bar.xml tapi horizontal), supaya
+     header terasa lebih "rapi"/sengaja dirancang dibanding teks polos
+     begitu saja. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:type="linear"
+        android:angle="0"
+        android:startColor="@color/hero_gradient_start"
+        android:endColor="@color/brand_secondary" />
+    <corners android:radius="3dp" />
+</shape>
