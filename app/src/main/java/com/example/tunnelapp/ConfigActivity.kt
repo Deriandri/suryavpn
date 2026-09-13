@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.text.InputType
+import android.util.Base64
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.EditText
@@ -33,9 +34,6 @@ import com.example.tunnelapp.model.importConfigsFromText
 import com.example.tunnelapp.model.profilesToJson
 import com.example.tunnelapp.tunnel.XrayLinkParser
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * Layar "Konfigurasi" -- tab TENGAH baru di bilah navigasi bawah, di antara
@@ -260,13 +258,20 @@ class ConfigActivity : AppCompatActivity() {
         val hasCustomName = config.accountName.isNotBlank()
 
         // FITUR BARU (permintaan user, "kunci konfig saat ekspor"): akun
-        // hasil impor dengan lockMode != NONE (lihat [ConfigLockMode] &
+        // hasil impor dengan lockMode == LOCK_ALL (lihat [ConfigLockMode] &
         // model/ConfigLock.kt) "terkunci total" -- cuma NAMA-nya yang boleh
         // ditampilkan, detail host:port/payload/proxy/dst TIDAK PERNAH
-        // ditampilkan sama sekali di baris ini, apa pun mode kunci
-        // spesifiknya (yang membedakan cuma field mana yang disamarkan di
-        // DALAM file/kode hasil ekspornya, bukan tampilan sesudah diimpor).
-        val contentLocked = config.lockMode != ConfigLockMode.NONE
+        // ditampilkan sama sekali di baris ini.
+        //
+        // PERBAIKAN (permintaan user, "payload & remote proxy malah dikunci
+        // semuanya"): LOCK_PAYLOAD_PROXY SENGAJA TIDAK ikut dianggap
+        // contentLocked di sini -- mode itu cuma menyamarkan payload &
+        // proxy DI DALAM file hasil ekspornya (lihat [resolveLockedFields],
+        // field aslinya sudah dikembalikan utuh begitu diimpor), jadi akun
+        // server (host/port/username/password/SNI) maupun payload/proxy-nya
+        // harus tetap kelihatan & bisa diedit seperti akun biasa, bukan
+        // ikut disembunyikan/diblokir Edit-nya.
+        val contentLocked = config.lockMode == ConfigLockMode.LOCK_ALL
         val lockedDisplayName = config.accountName.ifBlank { "Akun Terkunci" }
 
         // FITUR BARU (permintaan user, "kunci akun"): openEditScreen disimpan
@@ -580,14 +585,20 @@ class ConfigActivity : AppCompatActivity() {
     }
 
     /**
-     * Ekspor SEMUA akun tersimpan jadi satu file .spn biner terenkripsi
-     * (lihat [profilesToJson] & [encryptWholeFileBytes]). FITUR BARU
-     * (permintaan user, "bikin otomatis dengan izin user"): TIDAK ada lagi
-     * dialog SAF (file-picker) -- ditulis otomatis ke Download/SuryaVPN/
-     * lewat [writeExportAutomatically], minta izin WRITE_EXTERNAL_STORAGE
-     * dulu kalau perlu (cuma Android 9, lihat dokumentasi
-     * [storagePermissionLauncher]). Nama file disisipi timestamp supaya
-     * beberapa kali ekspor tidak saling timpa.
+     * Ekspor SEMUA akun tersimpan -- BARU (permintaan user, "tambah fungsi
+     * ekspor salin clipboard"): sekarang ada DUA jalur, ditanya dulu lewat
+     * dialog pilihan di sini:
+     *  1. "Simpan sebagai File (.spn)" -- alur lama, lihat
+     *     [onExportToFileClicked]: tanya mode kunci dulu lewat
+     *     [showLockModePicker], lalu nama filenya lewat
+     *     [showExportFilenameDialog], baru ditulis ke
+     *     Download/SuryaVPN/ lewat [proceedWithExport].
+     *  2. "Salin ke Clipboard" -- jalur baru, lihat
+     *     [onExportToClipboardClicked]: TIDAK menawarkan pilihan mode
+     *     kunci sama sekali, LANGSUNG pakai [ConfigLockMode.LOCK_ALL]
+     *     (permintaan user, "hasil salin clipboard itu langsung pakai
+     *     logika lock all") supaya teks yang gampang ke-paste ke mana pun
+     *     itu selalu dalam kondisi paling aman/tersamar.
      */
     private fun onExportAllClicked() {
         val profiles = ProfileStore.getAll(this)
@@ -595,10 +606,26 @@ class ConfigActivity : AppCompatActivity() {
             Toast.makeText(this, "Belum ada akun untuk diekspor", Toast.LENGTH_SHORT).show()
             return
         }
-        // FITUR BARU (permintaan user, "kunci konfig saat ekspor"): mode
-        // yang dipilih di sini cuma diterapkan ke akun yang BELUM terkunci
-        // -- akun yang sudah punya lockMode sendiri (hasil impor dari orang
-        // lain) tetap dipertahankan apa adanya, lihat [profilesToJson].
+        val options = arrayOf("Simpan sebagai File (.spn)", "Salin ke Clipboard")
+        AlertDialog.Builder(this)
+            .setTitle("Ekspor Semua Akun")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> onExportToFileClicked(profiles)
+                    1 -> onExportToClipboardClicked(profiles)
+                }
+            }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    /**
+     * Jalur 1 dari [onExportAllClicked]: alur lama -- tanya mode kunci dulu
+     * (cuma berlaku ke akun yang BELUM terkunci, lihat [profilesToJson]),
+     * lalu nama filenya, baru ditulis sebagai file .spn biner terenkripsi
+     * ke Download/SuryaVPN/.
+     */
+    private fun onExportToFileClicked(profiles: List<SavedProfile>) {
         showLockModePicker { chosenMode ->
             val json = profilesToJson(profiles, chosenMode)
             // FITUR BARU (permintaan user, "sekalian ganti biner"): seluruh
@@ -606,25 +633,135 @@ class ConfigActivity : AppCompatActivity() {
             // dienkripsi jadi satu blob biner di sini, SEBELUM ditulis ke
             // file -- lihat dokumentasi [encryptWholeFileBytes].
             val bytes = encryptWholeFileBytes(json)
-            val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-            val filename = "suryavpn-config-$stamp.spn"
 
-            // FITUR BARU (permintaan user, "bikin otomatis dengan izin
-            // user"): Android 10+ (API 29+) lewat MediaStore TIDAK butuh
-            // izin runtime apa pun (scoped storage) -> langsung tulis.
-            // Android 9 (API 28) masih perlu WRITE_EXTERNAL_STORAGE --
-            // minta izin dulu kalau belum ada, baru tulis di callback
-            // [storagePermissionLauncher].
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
-                ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
-                PackageManager.PERMISSION_GRANTED
-            ) {
-                writeExportAutomatically(bytes, filename)
-            } else {
-                pendingExportBytes = bytes
-                pendingExportFilename = filename
-                storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            showExportFilenameDialog(profiles) { filename ->
+                proceedWithExport(bytes, filename)
             }
+        }
+    }
+
+    /**
+     * Jalur 2 dari [onExportAllClicked] -- BARU (permintaan user, "ekspor
+     * salin clipboard, hasilnya langsung pakai logika lock all"). Beda dari
+     * [onExportToFileClicked]:
+     *  - TIDAK ada dialog pilihan mode kunci -- SELALU dienkripsi penuh
+     *    pakai [ConfigLockMode.LOCK_ALL] (semua field teknis disamarkan,
+     *    cuma nama & jenis akun yang tetap polos), apa pun mode kunci akun
+     *    aslinya (beda dari [profilesToJson] biasa yang menghormati
+     *    lockMode akun yang sudah terkunci -- di sini SEMUA dipaksa
+     *    LOCK_ALL demi konsistensi & keamanan, karena hasilnya gampang
+     *    ke-paste ke mana pun lewat clipboard).
+     *  - TIDAK ditulis ke file sama sekali -- byte hasil enkripsi
+     *    di-encode Base64 jadi teks biasa, lalu disalin langsung ke
+     *    clipboard (lihat [copyToClipboard]), siap ditempel ke chat/pesan.
+     */
+    private fun onExportToClipboardClicked(profiles: List<SavedProfile>) {
+        val json = profilesToJson(profiles, ConfigLockMode.LOCK_ALL)
+        val bytes = encryptWholeFileBytes(json)
+        val text = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        copyToClipboard("Konfigurasi SuryaVPN", text)
+        Toast.makeText(
+            this,
+            "Konfigurasi (terkunci penuh) disalin ke clipboard",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    /**
+     * Dialog "Nama file ekspor" -- ditampilkan SETELAH user memilih mode
+     * kunci di [showLockModePicker], SEBELUM file benar-benar ditulis lewat
+     * [proceedWithExport]. Mengganti perilaku lama yang langsung menulis
+     * file dengan nama timestamp acak ("suryavpn-config-yyyyMMdd-HHmmss.spn")
+     * begitu "Lanjut" ditekan di dialog kunci, tanpa kesempatan user
+     * mengubah namanya sama sekali.
+     *
+     * Aturan prefill kolom nama:
+     *  - Kalau [profiles] cuma berisi SATU akun & akun itu sudah punya nama
+     *    custom (accountName tidak kosong) -> nama itu yang disarankan
+     *    duluan, user tinggal konfirmasi atau ubah kalau mau.
+     *  - Selain itu (ekspor banyak akun sekaligus, ATAU satu-satunya akun
+     *    itu belum punya nama) -> kolom dikosongkan sama sekali, WAJIB
+     *    diisi manual oleh user sebelum bisa lanjut menyimpan (lihat
+     *    validasi kosong di bawah).
+     *
+     * Ekstensi ".spn" SELALU ditambahkan otomatis di akhir nama yang
+     * dimasukkan user -- tidak perlu (dan tidak boleh) diketik manual.
+     * Karakter yang tidak valid untuk nama file (mis. "/", "\", ":", "*",
+     * "?", '"', "<", ">", "|") dibuang lewat [sanitizeFilename] sebelum
+     * nama akhirnya dipakai, supaya tetap aman ditulis di semua versi
+     * Android.
+     */
+    private fun showExportFilenameDialog(profiles: List<SavedProfile>, onConfirmed: (String) -> Unit) {
+        val suggestedName = if (profiles.size == 1) profiles[0].config.accountName.trim() else ""
+
+        val input = EditText(this).apply {
+            hint = "Contoh: konfigurasi-kantor"
+            inputType = InputType.TYPE_CLASS_TEXT
+            setPadding(48, 32, 48, 32)
+            setText(suggestedName)
+            setSelection(suggestedName.length)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Nama file ekspor")
+            .setMessage("File akan disimpan sebagai \"<nama>.spn\" di folder Download/SuryaVPN/.")
+            .setView(input)
+            .setNegativeButton("Batal", null)
+            // Positive listener dipasang manual lewat setOnShowListener di
+            // bawah (bukan langsung di sini) supaya dialog TIDAK otomatis
+            // tertutup kalau nama yang diketik ternyata kosong/tidak valid
+            // -- user harus perbaiki dulu, bukan diam-diam gagal atau
+            // dialog hilang begitu saja.
+            .setPositiveButton("Simpan", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val clean = sanitizeFilename(input.text?.toString().orEmpty())
+                if (clean.isBlank()) {
+                    input.error = "Nama file tidak boleh kosong"
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                onConfirmed("$clean.spn")
+            }
+        }
+        dialog.show()
+    }
+
+    /**
+     * Buang karakter yang tidak diizinkan sebagai nama file (di Android
+     * maupun filesystem pada umumnya: "/ \ : * ? " < > |"), rapikan spasi
+     * berlebih jadi satu spasi, lalu potong spasi di ujung-ujungnya. Dipakai
+     * di [showExportFilenameDialog] sebelum nama yang diketik user benar-
+     * benar dipakai sebagai nama file .spn.
+     */
+    private fun sanitizeFilename(raw: String): String {
+        return raw.trim()
+            .replace(Regex("[/\\\\:*?\"<>|]"), "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    /**
+     * Langkah terakhir ekspor, dipanggil begitu nama file sudah dikonfirmasi
+     * lewat [showExportFilenameDialog] -- persis perilaku
+     * "bikin otomatis dengan izin user" yang sudah ada sebelumnya: Android
+     * 10+ (API 29+) lewat MediaStore TIDAK butuh izin runtime apa pun
+     * (scoped storage) -> langsung tulis. Android 9 (API 28) masih perlu
+     * WRITE_EXTERNAL_STORAGE -- minta izin dulu kalau belum ada, baru tulis
+     * di callback [storagePermissionLauncher].
+     */
+    private fun proceedWithExport(bytes: ByteArray, filename: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            writeExportAutomatically(bytes, filename)
+        } else {
+            pendingExportBytes = bytes
+            pendingExportFilename = filename
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         }
     }
 

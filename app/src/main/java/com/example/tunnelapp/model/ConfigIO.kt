@@ -128,12 +128,17 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
         dns1 = o.optString("dns1", ""),
         dns2 = o.optString("dns2", ""),
         accountName = o.optString("accountName", ""),
-        // Akun hasil impor yang lockMode-nya bukan NONE otomatis ikut
-        // isLocked=true (gembok "proteksi tidak sengaja" biasa) SEKALIGUS
-        // lockMode-nya sendiri -- lihat dokumentasi [SavedConfig.lockMode]
-        // soal beda keduanya (isLocked bisa dibuka lagi manual, lockMode
-        // tidak).
-        isLocked = lockMode != ConfigLockMode.NONE,
+        // Akun hasil impor cuma otomatis ikut isLocked=true (gembok
+        // "proteksi tidak sengaja" biasa) kalau lockMode-nya LOCK_ALL --
+        // lihat dokumentasi [SavedConfig.lockMode] soal beda isLocked
+        // (bisa dibuka lagi manual) dengan lockMode (tidak bisa).
+        //
+        // PERBAIKAN (permintaan user, "payload & remote proxy malah
+        // dikunci semuanya, seharusnya akun server dibiarkan tetap bisa
+        // diedit"): LOCK_PAYLOAD_PROXY TIDAK ikut memicu isLocked=true di
+        // sini -- akun dengan mode ini harus langsung bisa diedit begitu
+        // diimpor, tanpa perlu buka gembok manual dulu.
+        isLocked = lockMode == ConfigLockMode.LOCK_ALL,
         lockMode = lockMode
     )
 }

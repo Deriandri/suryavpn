@@ -25,16 +25,12 @@ import kotlin.random.Random
  *  - [LOCK_PAYLOAD_PROXY]: cuma payload & remote proxy (proxyHost/proxyPort/
  *    proxyRawMode) yang dikunci -- akun/host/username/password/SNI tetap
  *    polos & bisa dilihat/diedit lagi setelah diimpor.
- *  - [UNLOCK_ACCOUNT]: kebalikan dari atas -- host/port/username/password
- *    (akun server) SENGAJA dibiarkan polos (bisa dilihat/dipakai ulang untuk
- *    akun lain di server yang sama), tapi SEMUA trik teknis lainnya (payload,
- *    proxy, SNI, TLS, WebSocket, header, DNS, link Xray) dikunci.
  *  - [NONE]: tanpa kunci sama sekali, persis perilaku ekspor sebelum fitur
  *    ini ada.
  *
  * Begitu diimpor lagi (lihat [resolveLockedFields] & [configFromJson]),
- * akun hasil impor yang lockMode-nya bukan [NONE] otomatis ditandai
- * "terkunci total" di UI -- lihat [SavedConfig.lockMode] &
+ * akun hasil impor yang lockMode-nya [LOCK_ALL] otomatis ditandai "terkunci
+ * total" di UI -- lihat [SavedConfig.lockMode] &
  * [com.example.tunnelapp.ConfigActivity.bindAccountRow]: baris akun cuma
  * menampilkan NAMA-nya saja (bukan host:port/detail), dan layar Edit tidak
  * bisa dibuka sama sekali (beda dari gembok [SavedConfig.isLocked] biasa
@@ -42,6 +38,14 @@ import kotlin.random.Random
  * memang supaya orang yang menerima akun (mis. dari penjual konfig) tidak
  * bisa mengintip/menyalin trik & kredensial aslinya, cuma bisa
  * connect/hapus.
+ *
+ * [LOCK_PAYLOAD_PROXY] TIDAK memicu "terkunci total" itu -- cuma payload &
+ * remote proxy yang disamarkan di dalam FILE hasil ekspornya (biar tidak
+ * bisa diintip lewat teks editor biasa), tapi begitu diimpor lagi
+ * [resolveLockedFields] sudah mengembalikan seluruh field aslinya (termasuk
+ * payload & proxy) ke config -- jadi akun server (host/port/username/
+ * password/SNI) maupun payload/proxy-nya tetap bisa dilihat & DIEDIT lagi
+ * seperti akun biasa, sama sekali tidak diblokir.
  *
  * PENTING, harus jujur soal batasannya: ini SEKEDAR PENGHALANG (obfuscation)
  * pakai kunci AES yang tertanam statis di dalam APK -- PERSIS seperti
@@ -54,8 +58,7 @@ import kotlin.random.Random
 enum class ConfigLockMode(val label: String) {
     NONE("Tanpa Kunci (No Lock)"),
     LOCK_ALL("Kunci Semua (Lock All)"),
-    LOCK_PAYLOAD_PROXY("Kunci Payload & Remote Proxy"),
-    UNLOCK_ACCOUNT("Buka Kunci Akun Server");
+    LOCK_PAYLOAD_PROXY("Kunci Payload & Remote Proxy");
 
     companion object {
         fun fromName(name: String?): ConfigLockMode =
@@ -75,11 +78,6 @@ private fun lockedFieldsFor(mode: ConfigLockMode): Set<String> = when (mode) {
 
     ConfigLockMode.LOCK_PAYLOAD_PROXY -> setOf(
         "payload", "proxyHost", "proxyPort", "proxyRawMode"
-    )
-
-    ConfigLockMode.UNLOCK_ACCOUNT -> setOf(
-        "sni", "payload", "proxyHost", "proxyPort", "tlsVersion", "wsPath",
-        "proxyRawMode", "xrayLink", "customHeaders", "dns1", "dns2"
     )
 }
 

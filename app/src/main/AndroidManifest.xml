@@ -17,7 +17,7 @@
     <!-- FITUR BARU (permintaan user, "bikin otomatis dengan izin user"): dipakai
          [com.example.tunnelapp.ConfigActivity] supaya bisa TULIS LANGSUNG ke folder
          Download/SuryaVPN/ tanpa dialog file-picker tiap kali ekspor. maxSdkVersion=28
-         karena mulai Android 10 (API 29) scoped storage berlaku -- MediaStore API
+         karena mulai Android 10 (API 29) scoped storage berlaku, MediaStore API
          (dipakai lewat jalur MediaStore.Downloads di ConfigActivity) tidak butuh izin
          ini sama sekali, cuma perangkat Android 9 ke bawah yang masih perlu. -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
