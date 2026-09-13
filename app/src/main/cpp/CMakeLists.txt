@@ -70,7 +70,7 @@ set_target_properties(hev-task-system PROPERTIES
     IMPORTED_LOCATION ${HEV_SOURCE_DIR}/third-part/hev-task-system/bin/libhev-task-system.a
 )
 
-add_library(tunneljni SHARED hev_socks5_jni.c)
+add_library(tunneljni SHARED hev_socks5_jni.c config_lock_jni.c)
 add_dependencies(tunneljni hev_socks5_tunnel_external)
 
 target_include_directories(tunneljni PRIVATE

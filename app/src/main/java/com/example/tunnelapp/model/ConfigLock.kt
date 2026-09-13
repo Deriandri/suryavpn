@@ -105,7 +105,31 @@ private const val KEY_LOCK_MODE = "lockMode"
  * menghasilkan data korup yang tetap dipakai app.
  */
 private object ConfigCipher {
-    private const val PASSPHRASE = "SuryaVPN-ConfigLock-v1"
+    // FITUR BARU (permintaan user, "pindahkan generate key ke native code"):
+    // passphrase statis TIDAK lagi disimpan (walau ter-XOR) di sisi
+    // Kotlin -- direkonstruksi di kode native C (lihat
+    // cpp/config_lock_jni.c, fungsi Java_..._ConfigCipher_nativePassphrase)
+    // yang dikompilasi jadi libtunneljni.so, library native yang sama yang
+    // sudah dipakai [com.example.tunnelapp.tunnel.HevSocks5Bridge] untuk
+    // tunnel SSH/Xray. Reuse library yang sama supaya tidak nambah satu
+    // .so terpisah cuma untuk satu fungsi kecil ini -- System.loadLibrary
+    // aman dipanggil berkali-kali (no-op kalau sudah termuat).
+    //
+    // Efeknya: orang yang cuma decompile file .dex (jadx/apktool -- cara
+    // paling umum) TIDAK akan menemukan potongan passphrase ini sama
+    // sekali, karena secara fisik memang tidak ada di bytecode
+    // Java/Kotlin. Batasannya SAMA seperti sebelumnya (lihat dokumentasi
+    // lengkap di cpp/config_lock_jni.c): ini menaikkan biaya analisis
+    // STATIS, bukan menutup celah RUNTIME (debugger/Frida hook tetap bisa
+    // dump nilai balik native call ini).
+    init {
+        System.loadLibrary("tunneljni")
+    }
+
+    private external fun nativePassphrase(): String
+
+    private fun passphrase(): String = nativePassphrase()
+
     private val MAGIC = byteArrayOf('S'.code.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), '1'.code.toByte())
     private const val VERSION_V2: Byte = 2 // GCM, kunci = SHA-256(passphrase) langsung, tanpa salt
     private const val VERSION_V3: Byte = 3 // GCM, kunci = PBKDF2(passphrase, salt acak, 150rb iterasi)
@@ -118,7 +142,7 @@ private object ConfigCipher {
     /** v2 lama: kunci statis langsung dari 1x SHA-256, tanpa salt/stretching. */
     private fun keyV2(): SecretKeySpec {
         val digest = MessageDigest.getInstance("SHA-256")
-            .digest(PASSPHRASE.toByteArray(Charsets.UTF_8))
+            .digest(passphrase().toByteArray(Charsets.UTF_8))
         return SecretKeySpec(digest, "AES")
     }
 
@@ -133,7 +157,7 @@ private object ConfigCipher {
      */
     private fun keyV3(salt: ByteArray): SecretKeySpec {
         val spec = javax.crypto.spec.PBEKeySpec(
-            PASSPHRASE.toCharArray(), salt, PBKDF2_ITERATIONS, PBKDF2_KEY_BITS
+            passphrase().toCharArray(), salt, PBKDF2_ITERATIONS, PBKDF2_KEY_BITS
         )
         val raw = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
             .generateSecret(spec).encoded
@@ -219,7 +243,7 @@ private object ConfigCipher {
         val iv = raw.copyOfRange(0, 16)
         val encrypted = raw.copyOfRange(16, raw.size)
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        cipher.init(Cipher.DECRYPT_MODE, key(), IvParameterSpec(iv))
+        cipher.init(Cipher.DECRYPT_MODE, keyV2(), IvParameterSpec(iv))
         String(cipher.doFinal(encrypted), Charsets.UTF_8)
     } catch (e: Exception) {
         null

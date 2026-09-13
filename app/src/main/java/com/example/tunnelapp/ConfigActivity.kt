@@ -20,6 +20,8 @@ import com.example.tunnelapp.model.ConfigLockMode
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedProfile
 import com.example.tunnelapp.model.buildShareCode
+import com.example.tunnelapp.model.decryptWholeFileBytes
+import com.example.tunnelapp.model.encryptWholeFileBytes
 import com.example.tunnelapp.model.importConfigsFromText
 import com.example.tunnelapp.model.profilesToJson
 import com.example.tunnelapp.tunnel.XrayLinkParser
