@@ -67,23 +67,33 @@ class ConfigActivity : AppCompatActivity() {
     // makanya sebagai property class, bukan dibuat on-demand di dalam
     // fungsi klik tombol.
     //
-    // exportPendingJson menampung isi file yang MAU ditulis, diisi sesaat
+    // exportPendingBytes menampung isi file yang MAU ditulis, diisi sesaat
     // sebelum exportFileLauncher.launch() dipanggil (lihat onExportAllClicked)
     // -- ActivityResultContracts.CreateDocument tidak bisa membawa "extra
     // data" apa pun selain URI hasil pilihan user, jadi isi filenya harus
     // "dititipkan" lewat variabel ini, baru ditulis di callback saat URI-nya
     // sudah didapat.
-    private var exportPendingJson: String? = null
+    //
+    // FITUR BARU (permintaan user, "sekalian ganti biner"): sekarang berupa
+    // ByteArray (bukan String JSON polos lagi) -- isinya sudah hasil
+    // [encryptWholeFileBytes], jadi apa yang ditulis ke file .spn memang
+    // biner terenkripsi utuh, bukan JSON yang cuma sebagian fieldnya
+    // dikunci.
+    private var exportPendingBytes: ByteArray? = null
 
+    // MIME "application/octet-stream" (bukan "application/json") supaya SAF
+    // tidak memaksa ganti balik ekstensi nama file ke .json -- ekstensi
+    // .spn di [onExportAllClicked] tetap dipakai apa adanya. Sekarang juga
+    // memang sesuai isinya: file yang ditulis biner, bukan teks JSON.
     private val exportFileLauncher = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
+        ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri ->
-        val json = exportPendingJson
-        exportPendingJson = null
-        if (uri == null || json == null) return@registerForActivityResult
+        val bytes = exportPendingBytes
+        exportPendingBytes = null
+        if (uri == null || bytes == null) return@registerForActivityResult
         try {
             contentResolver.openOutputStream(uri)?.use { out ->
-                out.write(json.toByteArray(Charsets.UTF_8))
+                out.write(bytes)
             }
             Toast.makeText(this, "Konfigurasi berhasil diekspor", Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
@@ -95,12 +105,24 @@ class ConfigActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) return@registerForActivityResult
-        val text = try {
-            contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+        val bytes = try {
+            contentResolver.openInputStream(uri)?.use { it.readBytes() }
         } catch (e: Exception) {
             null
         }
-        if (text.isNullOrBlank()) {
+        if (bytes == null) {
+            Toast.makeText(this, "Gagal membaca file", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        // FITUR BARU (permintaan user, "sekalian ganti biner"): file .spn
+        // baru berisi biner terenkripsi utuh -> coba dekripsi dulu lewat
+        // decryptWholeFileBytes. Kalau null (bukan hasil enkripsi format
+        // ini sama sekali -- mis. file ekspor LAMA yang masih JSON polos,
+        // atau file kode bagikan "SVPN1:..." yang memang tidak pernah
+        // dienkripsi utuh), fallback baca sebagai teks UTF-8 apa adanya,
+        // sama seperti perilaku sebelum fitur ini ada -> tetap kompatibel.
+        val text = decryptWholeFileBytes(bytes) ?: bytes.toString(Charsets.UTF_8)
+        if (text.isBlank()) {
             Toast.makeText(this, "Gagal membaca file", Toast.LENGTH_SHORT).show()
             return@registerForActivityResult
         }
@@ -514,9 +536,14 @@ class ConfigActivity : AppCompatActivity() {
         // -- akun yang sudah punya lockMode sendiri (hasil impor dari orang
         // lain) tetap dipertahankan apa adanya, lihat [profilesToJson].
         showLockModePicker { chosenMode ->
-            exportPendingJson = profilesToJson(profiles, chosenMode)
+            val json = profilesToJson(profiles, chosenMode)
+            // FITUR BARU (permintaan user, "sekalian ganti biner"): seluruh
+            // envelope JSON (bukan cuma field yang dikunci per-akun)
+            // dienkripsi jadi satu blob biner di sini, SEBELUM ditulis ke
+            // file -- lihat dokumentasi [encryptWholeFileBytes].
+            exportPendingBytes = encryptWholeFileBytes(json)
             val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-            exportFileLauncher.launch("suryavpn-config-$stamp.json")
+            exportFileLauncher.launch("suryavpn-config-$stamp.spn")
         }
     }
 
