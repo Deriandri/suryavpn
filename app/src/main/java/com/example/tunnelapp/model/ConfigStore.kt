@@ -58,7 +58,17 @@ data class SavedConfig(
     // lagi lewat ikon gembok di baris yang sama -- murni proteksi UI dari
     // ketidaksengajaan, TIDAK mengenkripsi/menyembunyikan data & TIDAK
     // memengaruhi logika koneksi sama sekali.
-    val isLocked: Boolean = false
+    val isLocked: Boolean = false,
+    // FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig -- lock
+    // all, lock payload, unlock server, unlock user & password"): dipilih
+    // lewat dialog saat Simpan di SshConfigActivity/XrayConfigActivity.
+    // Beda dari [isLocked] di atas (kunci SATU akun secara utuh, cuma
+    // menahan tombol Edit/Hapus di ConfigActivity): field ini granular per
+    // GRUP field (server/payload/user&password, lihat ShareLockMode &
+    // lockedGroupsFor di ConfigIO.kt), memudarkan field terkait di FORM
+    // edit-nya sendiri, DAN membuat field itu benar-benar terenkripsi
+    // (bukan cuma tersembunyi) di dalam kode bagikan (lihat buildShareCode).
+    val lockMode: ShareLockMode = ShareLockMode.NONE
 )
 
 object ConfigStore {
@@ -82,6 +92,7 @@ object ConfigStore {
     private const val KEY_DNS1 = "dns1"
     private const val KEY_DNS2 = "dns2"
     private const val KEY_ACCOUNT_NAME = "account_name"
+    private const val KEY_LOCK_MODE = "lock_mode"
 
     fun save(context: Context, config: SavedConfig) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -105,6 +116,7 @@ object ConfigStore {
             .putString(KEY_DNS1, config.dns1)
             .putString(KEY_DNS2, config.dns2)
             .putString(KEY_ACCOUNT_NAME, config.accountName)
+            .putString(KEY_LOCK_MODE, config.lockMode.name)
             .apply()
     }
 
@@ -130,7 +142,10 @@ object ConfigStore {
             ignoreCertErrors = prefs.getBoolean(KEY_IGNORE_CERT_ERRORS, false),
             dns1 = prefs.getString(KEY_DNS1, "").orEmpty(),
             dns2 = prefs.getString(KEY_DNS2, "").orEmpty(),
-            accountName = prefs.getString(KEY_ACCOUNT_NAME, "").orEmpty()
+            accountName = prefs.getString(KEY_ACCOUNT_NAME, "").orEmpty(),
+            lockMode = runCatching {
+                ShareLockMode.valueOf(prefs.getString(KEY_LOCK_MODE, ShareLockMode.NONE.name)!!)
+            }.getOrDefault(ShareLockMode.NONE)
         )
     }
 

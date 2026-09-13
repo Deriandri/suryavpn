@@ -175,6 +175,13 @@ object ProfileStore {
         editor.putString(KEY_IDS, id)
         editor.putString(KEY_ACTIVE_ID, id)
         editor.apply()
+
+        // FITUR BARU (permintaan user, "maksimalkan enkripsi"): begitu data
+        // lama dari ConfigStore (single-slot, PLAINTEXT) sudah berhasil
+        // dipindah ke penyimpanan terenkripsi di atas, kosongkan file
+        // plaintext lamanya -- supaya host/password tidak nganggur dobel di
+        // disk dalam bentuk tidak terenkripsi setelah migrasi ini.
+        ConfigStore.clear(context)
     }
 
     // --- Helper serialisasi per-profil ----------------------------------
@@ -255,6 +262,7 @@ object ProfileStore {
         editor.putString(k(id, "dns2"), c.dns2)
         editor.putString(k(id, "accountName"), c.accountName)
         editor.putBoolean(k(id, "isLocked"), c.isLocked)
+        editor.putString(k(id, "lockMode"), c.lockMode.name)
     }
 
     private fun readConfig(prefs: android.content.SharedPreferences, id: String): SavedConfig? {
@@ -279,7 +287,10 @@ object ProfileStore {
             dns1 = prefs.getString(k(id, "dns1"), "").orEmpty(),
             dns2 = prefs.getString(k(id, "dns2"), "").orEmpty(),
             accountName = prefs.getString(k(id, "accountName"), "").orEmpty(),
-            isLocked = prefs.getBoolean(k(id, "isLocked"), false)
+            isLocked = prefs.getBoolean(k(id, "isLocked"), false),
+            lockMode = runCatching {
+                ShareLockMode.valueOf(prefs.getString(k(id, "lockMode"), ShareLockMode.NONE.name)!!)
+            }.getOrDefault(ShareLockMode.NONE)
         )
     }
 
@@ -288,7 +299,7 @@ object ProfileStore {
             "host", "port", "username", "password", "modeIndex", "sni", "payload",
             "proxyHost", "proxyPort", "tlsVersion", "useWebSocket", "wsPath",
             "proxyRawMode", "xrayLink", "customHeaders", "ignoreCertErrors", "dns1", "dns2",
-            "accountName", "isLocked"
+            "accountName", "isLocked", "lockMode"
         )) {
             editor.remove(k(id, field))
         }

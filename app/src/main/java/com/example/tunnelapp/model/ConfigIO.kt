@@ -42,6 +42,72 @@ private const val ENVELOPE_APP = "SuryaVPN"
 private const val ENVELOPE_FORMAT = "suryavpn-config"
 private const val ENVELOPE_VERSION = 1
 
+/**
+ * FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig -- lock all,
+ * lock payload, unlock server, unlock user & password"): dipilih user lewat
+ * dialog saat menekan Simpan di [com.example.tunnelapp.SshConfigActivity]/
+ * [com.example.tunnelapp.XrayConfigActivity], disimpan sebagai bagian dari
+ * [SavedConfig.lockMode]. Menentukan GRUP field mana yang:
+ *   1) dipudarkan/tidak bisa diedit lagi di form (lihat pemanggil
+ *      `lockedGroupsFor` di kedua Activity itu), DAN
+ *   2) dienkripsi (bukan cuma disembunyikan) di dalam kode bagikan satu akun
+ *      -- lihat [buildShareCode] & [ConfigCrypto] -- supaya penerima kode
+ *      TIDAK bisa membaca isinya walau kodenya di-decode Base64 manual.
+ *
+ * Nama tiap nilai sengaja dibuat SIMETRIS dengan istilah yang diminta user:
+ *   - LOCK_ALL             : server + payload + user&password, SEMUA dikunci.
+ *   - LOCK_PAYLOAD         : cuma payload (& field sejenisnya) yang dikunci;
+ *                            server serta user/password tetap bebas diedit.
+ *   - UNLOCK_SERVER        : cuma server (host/port) yang TETAP bebas diedit;
+ *                            payload & user/password dikunci.
+ *   - UNLOCK_USER_PASSWORD : cuma username & password yang TETAP bebas
+ *                            diedit; server & payload dikunci.
+ * NONE (default) berarti tidak ada yang dikunci sama sekali -- perilaku lama
+ * sebelum fitur ini ada.
+ */
+enum class ShareLockMode {
+    NONE, LOCK_ALL, LOCK_PAYLOAD, UNLOCK_SERVER, UNLOCK_USER_PASSWORD
+}
+
+/** Label yang ditampilkan di dialog pemilihan mode kunci saat Simpan. */
+val ShareLockMode.label: String
+    get() = when (this) {
+        ShareLockMode.NONE -> "Tidak dikunci (semua field bebas diedit/dibagikan)"
+        ShareLockMode.LOCK_ALL -> "Kunci Semua (server, payload, user & password disembunyikan)"
+        ShareLockMode.LOCK_PAYLOAD -> "Kunci Payload saja"
+        ShareLockMode.UNLOCK_SERVER -> "Buka Kunci Server saja (payload & user/password dikunci)"
+        ShareLockMode.UNLOCK_USER_PASSWORD -> "Buka Kunci User & Password saja (server & payload dikunci)"
+    }
+
+/**
+ * Grup field yang ikut dikunci untuk tiap [ShareLockMode]. Nilai grup:
+ * "server" (host, port), "payload" (payload/sni/proxy/tls/header/xrayLink --
+ * semua yang termasuk "trik" koneksi ke server), "user" (username, password).
+ */
+fun lockedGroupsFor(mode: ShareLockMode): Set<String> = when (mode) {
+    ShareLockMode.NONE -> emptySet()
+    ShareLockMode.LOCK_ALL -> setOf("server", "payload", "user")
+    ShareLockMode.LOCK_PAYLOAD -> setOf("payload")
+    ShareLockMode.UNLOCK_SERVER -> setOf("payload", "user")
+    ShareLockMode.UNLOCK_USER_PASSWORD -> setOf("server", "payload")
+}
+
+/**
+ * Field [SavedConfig]/JSON -> grup pemiliknya (lihat [lockedGroupsFor]).
+ * Field yang TIDAK ada di peta ini (modeIndex, useWebSocket, dns1, dns2,
+ * accountName, lockMode sendiri) selalu tetap bebas diedit & tetap teks
+ * biasa di kode bagikan apa pun mode kuncinya -- field-field itu tidak
+ * berisi rahasia server/akun, cuma metadata/preferensi.
+ */
+private val FIELD_GROUPS: Map<String, String> = mapOf(
+    "host" to "server", "port" to "server",
+    "payload" to "payload", "sni" to "payload", "proxyHost" to "payload",
+    "proxyPort" to "payload", "proxyRawMode" to "payload", "tlsVersion" to "payload",
+    "customHeaders" to "payload", "wsPath" to "payload", "ignoreCertErrors" to "payload",
+    "xrayLink" to "payload",
+    "username" to "user", "password" to "user"
+)
+
 /** Ubah satu [SavedConfig] jadi [JSONObject], field-nya 1:1 sama nama & tipe. */
 fun SavedConfig.toConfigJson(): JSONObject = JSONObject().apply {
     put("host", host)
@@ -63,6 +129,7 @@ fun SavedConfig.toConfigJson(): JSONObject = JSONObject().apply {
     put("dns1", dns1)
     put("dns2", dns2)
     put("accountName", accountName)
+    put("lockMode", lockMode.name)
 }
 
 /**
@@ -71,7 +138,14 @@ fun SavedConfig.toConfigJson(): JSONObject = JSONObject().apply {
  * biar pemanggil (lihat [importConfigsFromText]) tinggal skip entry yang
  * rusak/tidak dikenal tanpa bikin keseluruhan impor gagal.
  */
-private fun configFromJson(o: JSONObject): SavedConfig? {
+private fun configFromJson(oRaw: JSONObject): SavedConfig? {
+    // FITUR BARU ("kunci saat menyimpan konfig" + enkripsi): kalau JSON ini
+    // punya blob "locked" (lihat [buildShareCode]), dekripsi dulu & gabung
+    // field hasil dekripsinya balik ke JSON sebelum diekstrak seperti biasa
+    // di bawah -- pemanggil di luar fungsi ini tidak perlu tahu bedanya.
+    // Gagal dekripsi (rusak/diotak-atik manual/bukan dari app ini) -> null,
+    // konsisten dengan filosofi "skip entry rusak" di seluruh file ini.
+    val o = mergeLockedFields(oRaw) ?: return null
     val modeIndex = o.optInt("modeIndex", 0)
     val host = o.optString("host", "")
     val xrayLink = o.optString("xrayLink", "")
@@ -101,8 +175,35 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
         ignoreCertErrors = o.optBoolean("ignoreCertErrors", false),
         dns1 = o.optString("dns1", ""),
         dns2 = o.optString("dns2", ""),
-        accountName = o.optString("accountName", "")
+        accountName = o.optString("accountName", ""),
+        lockMode = runCatching { ShareLockMode.valueOf(o.optString("lockMode", ShareLockMode.NONE.name)) }
+            .getOrDefault(ShareLockMode.NONE)
     )
+}
+
+/**
+ * Kebalikan dari penguncian di [buildShareCode]: kalau [o] punya key
+ * "locked", dekripsi isinya lewat [ConfigCrypto.decrypt] lalu gabungkan
+ * field-field hasil dekripsinya balik ke salinan [o] (menimpa apa pun yang
+ * mungkin ada di key yang sama, walau seharusnya tidak ada karena field
+ * yang dikunci sudah DIHAPUS dari level atas saat dibangun -- lihat
+ * [buildShareCode]). Null kalau dekripsinya gagal sama sekali (data
+ * rusak/tidak dikenal), BUKAN exception -- biar pemanggil ([configFromJson])
+ * cukup skip entry ini seperti entry rusak lainnya. Kalau [o] tidak punya
+ * key "locked" sama sekali (kode lama/tidak terkunci), kembalikan [o] apa
+ * adanya, tanpa perlu dekripsi apa pun.
+ */
+private fun mergeLockedFields(o: JSONObject): JSONObject? {
+    if (!o.has("locked")) return o
+    val decrypted = try {
+        JSONObject(ConfigCrypto.decrypt(o.getString("locked")))
+    } catch (e: Exception) {
+        return null
+    }
+    val merged = JSONObject(o.toString())
+    merged.remove("locked")
+    decrypted.keys().forEach { key -> merged.put(key, decrypted.get(key)) }
+    return merged
 }
 
 /**
@@ -126,10 +227,36 @@ fun profilesToJson(profiles: List<SavedProfile>): String {
 /**
  * Kode bagikan SATU akun (lihat dokumentasi di atas), dipakai tombol
  * "Bagikan" per-baris akun di [ConfigActivity].
+ *
+ * FITUR BARU (permintaan user, "maksimalkan enkripsi" + "kunci saat
+ * menyimpan konfig"): kalau akun ini disimpan dengan [SavedConfig.lockMode]
+ * selain [ShareLockMode.NONE], field-field yang termasuk grup terkunci
+ * (lihat [lockedGroupsFor]/[FIELD_GROUPS]) TIDAK ikut ditulis sebagai teks
+ * biasa di JSON -- sebagai gantinya, semuanya dikumpulkan jadi satu blob,
+ * dienkripsi AES-256-GCM lewat [ConfigCrypto.encrypt], lalu disisipkan
+ * sebagai SATU key "locked" berisi ciphertext Base64. Penerima kode yang
+ * tempel/impor tetap bisa CONNECT normal (app ini otomatis mendekripsinya
+ * balik lewat [configFromJson]/[mergeLockedFields]) tapi field yang dikunci
+ * tidak akan terbaca kalau kodenya di-decode Base64 manual di luar app ini,
+ * dan begitu diimpor field itu tetap dipudarkan/tidak bisa diedit di form
+ * (lihat pemakaian `lockedGroupsFor` di SshConfigActivity/XrayConfigActivity).
  */
 fun buildShareCode(config: SavedConfig): String {
-    val json = config.toConfigJson().toString()
-    val b64 = Base64.encodeToString(json.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+    val json = config.toConfigJson()
+    val lockedGroups = lockedGroupsFor(config.lockMode)
+
+    if (lockedGroups.isNotEmpty()) {
+        val lockedFields = JSONObject()
+        FIELD_GROUPS.forEach { (field, group) ->
+            if (group in lockedGroups && json.has(field)) {
+                lockedFields.put(field, json.get(field))
+                json.remove(field)
+            }
+        }
+        json.put("locked", ConfigCrypto.encrypt(lockedFields.toString()))
+    }
+
+    val b64 = Base64.encodeToString(json.toString().toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
     return SHARE_CODE_PREFIX + b64
 }
 

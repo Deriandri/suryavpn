@@ -18,6 +18,7 @@ import com.example.tunnelapp.databinding.ActivityConfigBinding
 import com.example.tunnelapp.databinding.ItemAccountRowBinding
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedProfile
+import com.example.tunnelapp.model.ShareLockMode
 import com.example.tunnelapp.model.buildShareCode
 import com.example.tunnelapp.model.importConfigsFromText
 import com.example.tunnelapp.model.profilesToJson
@@ -164,6 +165,15 @@ class ConfigActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig"): tanda
+     * singkat di badge tipe akun (mis. "SSH 🔒") kalau akun ini disimpan
+     * dengan salah satu mode kunci (lihat [ShareLockMode] di ConfigIO.kt) --
+     * murni indikator visual di daftar akun, tidak memengaruhi apa pun.
+     */
+    private fun lockBadgeSuffix(mode: ShareLockMode): String =
+        if (mode == ShareLockMode.NONE) "" else " \uD83D\uDD12"
+
     private fun bindAccountRow(row: ItemAccountRowBinding, profile: SavedProfile, isActive: Boolean) {
         val config = profile.config
         val isXray = config.modeIndex == 5
@@ -185,7 +195,7 @@ class ConfigActivity : AppCompatActivity() {
             val detail = if (parsed != null) "${parsed.address}:${parsed.port}" else "Link belum valid"
             row.ivRowAvatarBg.setBackgroundResource(R.drawable.bg_avatar_xray)
             row.ivRowIcon.setImageResource(R.drawable.ic_account_xray)
-            row.tvRowTypeBadge.text = "XRAY"
+            row.tvRowTypeBadge.text = "XRAY" + lockBadgeSuffix(config.lockMode)
             row.tvRowTitle.text = if (hasCustomName) config.accountName else detail
             openEditScreen = {
                 startActivity(
@@ -209,7 +219,7 @@ class ConfigActivity : AppCompatActivity() {
             val detail = "${config.host}:${config.port}"
             row.ivRowAvatarBg.setBackgroundResource(R.drawable.bg_avatar_ssh)
             row.ivRowIcon.setImageResource(R.drawable.ic_account_ssh)
-            row.tvRowTypeBadge.text = modeName
+            row.tvRowTypeBadge.text = modeName + lockBadgeSuffix(config.lockMode)
             row.tvRowTitle.text = if (hasCustomName) config.accountName else detail
             openEditScreen = {
                 startActivity(

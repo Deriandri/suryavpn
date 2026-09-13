@@ -461,14 +461,13 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginEnd="8dp"
-                        android:hint="Paste input">
+                        android:hint="Tempel cepat info server">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etQuickPaste"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:inputType="textUri"
-                            android:hint="Tempel cepat info server"
                             android:textColor="@color/text_primary"
                             android:textColorHint="@color/text_hint"
                             android:autofillHints="" />
@@ -519,6 +518,7 @@
                     android:orientation="horizontal">
 
                     <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilPort"
                         style="@style/Field.Outlined"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
@@ -538,6 +538,7 @@
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilUsername"
                         style="@style/Field.Outlined"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
