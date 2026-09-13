@@ -128,7 +128,7 @@
     <!-- REDESIGN (permintaan user: "bikin tampilan jadi profesional dan
          modern serta smooth"): dialog konfigurasi (Impor, Nama file ekspor,
          Kunci konfigurasi, Ekspor Semua Akun, dst di ConfigActivity.kt)
-         sebelumnya pakai AlertDialog.Builder POLOS -- tampil dengan gaya
+         sebelumnya pakai AlertDialog.Builder POLOS — tampil dengan gaya
          sistem default (kotak persegi tajam, judul tipis, tombol ALL CAPS
          biru generik) yang kontras sekali dengan kartu/tombol lain di app
          ini yang sudah bergaya Material3 modern. Theme overlay ini dipakai

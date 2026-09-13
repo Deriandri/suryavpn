@@ -2,7 +2,7 @@
 <!--
     Animasi masuk untuk dialog bertema ThemeOverlay.TunnelApp.Dialog
     (permintaan user: tampilan lebih "smooth"). Sebelumnya dialog pakai
-    animasi default sistem (langsung muncul/pop tanpa transisi halus) --
+    animasi default sistem (langsung muncul/pop tanpa transisi halus) —
     di sini digabung fade (alpha) + scale kecil dari 92% -> 100% supaya
     terasa lebih lembut, durasi sengaja singkat (180ms) supaya tetap
     terasa responsif, bukan lambat.

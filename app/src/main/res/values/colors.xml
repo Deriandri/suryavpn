@@ -11,6 +11,13 @@
          yang sama dengan avatar SSH (bg_avatar_ssh.xml, gradasi biru). -->
     <color name="brand_secondary_dark">#0C7A79</color>
 
+    <!-- FITUR BARU (permintaan user, "cloud config"): pasangan gradasi ungu
+         untuk avatar baris "Cloud Config" di ConfigActivity, sengaja beda
+         hue dari SSH (biru, bg_avatar_ssh) & Xray (teal, bg_avatar_xray)
+         supaya ketiga jenis baris tetap gampang dibedakan sekilas. -->
+    <color name="cloud_gradient_start">#8B5CF6</color>
+    <color name="cloud_gradient_end">#6D28D9</color>
+
     <!-- Surfaces -->
     <color name="app_background">#F3F4F6</color>
     <color name="card_background">#FFFFFF</color>

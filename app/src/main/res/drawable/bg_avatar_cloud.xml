@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FITUR BARU (permintaan user, "cloud config"): avatar baris "Cloud
+     Config" di ConfigActivity, gaya gradasi halus sama seperti
+     bg_avatar_ssh.xml/bg_avatar_xray.xml, cuma hue ungu (cloud_gradient_*)
+     supaya beda sekilas dari baris SSH (biru) & Xray (teal). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="@color/cloud_gradient_start"
+        android:endColor="@color/cloud_gradient_end" />
+    <stroke android:width="1dp" android:color="#33FFFFFF" />
+</shape>

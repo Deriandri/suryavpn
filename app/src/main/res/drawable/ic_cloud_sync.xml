@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FITUR BARU (permintaan user, "cloud config"): ikon awan + panah sinkron
+     melingkar, dipakai di avatar baris "Cloud Config" (activity_config.xml)
+     dan tombol sinkron. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M18.5,12.03c-0.15,-2.53 -2.24,-4.53 -4.81,-4.53c-1.98,0 -3.68,1.19 -4.44,2.9c-1.86,0.2 -3.31,1.78 -3.31,3.69c0,2.05 1.66,3.71 3.71,3.71h8.6c1.71,0 3.1,-1.39 3.1,-3.1C21.35,13.13 20.11,11.79 18.5,12.03z"/>
+    <path
+        android:fillColor="#6D28D9"
+        android:pathData="M13.1,10.4c-0.31,-0.31 -0.82,-0.31 -1.13,0l-1.15,1.15c-0.31,0.31 -0.31,0.82 0,1.13c0.31,0.31 0.82,0.31 1.13,0l0.12,-0.12v2.15c0,0.44 0.36,0.8 0.8,0.8s0.8,-0.36 0.8,-0.8v-2.15l0.12,0.12c0.31,0.31 0.82,0.31 1.13,0c0.31,-0.31 0.31,-0.82 0,-1.13L13.1,10.4z"/>
+</vector>

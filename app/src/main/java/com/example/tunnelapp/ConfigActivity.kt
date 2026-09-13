@@ -12,12 +12,16 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.text.InputType
+import android.text.format.DateFormat
 import android.util.Base64
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -27,6 +31,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputLayout
 import com.example.tunnelapp.databinding.ActivityConfigBinding
 import com.example.tunnelapp.databinding.ItemAccountRowBinding
+import com.example.tunnelapp.model.CloudConfigSync
+import com.example.tunnelapp.model.CloudSyncStore
 import com.example.tunnelapp.model.ConfigLockMode
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
@@ -251,6 +257,9 @@ class ConfigActivity : AppCompatActivity() {
         binding.rowConfigXray.setOnClickListener {
             startActivity(Intent(this, XrayConfigActivity::class.java))
         }
+        // FITUR BARU (permintaan user, "cloud config"): baris ketiga, buka
+        // dialog pengaturan URL sinkron -- lihat onCloudConfigClicked().
+        binding.rowCloudConfig.setOnClickListener { onCloudConfigClicked() }
 
         binding.btnImportConfig.setOnClickListener { onImportClicked() }
         binding.btnExportAllConfig.setOnClickListener { onExportAllClicked() }
@@ -264,6 +273,136 @@ class ConfigActivity : AppCompatActivity() {
         // aktif) di SshConfigActivity/XrayConfigActivity -- refresh tiap
         // kali layar ini kembali ditampilkan.
         refreshAccountsList()
+        updateCloudConfigSubtitle()
+
+        // FITUR BARU (permintaan user, "cloud config"): kalau auto-sync
+        // diaktifkan, sinkron diam-diam tiap kali layar Konfigurasi ini
+        // dibuka/kembali terlihat -- TIDAK menampilkan Toast "Menyinkron..."
+        // supaya tidak mengganggu kalau user cuma numpang lewat, tapi hasil
+        // akhirnya (akun bertambah/berubah & subjudul waktu sinkron) tetap
+        // langsung terlihat begitu selesai. Kegagalan diam-diam juga (mis.
+        // tidak ada internet) -- user tetap bisa sinkron manual lewat
+        // dialog kalau curiga ada masalah.
+        val settings = CloudSyncStore.load(this)
+        if (settings.autoSyncEnabled && settings.cloudUrl.isNotBlank()) {
+            lifecycleScope.launch {
+                CloudConfigSync.sync(this@ConfigActivity)
+                refreshAccountsList()
+                updateCloudConfigSubtitle()
+            }
+        }
+    }
+
+    /** Perbarui teks subjudul baris "Cloud Config" (URL & waktu sinkron terakhir). */
+    private fun updateCloudConfigSubtitle() {
+        val settings = CloudSyncStore.load(this)
+        binding.textCloudConfigSubtitle.text = when {
+            settings.cloudUrl.isBlank() -> "Sinkron akun otomatis dari URL online"
+            settings.lastSyncTimeMillis <= 0L -> "URL tersimpan -- belum pernah disinkron"
+            else -> {
+                val time = DateFormat.format("d MMM, HH:mm", settings.lastSyncTimeMillis)
+                "Sinkron terakhir $time -- ${settings.lastSyncSummary}"
+            }
+        }
+    }
+
+    // --- Cloud Config (permintaan user, "jadi nanti sistem nya konfig
+    // saya update online gtu") ------------------------------------------
+    //
+    // Sengaja TIDAK bikin format data baru -- URL yang diisi di sini cukup
+    // mengembalikan teks yang SAMA PERSIS dengan hasil "Ekspor Semua"
+    // (lihat onExportAllClicked/profilesToJson) atau satu kode bagikan
+    // "SVPN1:...", persis seperti yang diterima kotak Impor manual. Lihat
+    // dokumentasi lengkap di model/CloudConfigSync.kt & CloudSyncStore.kt.
+
+    /**
+     * Dialog pengaturan Cloud Config: URL sumber, toggle auto-sync (dipicu
+     * tiap [onResume] layar ini), status sinkron terakhir, dan dua aksi --
+     * "Simpan" (cuma menyimpan pengaturan) atau "Sinkron Sekarang" (simpan
+     * SEKALIGUS langsung menjalankan satu putaran sinkron).
+     */
+    private fun onCloudConfigClicked() {
+        val settings = CloudSyncStore.load(this)
+
+        val urlInput = EditText(this).apply {
+            inputType = InputType.TYPE_TEXT_VARIATION_URI
+            setText(settings.cloudUrl)
+            setPadding(48, 32, 48, 32)
+        }
+        val autoSyncCheckbox = CheckBox(this).apply {
+            text = "Sinkron otomatis tiap kali layar ini dibuka"
+            isChecked = settings.autoSyncEnabled
+            setPadding(48, 4, 48, 4)
+        }
+        val statusLabel = TextView(this).apply {
+            text = if (settings.lastSyncTimeMillis > 0L) {
+                val time = DateFormat.format("d MMM yyyy, HH:mm", settings.lastSyncTimeMillis)
+                "Sinkron terakhir: $time\n${settings.lastSyncSummary}"
+            } else {
+                "Belum pernah disinkron"
+            }
+            setTextColor(ContextCompat.getColor(this@ConfigActivity, R.color.text_secondary))
+            textSize = 12f
+            setPadding(48, 4, 48, 4)
+        }
+
+        val container = ScrollView(this).apply {
+            addView(LinearLayout(this@ConfigActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(dialogInputLayout(
+                    urlInput,
+                    "URL cloud config (hasil \"Ekspor Semua\" atau kode SVPN1:...)"
+                ))
+                addView(autoSyncCheckbox)
+                addView(statusLabel)
+            })
+        }
+
+        newDialogBuilder()
+            .setTitle("Cloud Config")
+            .setMessage(
+                "Host-kan file hasil \"Ekspor Semua\" di URL statis (mis. GitHub raw, " +
+                    "hosting sendiri), lalu tempel URL-nya di sini. Setiap kali disinkron, " +
+                    "app menarik isi TERBARU dari URL itu -- akun baru ditambahkan, akun " +
+                    "yang berubah diperbarui, dan akun yang sudah dihapus dari sana ikut " +
+                    "dihapus di sini (kecuali akun yang sudah Anda kunci manual)."
+            )
+            .setView(container)
+            .setNegativeButton("Tutup", null)
+            .setNeutralButton("Sinkron Sekarang") { _, _ ->
+                val url = urlInput.text?.toString().orEmpty().trim()
+                CloudSyncStore.saveSettings(this, url, autoSyncCheckbox.isChecked)
+                updateCloudConfigSubtitle()
+                performCloudSync()
+            }
+            .setPositiveButton("Simpan") { _, _ ->
+                val url = urlInput.text?.toString().orEmpty().trim()
+                CloudSyncStore.saveSettings(this, url, autoSyncCheckbox.isChecked)
+                updateCloudConfigSubtitle()
+                Toast.makeText(this, "Pengaturan Cloud Config disimpan", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    /**
+     * Jalankan satu putaran [CloudConfigSync.sync] dengan Toast "sedang
+     * menyinkron" di awal (dipakai jalur MANUAL lewat tombol "Sinkron
+     * Sekarang" -- beda dari auto-sync diam-diam di [onResume]) & ringkasan
+     * hasil (berhasil/gagal) di akhir, lalu refresh daftar akun & subjudul.
+     */
+    private fun performCloudSync() {
+        val url = CloudSyncStore.load(this).cloudUrl
+        if (url.isBlank()) {
+            Toast.makeText(this, "Isi URL cloud config terlebih dahulu", Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, "Menyinkron konfigurasi...", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val result = CloudConfigSync.sync(this@ConfigActivity)
+            refreshAccountsList()
+            updateCloudConfigSubtitle()
+            Toast.makeText(this@ConfigActivity, result.summaryText(), Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun refreshAccountsList() {
