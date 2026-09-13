@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Animasi masuk untuk dialog bertema ThemeOverlay.TunnelApp.Dialog
+    (permintaan user: tampilan lebih "smooth"). Sebelumnya dialog pakai
+    animasi default sistem (langsung muncul/pop tanpa transisi halus) --
+    di sini digabung fade (alpha) + scale kecil dari 92% -> 100% supaya
+    terasa lebih lembut, durasi sengaja singkat (180ms) supaya tetap
+    terasa responsif, bukan lambat.
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@android:interpolator/decelerate_cubic">
+    <alpha
+        android:fromAlpha="0.0"
+        android:toAlpha="1.0"
+        android:duration="180" />
+    <scale
+        android:fromXScale="0.92"
+        android:toXScale="1.0"
+        android:fromYScale="0.92"
+        android:toYScale="1.0"
+        android:pivotX="50%"
+        android:pivotY="50%"
+        android:duration="180" />
+</set>

@@ -11,21 +11,22 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
-import android.graphics.Typeface
 import android.text.InputType
 import android.util.Base64
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.textfield.TextInputLayout
 import com.example.tunnelapp.databinding.ActivityConfigBinding
 import com.example.tunnelapp.databinding.ItemAccountRowBinding
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
 import com.example.tunnelapp.model.ConfigLockMode
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
@@ -73,6 +74,44 @@ import kotlinx.coroutines.withContext
 class ConfigActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityConfigBinding
+
+    // --- Dialog modern (permintaan user, "profesional, modern, smooth") -
+    //
+    // Semua dialog di layar ini SEBELUMNYA pakai `AlertDialog.Builder` polos
+    // -- itu selalu tampil dengan gaya sistem default (kotak persegi, tombol
+    // ALL CAPS biru generik), kontras banget dengan kartu/tombol lain di app
+    // ini yang sudah bergaya Material3 modern (sudut membulat, warna brand
+    // ungu, dst). [newDialogBuilder] menggantikan semua pemanggilan itu
+    // dengan `MaterialAlertDialogBuilder` + tema kustom
+    // `ThemeOverlay.TunnelApp.Dialog` (lihat themes.xml) supaya sudut dialog
+    // ikut membulat, judul jadi bold, dan tombolnya pakai warna brand ungu
+    // konsisten dengan tombol lain -- dipakai di SEMUA dialog di file ini
+    // (hapus akun, kunci akun, bagikan, pilih mode kunci, impor, ekspor).
+    private fun newDialogBuilder(): MaterialAlertDialogBuilder =
+        MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog)
+
+    /**
+     * Bungkus [EditText] polos ke dalam [TextInputLayout] bergaya
+     * `Field.Outlined` yang sama dipakai form input lain di app ini
+     * (lihat ConfigActivity/SshConfigActivity), supaya kotak teks di
+     * dalam dialog (impor, nama file ekspor, kode bagikan) tidak lagi
+     * terasa seperti kotak polos bawaan Android, melainkan konsisten
+     * dengan seluruh form di app: label mengambang, sudut membulat, garis
+     * highlight ungu saat fokus.
+     */
+    private fun dialogInputLayout(editText: EditText, hintText: String? = null): TextInputLayout {
+        return TextInputLayout(this, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
+            id = View.generateViewId()
+            hintText?.let { hint = it }
+            setBoxCornerRadii(28f, 28f, 28f, 28f)
+            setPadding(24, 8, 24, 0)
+            addView(
+                editText,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+    }
 
     // --- Impor & Ekspor (permintaan user) -------------------------------
     //
@@ -421,7 +460,7 @@ class ConfigActivity : AppCompatActivity() {
             // Pakai nama akun kalau ada (row.tvRowTitle sudah menampilkan itu
             // di atas), fallback ke host:port -- konsisten dengan tvRowTitle.
             val label = row.tvRowTitle.text
-            MaterialAlertDialogBuilder(this)
+            newDialogBuilder()
                 .setTitle("Hapus akun?")
                 .setMessage("Akun \"$label\" akan dihapus permanen dari daftar.")
                 .setNegativeButton("Batal", null)
@@ -449,7 +488,7 @@ class ConfigActivity : AppCompatActivity() {
             "Akun \"$label\" tidak akan bisa diedit atau dihapus sampai kuncinya dibuka lagi."
         val positiveText = if (currentlyLocked) "Buka Kunci" else "Kunci"
 
-        MaterialAlertDialogBuilder(this)
+        newDialogBuilder()
             .setTitle(title)
             .setMessage(message)
             .setNegativeButton("Batal", null)
@@ -525,25 +564,19 @@ class ConfigActivity : AppCompatActivity() {
     }
 
     private fun showShareCodeDialog(code: String) {
-        // REDESIGN (modern/smooth): dialog_text_field.xml + Typeface.MONOSPACE
-        // supaya kode bagikan tampil rapi seperti kotak "kode", bukan lagi
-        // EditText polos -- tetap read-only & bisa diseleksi/disalin manual.
-        val fieldView = layoutInflater.inflate(R.layout.dialog_text_field, binding.root, false)
-        fieldView.findViewById<TextInputLayout>(R.id.tilDialogField).hint = "Kode akun"
-        fieldView.findViewById<TextInputEditText>(R.id.etDialogField).apply {
+        val input = EditText(this).apply {
             setText(code)
             isFocusable = false
             isFocusableInTouchMode = false
             setTextIsSelectable(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            maxLines = 6
-            typeface = Typeface.MONOSPACE
+            setPadding(48, 32, 48, 32)
         }
 
-        MaterialAlertDialogBuilder(this)
+        newDialogBuilder()
             .setTitle("Bagikan akun")
             .setMessage("Salin atau bagikan kode di bawah. Siapa pun yang menempelkannya lewat tombol \"Impor\" di app ini akan mendapat akun yang sama persis.")
-            .setView(fieldView)
+            .setView(dialogInputLayout(input))
             .setNegativeButton("Tutup", null)
             .setNeutralButton("Salin") { _, _ ->
                 copyToClipboard("Kode akun SuryaVPN", code)
@@ -574,7 +607,7 @@ class ConfigActivity : AppCompatActivity() {
         val labels = modes.map { it.label }.toTypedArray()
         var selected = 0
 
-        MaterialAlertDialogBuilder(this)
+        newDialogBuilder()
             .setTitle("Kunci konfigurasi?")
             .setSingleChoiceItems(labels, selected) { _, which -> selected = which }
             .setNegativeButton("Batal", null)
@@ -594,24 +627,20 @@ class ConfigActivity : AppCompatActivity() {
      * manual.
      */
     private fun onImportClicked() {
-        // REDESIGN (modern/smooth): dialog_text_field.xml (TextInputLayout
-        // Field.Outlined) menggantikan EditText polos + ScrollView manual --
-        // maxLines membatasi tinggi dialog, teks yang lebih panjang tetap
-        // bisa digulir NORMAL di dalam kolom itu sendiri (bawaan EditText
-        // multiline), jadi ScrollView pembungkus tidak diperlukan lagi.
-        val fieldView = layoutInflater.inflate(R.layout.dialog_text_field, binding.root, false)
-        fieldView.findViewById<TextInputLayout>(R.id.tilDialogField).hint =
-            "Tempel kode akun (SVPN1:...) atau isi file JSON hasil ekspor"
-        val input = fieldView.findViewById<TextInputEditText>(R.id.etDialogField).apply {
+        val input = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             minLines = 4
-            maxLines = 8
-            gravity = android.view.Gravity.TOP or android.view.Gravity.START
+            setPadding(48, 32, 48, 32)
+        }
+        // Dibungkus ScrollView supaya tetap nyaman diketik/ditempel kalau
+        // isinya panjang (JSON hasil ekspor banyak akun bisa lumayan panjang).
+        val container = ScrollView(this).apply {
+            addView(dialogInputLayout(input, "Tempel kode akun (SVPN1:...) atau isi file JSON hasil ekspor di sini"))
         }
 
-        MaterialAlertDialogBuilder(this)
+        newDialogBuilder()
             .setTitle("Impor konfigurasi")
-            .setView(fieldView)
+            .setView(container)
             .setNegativeButton("Batal", null)
             .setNeutralButton("Pilih File") { _, _ ->
                 importFileLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
@@ -671,7 +700,7 @@ class ConfigActivity : AppCompatActivity() {
             return
         }
         val options = arrayOf("Simpan sebagai File (.spn)", "Salin ke Clipboard")
-        MaterialAlertDialogBuilder(this)
+        newDialogBuilder()
             .setTitle("Ekspor Semua Akun")
             .setItems(options) { _, which ->
                 when (which) {
@@ -776,24 +805,19 @@ class ConfigActivity : AppCompatActivity() {
     private fun showExportFilenameDialog(profiles: List<SavedProfile>, onConfirmed: (String) -> Unit) {
         val suggestedName = if (profiles.size == 1) profiles[0].config.accountName.trim() else ""
 
-        // REDESIGN (modern/smooth): dialog_text_field.xml (TextInputLayout
-        // Field.Outlined) menggantikan EditText polos -- suffixText ".spn" &
-        // helperText menyampaikan info lokasi penyimpanan yang sebelumnya ada
-        // di setMessage(), jadi dialog ini sekarang tanpa pesan panjang lagi.
-        val fieldView = layoutInflater.inflate(R.layout.dialog_text_field, binding.root, false)
-        val til = fieldView.findViewById<TextInputLayout>(R.id.tilDialogField).apply {
-            hint = "Contoh: konfigurasi-kantor"
-            suffixText = ".spn"
-            helperText = "Disimpan di folder Download/SuryaVPN/"
-        }
-        val input = fieldView.findViewById<TextInputEditText>(R.id.etDialogField).apply {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT
+            setPadding(48, 32, 48, 32)
             setText(suggestedName)
             setSelection(suggestedName.length)
         }
 
-        val dialog = MaterialAlertDialogBuilder(this)
+        val inputLayout = dialogInputLayout(input, "Contoh: konfigurasi-kantor")
+
+        val dialog = newDialogBuilder()
             .setTitle("Nama file ekspor")
-            .setView(fieldView)
+            .setMessage("File akan disimpan sebagai \"<nama>.spn\" di folder Download/SuryaVPN/.")
+            .setView(inputLayout)
             .setNegativeButton("Batal", null)
             // Positive listener dipasang manual lewat setOnShowListener di
             // bawah (bukan langsung di sini) supaya dialog TIDAK otomatis
@@ -807,10 +831,13 @@ class ConfigActivity : AppCompatActivity() {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val clean = sanitizeFilename(input.text?.toString().orEmpty())
                 if (clean.isBlank()) {
-                    til.error = "Nama file tidak boleh kosong"
+                    // Pakai error milik TextInputLayout (garis & teks merah di
+                    // bawah kotak, konsisten dengan Field.Outlined di form
+                    // lain) alih-alih popup bubble bawaan EditText.setError.
+                    inputLayout.error = "Nama file tidak boleh kosong"
                     return@setOnClickListener
                 }
-                til.error = null
+                inputLayout.error = null
                 dialog.dismiss()
                 onConfirmed("$clean.spn")
             }

@@ -7,10 +7,12 @@ import net.schmizz.sshj.connection.channel.direct.Parameters
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import java.net.DatagramSocket
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.security.Security
+import javax.net.SocketFactory
 
 /**
  * Engine SSH KEDUA app ini (permintaan user: "tambah library, bisa pilih di
@@ -60,6 +62,16 @@ import java.security.Security
  * FITUR YANG BELUM DIPORTASI dari trilead-ssh2 (non-esensial, tunnel tetap
  * jalan penuh tanpa ini): reorder cipher cepat (preferFastCiphers), dan pesan
  * error per-ConnectionMode yang detail (di sini digeneralisasi).
+ *
+ * SUDAH DIPERBAIKI (audit "apakah sudah maksimal", permintaan user):
+ * (1) Performance Mode (TCP_NODELAY) SEKARANG ikut diimplementasikan lewat
+ *     [PerformanceModeSocketFactory] + SSHClient.setSocketFactory() --
+ *     sebelumnya diabaikan total karena dikira tidak ada API publik setara.
+ * (2) client.connectTimeout/client.timeout SEKARANG diisi CONNECT_TIMEOUT_MS
+ *     selama fase handshake+auth (lalu di-reset ke 0/tanpa batas begitu auth
+ *     sukses) -- sebelumnya TIDAK ADA timeout SSH-level sama sekali, jadi
+ *     connect()/authPassword() berisiko menggantung tanpa batas kalau server
+ *     tidak jelas membalas.
  *
  * "Server Message"/banner SUDAH diportasi (lihat connect(), setelah
  * authPassword() sukses) -- BEDA dengan trilead yang butuh reflection, sshj
@@ -122,6 +134,54 @@ class SshjTunnelManager : SshEngineHandle {
                 }
             }
         }
+    }
+
+    /**
+     * PARITAS FITUR (sebelumnya belum diportasi dari [SshTunnelManager]):
+     * "Performance Mode" (TCP_NODELAY, matikan algoritma Nagle). sshj TIDAK
+     * punya setter publik setara Connection.setTCPNoDelay milik trilead-ssh2
+     * -- tapi ADA jalan resmi lain: SSHClient.setSocketFactory() (API
+     * publik sshj yang sama dipakai contoh resmi mereka untuk konek lewat
+     * SOCKS proxy custom). Dengan menyuntikkan SocketFactory sendiri di
+     * sini, kita bisa set tcpNoDelay pada socket SEBELUM dipakai sshj utk
+     * connect ke relay lokal -- efeknya identik dengan Connection.setTCPNoDelay
+     * di versi trilead (cuma memengaruhi socket loopback ke [ConnectRelay],
+     * sama seperti catatan di SshTunnelManager.connect()).
+     *
+     * CATATAN VERIFIKASI (sama seperti javadoc kelas ini): ditulis dari API
+     * publik javax.net.SocketFactory (bagian dari JDK/Android sendiri, jadi
+     * signature-nya pasti stabil) + SSHClient.setSocketFactory() (API sshj
+     * yang didokumentasikan resmi) -- kalau ternyata nama methodnya beda di
+     * versi sshj:0.38.0 yang terpasang, laporkan error compile-nya.
+     */
+    private class PerformanceModeSocketFactory(private val tcpNoDelay: Boolean) : SocketFactory() {
+        private fun tuned(socket: Socket): Socket = socket.apply {
+            try {
+                setTcpNoDelay(tcpNoDelay)
+            } catch (e: Exception) {
+                Log.w("SshjTunnelManager", "Gagal atur TCP_NODELAY (Performance Mode=$tcpNoDelay), lanjut pakai default", e)
+            }
+        }
+
+        override fun createSocket(): Socket = tuned(Socket())
+
+        override fun createSocket(host: String?, port: Int): Socket =
+            tuned(Socket()).apply { connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS) }
+
+        override fun createSocket(host: String?, port: Int, localHost: InetAddress?, localPort: Int): Socket =
+            tuned(Socket()).apply {
+                bind(InetSocketAddress(localHost, localPort))
+                connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+            }
+
+        override fun createSocket(host: InetAddress?, port: Int): Socket =
+            tuned(Socket()).apply { connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS) }
+
+        override fun createSocket(address: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket =
+            tuned(Socket()).apply {
+                bind(InetSocketAddress(localAddress, localPort))
+                connect(InetSocketAddress(address, port), CONNECT_TIMEOUT_MS)
+            }
     }
 
     private var sshClient: SSHClient? = null
@@ -191,6 +251,17 @@ class SshjTunnelManager : SshEngineHandle {
         StatusBus.start(StepId.SSH_HANDSHAKE)
 
         val client = SSHClient()
+        // FIX (bug potensial "menggantung tanpa batas"): SEBELUMNYA tidak
+        // ada timeout sama sekali di level SSHClient -- kalau server tidak
+        // jelas membalas saat handshake/auth, client.connect()/authPassword()
+        // bisa BLOCKING SELAMANYA (beda dari trilead-ssh2 yang selalu diberi
+        // CONNECT_TIMEOUT_MS eksplisit lewat conn.connect(...)). Di sini
+        // disamakan: connectTimeout utk fase TCP connect, timeout (SO_TIMEOUT)
+        // utk operasi blocking sesudahnya (key exchange, auth).
+        client.connectTimeout = CONNECT_TIMEOUT_MS
+        client.timeout = CONNECT_TIMEOUT_MS
+        // Performance Mode (TCP_NODELAY) -- lihat javadoc PerformanceModeSocketFactory.
+        client.socketFactory = PerformanceModeSocketFactory(performanceMode)
         // MVP: terima host key apa pun -- sama persis kebijakan
         // ServerHostKeyVerifier di SshTunnelManager (trilead).
         client.addHostKeyVerifier(PromiscuousVerifier())
@@ -201,12 +272,6 @@ class SshjTunnelManager : SshEngineHandle {
             } catch (e: Exception) {
                 Log.w(TAG, "Gagal aktifkan kompresi sshj, lanjut TANPA kompresi", e)
             }
-        }
-        // Performance Mode (TCP_NODELAY): sshj tidak punya setter publik
-        // setara Connection.setTCPNoDelay milik trilead-ssh2 utk socket relay
-        // lokal ini -- diabaikan dengan catatan log, BUKAN kegagalan fatal.
-        if (!performanceMode) {
-            Log.d(TAG, "Performance Mode 'off' tidak berefek khusus di engine sshj (tidak ada API publik setara)")
         }
 
         try {
@@ -240,6 +305,13 @@ class SshjTunnelManager : SshEngineHandle {
             StatusBus.log("Server Message:\n$banner")
         }
         StatusBus.success(StepId.SSH_AUTH)
+        // PENTING (cegah bug "tunnel idle 15 detik lalu putus sendiri"):
+        // client.timeout di atas cuma dimaksudkan utk fase handshake/auth --
+        // WAJIB dikembalikan ke 0 (tanpa batas) sebelum dipakai utk trafik
+        // tunnel asli, sama persis alasannya dengan HANDSHAKE_READ_TIMEOUT_MS
+        // di ConnectRelay. Tanpa ini, sesi yang idle (tidak ada trafik) lebih
+        // dari CONNECT_TIMEOUT_MS akan salah dianggap putus.
+        client.timeout = 0
 
         sshClient = client
         val connHandle = SshjConnectionHandle(client)

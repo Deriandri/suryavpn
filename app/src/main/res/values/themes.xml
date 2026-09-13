@@ -39,75 +39,6 @@
         <item name="android:colorBackground">@color/app_background</item>
         <item name="android:statusBarColor">@color/brand_primary_dark</item>
         <item name="android:windowLightStatusBar">false</item>
-        <!-- REDESIGN (permintaan user: "tampilan modern, profesional, smooth"
-             untuk dialog Impor/Ekspor/Kunci di ConfigActivity): sebelumnya
-             semua AlertDialog di app ini (lihat ConfigActivity.kt) memakai
-             androidx.appcompat.app.AlertDialog.Builder polos -> kotak putih
-             bersudut TAJAM dengan gaya sistem default, kontras sekali dengan
-             kartu bersudut bulat & aksen brand di seluruh layar lain app ini
-             (lihat Card.Section/Card.Account di atas).
-
-             materialAlertDialogTheme di sini mengarahkan SEMUA dialog yang
-             dibangun lewat MaterialAlertDialogBuilder (lihat penggantian
-             AlertDialog.Builder -> MaterialAlertDialogBuilder di
-             ConfigActivity.kt) supaya otomatis bersudut bulat, tombol teks
-             bergaya brand, judul lebih tegas -- tanpa perlu setiap pemanggil
-             mengatur style manual satu-satu. -->
-        <item name="materialAlertDialogTheme">@style/ThemeOverlay.TunnelApp.Dialog</item>
-    </style>
-
-    <!-- Bungkus tema dialog: bentuk (shape), warna tombol & judul untuk
-         SEMUA MaterialAlertDialogBuilder di app ini (lihat catatan
-         materialAlertDialogTheme di atas). -->
-    <style name="ThemeOverlay.TunnelApp.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
-        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.TunnelApp.Dialog</item>
-        <item name="materialAlertDialogTitleTextStyle">@style/TextAppearance.TunnelApp.Dialog.Title</item>
-        <item name="materialAlertDialogBodyTextStyle">@style/TextAppearance.TunnelApp.Dialog.Body</item>
-        <item name="buttonBarPositiveButtonStyle">@style/Widget.TunnelApp.Dialog.Button</item>
-        <item name="buttonBarNegativeButtonStyle">@style/Widget.TunnelApp.Dialog.Button.Neutral</item>
-        <item name="buttonBarNeutralButtonStyle">@style/Widget.TunnelApp.Dialog.Button.Neutral</item>
-        <item name="colorSurface">@color/card_background</item>
-        <item name="colorOnSurface">@color/text_primary</item>
-        <item name="colorPrimary">@color/brand_primary</item>
-        <item name="android:backgroundDimAmount">0.45</item>
-    </style>
-
-    <!-- Sudut membulat 24dp senada dengan Card.Account (20dp) & bottom
-         sheet (lihat bg_bottom_sheet.xml) -- sedikit lebih besar karena
-         dialog "melayang" di tengah, bukan menempel ke tepi kartu. -->
-    <style name="ShapeAppearance.TunnelApp.Dialog" parent="ShapeAppearance.Material3.MediumComponent">
-        <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">24dp</item>
-    </style>
-
-    <style name="TextAppearance.TunnelApp.Dialog.Title" parent="MaterialAlertDialog.Material3.Title.Text">
-        <item name="android:textColor">@color/text_primary</item>
-        <item name="android:textStyle">bold</item>
-        <item name="android:textSize">18sp</item>
-    </style>
-
-    <style name="TextAppearance.TunnelApp.Dialog.Body" parent="MaterialAlertDialog.Material3.Body.Text">
-        <item name="android:textColor">@color/text_secondary</item>
-        <item name="android:textSize">14sp</item>
-        <item name="android:lineSpacingExtra">2dp</item>
-    </style>
-
-    <!-- Tombol positif ("Impor"/"Simpan"/"Lanjut"/"Hapus"/"Kunci", dst.):
-         teks tebal warna brand, ripple bulat senada tombol lain di app ini. -->
-    <style name="Widget.TunnelApp.Dialog.Button" parent="Widget.Material3.Button.TextButton.Dialog">
-        <item name="android:textColor">@color/brand_primary</item>
-        <item name="android:textStyle">bold</item>
-        <item name="rippleColor">@color/brand_primary</item>
-        <item name="cornerRadius">14dp</item>
-    </style>
-
-    <!-- Tombol batal/netral: abu-abu netral (bukan brand) supaya tombol
-         positif tetap paling menonjol -- pola umum Material3 (satu aksi
-         "utama" per dialog). -->
-    <style name="Widget.TunnelApp.Dialog.Button.Neutral" parent="Widget.Material3.Button.TextButton.Dialog">
-        <item name="android:textColor">@color/text_secondary</item>
-        <item name="rippleColor">@color/text_secondary</item>
-        <item name="cornerRadius">14dp</item>
     </style>
 
     <style name="Card.Section" parent="Widget.Material3.CardView.Elevated">
@@ -192,6 +123,74 @@
         <item name="chipBackgroundColor">@color/chip_background_color</item>
         <item name="chipStrokeColor">@color/divider</item>
         <item name="chipStrokeWidth">1dp</item>
+    </style>
+
+    <!-- REDESIGN (permintaan user: "bikin tampilan jadi profesional dan
+         modern serta smooth"): dialog konfigurasi (Impor, Nama file ekspor,
+         Kunci konfigurasi, Ekspor Semua Akun, dst di ConfigActivity.kt)
+         sebelumnya pakai AlertDialog.Builder POLOS -- tampil dengan gaya
+         sistem default (kotak persegi tajam, judul tipis, tombol ALL CAPS
+         biru generik) yang kontras sekali dengan kartu/tombol lain di app
+         ini yang sudah bergaya Material3 modern. Theme overlay ini dipakai
+         lewat MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog)
+         di ConfigActivity.kt supaya SEMUA dialog otomatis: sudut membulat
+         (lihat ShapeAppearance di bawah), judul bold, tombol berwarna brand
+         ungu (bukan biru generik) & tanpa ALL CAPS, radio/checklist item
+         (setSingleChoiceItems) ikut warna brand saat dipilih, serta
+         transisi masuk/keluar yang smooth (fade + scale kecil, lihat
+         res/anim/dialog_enter.xml & dialog_exit.xml) alih-alih pop instan
+         bawaan sistem. -->
+    <style name="ShapeAppearance.TunnelApp.Dialog" parent="ShapeAppearance.Material3.MediumComponent">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">24dp</item>
+    </style>
+
+    <style name="Animation.TunnelApp.Dialog" parent="Animation.AppCompat.Dialog">
+        <item name="android:windowEnterAnimation">@anim/dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/dialog_exit</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Title" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">18sp</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Body" parent="MaterialAlertDialog.Material3.Body.Text">
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Button.Positive" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/brand_primary</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="rippleColor">@color/btn_edit_outline_bg</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Button.Negative" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/text_secondary</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Button.Neutral" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/brand_secondary</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <style name="ThemeOverlay.TunnelApp.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog.Centered">
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.TunnelApp.Dialog</item>
+        <item name="colorPrimary">@color/brand_primary</item>
+        <item name="colorSurface">@color/card_background</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/TunnelApp.Dialog.Title</item>
+        <item name="materialAlertDialogBodyTextStyle">@style/TunnelApp.Dialog.Body</item>
+        <item name="buttonBarPositiveButtonStyle">@style/TunnelApp.Dialog.Button.Positive</item>
+        <item name="buttonBarNegativeButtonStyle">@style/TunnelApp.Dialog.Button.Negative</item>
+        <item name="buttonBarNeutralButtonStyle">@style/TunnelApp.Dialog.Button.Neutral</item>
+        <item name="android:windowAnimationStyle">@style/Animation.TunnelApp.Dialog</item>
+        <item name="android:backgroundDimAmount">0.45</item>
     </style>
 </resources>
 

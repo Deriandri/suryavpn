@@ -5,18 +5,13 @@ plugins {
 
 android {
     namespace = "com.example.tunnelapp"
-    // NAIK (permintaan user, "kelayakan publish Play Store"): Google Play
-    // MEWAJIBKAN app baru/update target Android 16 (API 36) mulai 31 Agustus
-    // 2026 -- deadline ini SUDAH LEWAT per hari ini, jadi wajib naik supaya
-    // submission tidak ditolak. AGP di root build.gradle.kts JUGA harus naik
-    // (lihat catatan di sana) -- AGP < 8.9 tidak resmi mendukung compileSdk 36.
-    compileSdk = 36
+    compileSdk = 34
     ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.example.tunnelapp"
         minSdk = 28        // Android 9.0
-        targetSdk = 36
+        targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
 
@@ -50,25 +45,35 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
-        }
-    }
-
-    // WAJIB (Google Play 16 KB page size compatibility requirement, berlaku
-    // untuk app yang target Android 15+ -- app ini sekarang targetSdk 36):
-    // useLegacyPackaging = false memastikan file .so di dalam APK/AAB
-    // di-ZIP-align 16KB-aware oleh AGP sendiri (default AGP baru, dikunci
-    // eksplisit di sini biar tidak bergantung versi default). CATATAN
-    // PENTING: ini HANYA menangani sisi packaging APK -- file .so hasil
-    // compile SENDIRI (lihat cpp/CMakeLists.txt, sudah ditambah linker flag
-    // 16KB) maupun .so BAWAAN di libs/xray.aar (prebuilt, di luar kendali
-    // proyek ini) tetap harus SECARA TERPISAH dicek/di-generate dengan
-    // toolchain yang 16KB-aware -- lihat penjelasan lengkap di chat, cek
-    // pakai APK Analyzer / check_elf_alignment.sh sebelum upload ke Play
-    // Console.
-    packaging {
-        jniLibs {
-            useLegacyPackaging = false
+            // DIAKTIFKAN (permintaan user, audit performa "apakah sudah
+            // maksimal"): SEBELUMNYA false total -- APK release tidak
+            // pernah di-shrink/obfuscate/optimize sama sekali, padahal app
+            // ini sudah cukup besar (trilead-ssh2 + sshj + Bouncy Castle +
+            // xray.aar Go runtime + hev-socks5-tunnel native).
+            //
+            // PENTING -- WAJIB DIBACA sebelum build/rilis: app ini banyak
+            // pakai reflection (JCA/BouncyCastle cari algoritma by nama
+            // kelas) & JNI/gomobile (libXray, tunneljni) -- dua hal yang
+            // paling rawan diam-diam rusak kalau di-shrink tanpa aturan
+            // "keep" yang tepat. Lihat app/proguard-rules.pro utk daftar
+            // lengkap keep rules yang sudah disiapkan (Bouncy Castle, sshj,
+            // trilead-ssh2, libXray/go, Tink, JNI native methods, dst) --
+            // TAPI ini ditulis dari pengetahuan umum kebutuhan tiap
+            // library, BUKAN hasil verifikasi build+run sungguhan (lingkungan
+            // penyusunan ini tidak punya Android SDK/Gradle utk compile
+            // APK). WAJIB: build release APK ini & tes SEMUA jalur koneksi
+            // (SSH biasa, SSH SSL, Xray) di device fisik SEBELUM dipakai
+            // atau dibagikan -- kalau ada crash/error baru yang HANYA
+            // muncul di build release (build debug normal), itu tandanya
+            // ada satu "-keep" lagi yang kurang, bukan bug fungsi lain.
+            // Kalau ragu/mendesak, set isMinifyEnabled kembali ke false
+            // dulu sampai sempat ditest.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
