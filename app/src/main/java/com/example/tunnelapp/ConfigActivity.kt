@@ -16,9 +16,9 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.example.tunnelapp.databinding.ActivityConfigBinding
 import com.example.tunnelapp.databinding.ItemAccountRowBinding
+import com.example.tunnelapp.model.ConfigLockMode
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedProfile
-import com.example.tunnelapp.model.ShareLockMode
 import com.example.tunnelapp.model.buildShareCode
 import com.example.tunnelapp.model.importConfigsFromText
 import com.example.tunnelapp.model.profilesToJson
@@ -165,15 +165,6 @@ class ConfigActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig"): tanda
-     * singkat di badge tipe akun (mis. "SSH 🔒") kalau akun ini disimpan
-     * dengan salah satu mode kunci (lihat [ShareLockMode] di ConfigIO.kt) --
-     * murni indikator visual di daftar akun, tidak memengaruhi apa pun.
-     */
-    private fun lockBadgeSuffix(mode: ShareLockMode): String =
-        if (mode == ShareLockMode.NONE) "" else " \uD83D\uDD12"
-
     private fun bindAccountRow(row: ItemAccountRowBinding, profile: SavedProfile, isActive: Boolean) {
         val config = profile.config
         val isXray = config.modeIndex == 5
@@ -184,6 +175,16 @@ class ConfigActivity : AppCompatActivity() {
         // fitur ini ada -- host:port/detail sebagai judul utama, tanpa subtitle.
         val hasCustomName = config.accountName.isNotBlank()
 
+        // FITUR BARU (permintaan user, "kunci konfig saat ekspor"): akun
+        // hasil impor dengan lockMode != NONE (lihat [ConfigLockMode] &
+        // model/ConfigLock.kt) "terkunci total" -- cuma NAMA-nya yang boleh
+        // ditampilkan, detail host:port/payload/proxy/dst TIDAK PERNAH
+        // ditampilkan sama sekali di baris ini, apa pun mode kunci
+        // spesifiknya (yang membedakan cuma field mana yang disamarkan di
+        // DALAM file/kode hasil ekspornya, bukan tampilan sesudah diimpor).
+        val contentLocked = config.lockMode != ConfigLockMode.NONE
+        val lockedDisplayName = config.accountName.ifBlank { "Akun Terkunci" }
+
         // FITUR BARU (permintaan user, "kunci akun"): openEditScreen disimpan
         // sebagai lambda dulu (bukan langsung dipasang ke btnRowEdit di tiap
         // cabang isXray seperti sebelumnya), supaya bisa DIBUNGKUS satu kali
@@ -191,23 +192,29 @@ class ConfigActivity : AppCompatActivity() {
         // [SavedConfig.isLocked].
         val openEditScreen: () -> Unit
         if (isXray) {
-            val parsed = runCatching { XrayLinkParser.parse(config.xrayLink) }.getOrNull()
-            val detail = if (parsed != null) "${parsed.address}:${parsed.port}" else "Link belum valid"
             row.ivRowAvatarBg.setBackgroundResource(R.drawable.bg_avatar_xray)
             row.ivRowIcon.setImageResource(R.drawable.ic_account_xray)
-            row.tvRowTypeBadge.text = "XRAY" + lockBadgeSuffix(config.lockMode)
-            row.tvRowTitle.text = if (hasCustomName) config.accountName else detail
+            row.tvRowTypeBadge.text = "XRAY"
             openEditScreen = {
                 startActivity(
                     Intent(this, XrayConfigActivity::class.java)
                         .putExtra(XrayConfigActivity.EXTRA_PROFILE_ID, profile.id)
                 )
             }
-            if (hasCustomName) {
-                row.tvRowSubtitle.text = detail
+            if (contentLocked) {
+                row.tvRowTitle.text = lockedDisplayName
+                row.tvRowSubtitle.text = "🔒 ${config.lockMode.label}"
                 row.tvRowSubtitle.visibility = View.VISIBLE
             } else {
-                row.tvRowSubtitle.visibility = View.GONE
+                val parsed = runCatching { XrayLinkParser.parse(config.xrayLink) }.getOrNull()
+                val detail = if (parsed != null) "${parsed.address}:${parsed.port}" else "Link belum valid"
+                row.tvRowTitle.text = if (hasCustomName) config.accountName else detail
+                if (hasCustomName) {
+                    row.tvRowSubtitle.text = detail
+                    row.tvRowSubtitle.visibility = View.VISIBLE
+                } else {
+                    row.tvRowSubtitle.visibility = View.GONE
+                }
             }
         } else {
             val modeName = when (config.modeIndex) {
@@ -216,22 +223,28 @@ class ConfigActivity : AppCompatActivity() {
                 3 -> "REMOTE PROXY"
                 else -> "SSH"
             }
-            val detail = "${config.host}:${config.port}"
             row.ivRowAvatarBg.setBackgroundResource(R.drawable.bg_avatar_ssh)
             row.ivRowIcon.setImageResource(R.drawable.ic_account_ssh)
-            row.tvRowTypeBadge.text = modeName + lockBadgeSuffix(config.lockMode)
-            row.tvRowTitle.text = if (hasCustomName) config.accountName else detail
+            row.tvRowTypeBadge.text = modeName
             openEditScreen = {
                 startActivity(
                     Intent(this, SshConfigActivity::class.java)
                         .putExtra(SshConfigActivity.EXTRA_PROFILE_ID, profile.id)
                 )
             }
-            if (hasCustomName) {
-                row.tvRowSubtitle.text = detail
+            if (contentLocked) {
+                row.tvRowTitle.text = lockedDisplayName
+                row.tvRowSubtitle.text = "🔒 ${config.lockMode.label}"
                 row.tvRowSubtitle.visibility = View.VISIBLE
             } else {
-                row.tvRowSubtitle.visibility = View.GONE
+                val detail = "${config.host}:${config.port}"
+                row.tvRowTitle.text = if (hasCustomName) config.accountName else detail
+                if (hasCustomName) {
+                    row.tvRowSubtitle.text = detail
+                    row.tvRowSubtitle.visibility = View.VISIBLE
+                } else {
+                    row.tvRowSubtitle.visibility = View.GONE
+                }
             }
         }
 
@@ -263,22 +276,49 @@ class ConfigActivity : AppCompatActivity() {
         row.btnRowLock.setImageResource(
             if (config.isLocked) R.drawable.ic_lock_closed else R.drawable.ic_lock_open
         )
-        row.btnRowLock.setOnClickListener { onLockRowClicked(row, profile) }
+        row.btnRowLock.setOnClickListener {
+            if (contentLocked) {
+                // FITUR BARU (permintaan user, "kunci konfig saat ekspor"):
+                // beda dari gembok isLocked biasa, lockMode akun hasil impor
+                // TIDAK bisa dibuka dari UI sama sekali -- lihat dokumentasi
+                // [SavedConfig.lockMode].
+                Toast.makeText(
+                    this,
+                    "Konfigurasi akun ini dikunci oleh pembuatnya (${config.lockMode.label}) dan tidak bisa dibuka.",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                onLockRowClicked(row, profile)
+            }
+        }
 
-        val lockedAlpha = if (config.isLocked) 0.35f else 1f
+        // FITUR BARU (permintaan user, "kunci konfig saat ekspor"): Edit
+        // SELALU dipudarkan & diblokir total untuk akun contentLocked, apa
+        // pun status isLocked biasa-nya -- beda dari isLocked yang cuma
+        // memudarkan kalau memang lagi dikunci user sendiri.
+        val lockedAlpha = if (config.isLocked || contentLocked) 0.35f else 1f
         row.btnRowEdit.alpha = lockedAlpha
-        row.btnRowDelete.alpha = lockedAlpha
+        row.btnRowDelete.alpha = if (config.isLocked && !contentLocked) 0.35f else 1f
 
         row.btnRowEdit.setOnClickListener {
-            if (config.isLocked) {
-                Toast.makeText(this, "Akun ini terkunci. Buka kunci dulu untuk mengedit.", Toast.LENGTH_SHORT).show()
-            } else {
-                openEditScreen()
+            when {
+                contentLocked -> Toast.makeText(
+                    this,
+                    "Detail konfigurasi akun ini disembunyikan oleh pembuatnya, tidak bisa dilihat/diedit.",
+                    Toast.LENGTH_LONG
+                ).show()
+                config.isLocked -> Toast.makeText(this, "Akun ini terkunci. Buka kunci dulu untuk mengedit.", Toast.LENGTH_SHORT).show()
+                else -> openEditScreen()
             }
         }
 
         row.btnRowDelete.setOnClickListener {
-            if (config.isLocked) {
+            // Akun contentLocked SENGAJA tetap boleh dihapus (beda dari
+            // Edit) -- supaya akun terkunci yang sudah tidak dipakai/salah
+            // impor tidak nyangkut permanen di daftar, karena lockMode-nya
+            // memang tidak bisa dibuka dari UI. Lihat dokumentasi
+            // [SavedConfig.lockMode].
+            if (config.isLocked && !contentLocked) {
                 Toast.makeText(this, "Akun ini terkunci. Buka kunci dulu untuk menghapus.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
@@ -334,8 +374,22 @@ class ConfigActivity : AppCompatActivity() {
      * biasa, bukan lampiran file).
      */
     private fun onShareRowClicked(profile: SavedProfile) {
-        val code = buildShareCode(profile.config)
+        // FITUR BARU (permintaan user, "kunci konfig saat ekspor"): akun
+        // yang BELUM terkunci ditanya dulu mau pakai mode kunci apa (lihat
+        // [showLockModePicker]). Akun yang SUDAH terkunci (hasil impor dari
+        // orang lain) langsung dibagikan ulang dengan mode kunci yang SAMA
+        // apa adanya -- penerima tidak berhak melonggarkan kunci akun yang
+        // bukan miliknya, lihat [buildShareCode].
+        if (profile.config.lockMode != ConfigLockMode.NONE) {
+            showShareCodeDialog(buildShareCode(profile.config))
+            return
+        }
+        showLockModePicker { chosenMode ->
+            showShareCodeDialog(buildShareCode(profile.config, chosenMode))
+        }
+    }
 
+    private fun showShareCodeDialog(code: String) {
         val input = EditText(this).apply {
             setText(code)
             isFocusable = false
@@ -361,6 +415,29 @@ class ConfigActivity : AppCompatActivity() {
                 }
                 startActivity(Intent.createChooser(send, "Bagikan akun via"))
             }
+            .show()
+    }
+
+    // --- Kunci konfig saat ekspor (permintaan user, mirip HTTP Custom) --
+
+    /**
+     * Dialog pilihan mode kunci (lihat [ConfigLockMode]), dipakai SEBELUM
+     * membangun kode bagikan satu akun ([onShareRowClicked]) atau file
+     * ekspor semua akun ([onExportAllClicked]) -- cuma ditawarkan untuk
+     * akun yang BELUM terkunci sama sekali. [onChosen] dipanggil dengan
+     * mode yang dipilih user; dialog dibatalkan begitu saja kalau user
+     * menekan "Batal" (tidak memanggil [onChosen] sama sekali).
+     */
+    private fun showLockModePicker(onChosen: (ConfigLockMode) -> Unit) {
+        val modes = ConfigLockMode.entries.toTypedArray()
+        val labels = modes.map { it.label }.toTypedArray()
+        var selected = 0
+
+        AlertDialog.Builder(this)
+            .setTitle("Kunci konfigurasi?")
+            .setSingleChoiceItems(labels, selected) { _, which -> selected = which }
+            .setNegativeButton("Batal", null)
+            .setPositiveButton("Lanjut") { _, _ -> onChosen(modes[selected]) }
             .show()
     }
 
@@ -432,9 +509,15 @@ class ConfigActivity : AppCompatActivity() {
             Toast.makeText(this, "Belum ada akun untuk diekspor", Toast.LENGTH_SHORT).show()
             return
         }
-        exportPendingJson = profilesToJson(profiles)
-        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-        exportFileLauncher.launch("suryavpn-config-$stamp.json")
+        // FITUR BARU (permintaan user, "kunci konfig saat ekspor"): mode
+        // yang dipilih di sini cuma diterapkan ke akun yang BELUM terkunci
+        // -- akun yang sudah punya lockMode sendiri (hasil impor dari orang
+        // lain) tetap dipertahankan apa adanya, lihat [profilesToJson].
+        showLockModePicker { chosenMode ->
+            exportPendingJson = profilesToJson(profiles, chosenMode)
+            val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+            exportFileLauncher.launch("suryavpn-config-$stamp.json")
+        }
     }
 
     private fun copyToClipboard(label: String, text: String) {

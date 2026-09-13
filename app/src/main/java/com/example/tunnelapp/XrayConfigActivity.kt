@@ -2,14 +2,11 @@ package com.example.tunnelapp
 
 import android.os.Bundle
 import android.view.View
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doOnTextChanged
 import com.example.tunnelapp.databinding.ActivityXrayConfigBinding
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
-import com.example.tunnelapp.model.ShareLockMode
-import com.example.tunnelapp.model.label
 import com.example.tunnelapp.tunnel.XrayLinkBuilder
 import com.example.tunnelapp.tunnel.XrayLinkParser
 import com.example.tunnelapp.tunnel.XrayOutboundConfig
@@ -56,20 +53,6 @@ class XrayConfigActivity : AppCompatActivity() {
     private val autoParseRunnable = Runnable { autoParseSilently() }
     private val autoParseDelayMs = 500L
 
-    /**
-     * FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig"): sama
-     * konsepnya seperti di SshConfigActivity, tapi untuk Xray SELURUH info
-     * server (host, port, id/password, path, TLS, dst) sudah menyatu di
-     * DALAM satu [com.example.tunnelapp.model.SavedConfig.xrayLink] -- tidak
-     * ada field host/user/password terpisah seperti di jalur SSH. Jadi di
-     * sini kuncinya bersifat SATU KESATUAN: begitu mode dipilih selain
-     * [ShareLockMode.NONE], seluruh link dikunci (lihat applyLockUiState) --
-     * bedanya cuma di kode bagikan (lihat ConfigIO.kt), field "xrayLink"
-     * tetap masuk grup "payload" yang dienkripsi kalau grup itu ikut
-     * terkunci di mode yang dipilih.
-     */
-    private var currentLockMode: ShareLockMode = ShareLockMode.NONE
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityXrayConfigBinding.inflate(layoutInflater)
@@ -85,9 +68,6 @@ class XrayConfigActivity : AppCompatActivity() {
             // Kalau sudah ada akun tersimpan sebelumnya, langsung urai saat layar
             // dibuka juga -- tidak perlu tunggu tempel/ketik baru dulu.
             autoParseSilently()
-
-            currentLockMode = saved.lockMode
-            applyLockUiState(currentLockMode)
         }
 
         setupDetailFieldToggles()
@@ -120,38 +100,6 @@ class XrayConfigActivity : AppCompatActivity() {
         lastParsedConfig = parsed
         populateDetailFields(parsed)
         binding.cardXrayDetails.visibility = View.VISIBLE
-    }
-
-    /**
-     * Kalau [mode] bukan [ShareLockMode.NONE], link Xray dikunci total:
-     * field link & tombol "Urai" dinonaktifkan, dan kartu detail akun yang
-     * sudah terurai disembunyikan lagi (supaya Simpan tidak diam-diam
-     * menyusun ulang link dari field detail yang sebenarnya masih bisa
-     * disentuh -- lihat cabang di onSaveClicked yang otomatis jatuh balik
-     * ke etXrayLink apa adanya begitu cardXrayDetails tidak VISIBLE).
-     */
-    private fun applyLockUiState(mode: ShareLockMode) {
-        val locked = mode != ShareLockMode.NONE
-        binding.etXrayLink.isEnabled = !locked
-        binding.tilXrayLink.alpha = if (locked) 0.5f else 1f
-        binding.btnParseXray.isEnabled = !locked
-        if (locked) {
-            binding.cardXrayDetails.visibility = View.GONE
-        }
-    }
-
-    /** Sama seperti [SshConfigActivity.showLockModeDialog] -- lihat dokumentasinya. */
-    private fun showLockModeDialog(current: ShareLockMode, onPicked: (ShareLockMode) -> Unit) {
-        val modes = ShareLockMode.values()
-        val labels = modes.map { it.label }.toTypedArray()
-        var selected = modes.indexOf(current).coerceAtLeast(0)
-
-        AlertDialog.Builder(this)
-            .setTitle("Kunci konfigurasi ini?")
-            .setSingleChoiceItems(labels, selected) { _, which -> selected = which }
-            .setNegativeButton("Batal", null)
-            .setPositiveButton("Simpan") { _, _ -> onPicked(modes[selected]) }
-            .show()
     }
 
     private fun setupDetailFieldToggles() {
@@ -348,39 +296,33 @@ class XrayConfigActivity : AppCompatActivity() {
             xrayLink = raw
         }
 
-        // FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig"):
-        // sama seperti SshConfigActivity -- dialog pilihan mode kunci
-        // ditampilkan dulu, penyimpanan sesungguhnya baru jalan di callback.
-        showLockModeDialog(currentLockMode) { chosenLockMode ->
-            // FIX (multi-akun): dulu di sini ada logika "pertahankan field SSH
-            // profil lain sebelum menyimpan" karena SSH & Xray berbagi SATU slot
-            // penyimpanan. Sekarang profil Xray ini berdiri sendiri di
-            // [ProfileStore] -- tidak perlu lagi membaca/mempertahankan field
-            // profil lain sama sekali.
-            editingProfileId = ProfileStore.upsert(
-                this,
-                editingProfileId,
-                SavedConfig(
-                    host = "",
-                    port = 22,
-                    username = "",
-                    password = "",
-                    modeIndex = 5,
-                    sni = "",
-                    payload = "",
-                    proxyHost = "",
-                    proxyPort = "",
-                    tlsVersion = "",
-                    useWebSocket = false,
-                    wsPath = "",
-                    proxyRawMode = false,
-                    xrayLink = xrayLink,
-                    accountName = accountName,
-                    lockMode = chosenLockMode
-                )
+        // FIX (multi-akun): dulu di sini ada logika "pertahankan field SSH
+        // profil lain sebelum menyimpan" karena SSH & Xray berbagi SATU slot
+        // penyimpanan. Sekarang profil Xray ini berdiri sendiri di
+        // [ProfileStore] -- tidak perlu lagi membaca/mempertahankan field
+        // profil lain sama sekali.
+        editingProfileId = ProfileStore.upsert(
+            this,
+            editingProfileId,
+            SavedConfig(
+                host = "",
+                port = 22,
+                username = "",
+                password = "",
+                modeIndex = 5,
+                sni = "",
+                payload = "",
+                proxyHost = "",
+                proxyPort = "",
+                tlsVersion = "",
+                useWebSocket = false,
+                wsPath = "",
+                proxyRawMode = false,
+                xrayLink = xrayLink,
+                accountName = accountName
             )
+        )
 
-            finish()
-        }
+        finish()
     }
 }

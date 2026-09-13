@@ -1,14 +1,10 @@
 package com.example.tunnelapp
 
 import android.os.Bundle
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.example.tunnelapp.databinding.ActivitySshConfigBinding
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
-import com.example.tunnelapp.model.ShareLockMode
-import com.example.tunnelapp.model.label
-import com.example.tunnelapp.model.lockedGroupsFor
 
 /**
  * Layar konfigurasi khusus jalur SSH (SSH biasa, SSH SSL, SSH TLS Payload Proxy,
@@ -56,15 +52,6 @@ class SshConfigActivity : AppCompatActivity() {
      *  user) tidak ikut ditandai sebagai "sudah eksplisit" oleh listener
      *  chipRawMode di setupModeChips(). */
     private var settingRawModeProgrammatically = false
-
-    /**
-     * FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig"): mode
-     * kunci akun ini saat ini -- NONE untuk akun baru, atau nilai tersimpan
-     * kalau sedang EDIT akun lama (lihat restoreSavedConfig). Dipakai buat
-     * pra-pilih opsi yang sama di dialog Simpan (lihat showLockModeDialog)
-     * & buat memudarkan field yang terkait grupnya lewat applyLockUiState.
-     */
-    private var currentLockMode: ShareLockMode = ShareLockMode.NONE
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -201,66 +188,6 @@ class SshConfigActivity : AppCompatActivity() {
         // -- jangan sampai ditimpa auto-default kalau user gonta-ganti chip
         // mode selama sesi edit ini (lihat applyDefaultRawModeForEnhancedIfNeeded).
         rawModeHasExplicitValue = true
-
-        // FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig"):
-        // terapkan status kunci tersimpan ke form -- field grup yang dikunci
-        // langsung tampak dipudarkan/tidak bisa diedit begitu layar edit ini
-        // dibuka, bukan cuma setelah Simpan ditekan lagi.
-        currentLockMode = saved.lockMode
-        applyLockUiState(currentLockMode)
-    }
-
-    /**
-     * FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig -- lock
-     * all, lock payload, unlock server, unlock user & password"): pudarkan
-     * & nonaktifkan (isEnabled = false) field representatif tiap grup
-     * (lihat lockedGroupsFor di ConfigIO.kt) kalau grupnya ikut dikunci di
-     * [mode]. Sengaja HANYA menyentuh field inti per grup (host/port,
-     * payload, username/password) -- BUKAN field turunan mode seperti
-     * proxyHost/tlsVersion/dst, supaya tidak bentrok dengan mesin
-     * visibility-per-mode yang sudah ada di updateFieldVisibilityForMode()/
-     * updateWsAndHeaderFieldState() (field-field itu independen mengatur
-     * enabled-nya sendiri berdasarkan mode koneksi yang dipilih).
-     */
-    private fun applyLockUiState(mode: ShareLockMode) {
-        val groups = lockedGroupsFor(mode)
-        val serverLocked = "server" in groups
-        val payloadLocked = "payload" in groups
-        val userLocked = "user" in groups
-
-        binding.etHost.isEnabled = !serverLocked
-        binding.etPort.isEnabled = !serverLocked
-        binding.tilHost.alpha = if (serverLocked) 0.5f else 1f
-        binding.tilPort.alpha = if (serverLocked) 0.5f else 1f
-
-        binding.etPayload.isEnabled = !payloadLocked
-        binding.tilPayload.alpha = if (payloadLocked) 0.5f else 1f
-
-        binding.etUsername.isEnabled = !userLocked
-        binding.etPassword.isEnabled = !userLocked
-        binding.tilUsername.alpha = if (userLocked) 0.5f else 1f
-        binding.tilPassword.alpha = if (userLocked) 0.5f else 1f
-    }
-
-    /**
-     * Dialog pilihan mode kunci, ditampilkan begitu tombol Simpan ditekan
-     * (setelah validasi field lolos, lihat onSaveClicked) -- opsi yang lagi
-     * tersimpan (atau NONE untuk akun baru) sudah pra-dipilih. [onPicked]
-     * baru dipanggil kalau user menekan "Simpan" di dialog ini (bukan
-     * "Batal"), supaya proses Simpan yang sesungguhnya bisa dibatalkan di
-     * langkah terakhir ini juga.
-     */
-    private fun showLockModeDialog(current: ShareLockMode, onPicked: (ShareLockMode) -> Unit) {
-        val modes = ShareLockMode.values()
-        val labels = modes.map { it.label }.toTypedArray()
-        var selected = modes.indexOf(current).coerceAtLeast(0)
-
-        AlertDialog.Builder(this)
-            .setTitle("Kunci konfigurasi ini?")
-            .setSingleChoiceItems(labels, selected) { _, which -> selected = which }
-            .setNegativeButton("Batal", null)
-            .setPositiveButton("Simpan") { _, _ -> onPicked(modes[selected]) }
-            .show()
     }
 
     private fun setupModeChips() {
@@ -497,46 +424,38 @@ class SshConfigActivity : AppCompatActivity() {
         val tlsVersion = if (usesTls) selectedTlsVersion() else null
         val ignoreCertErrors = usesTls && binding.chipIgnoreCertErrors.isChecked
 
-        // FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig"):
-        // tampilkan dialog pilihan mode kunci SEBELUM benar-benar menyimpan
-        // -- proses Simpan yang sesungguhnya (ProfileStore.upsert + finish())
-        // baru jalan di dalam callback [onPicked] dialog ini, supaya user
-        // masih bisa membatalkan lewat "Batal" di langkah terakhir ini juga.
-        showLockModeDialog(currentLockMode) { chosenLockMode ->
-            // FIX (multi-akun): dulu di sini ada logika "pertahankan xrayLink
-            // profil lain sebelum menyimpan" karena SSH & Xray berbagi SATU slot
-            // penyimpanan. Sekarang tiap akun (SSH maupun Xray) adalah profil
-            // [ProfileStore] sendiri-sendiri -- menyimpan profil SSH ini TIDAK
-            // pernah menyentuh profil lain sama sekali, jadi tidak perlu lagi
-            // baca+pertahankan field profil lain di sini.
-            editingProfileId = ProfileStore.upsert(
-                this,
-                editingProfileId,
-                SavedConfig(
-                    host = host,
-                    port = port,
-                    username = username,
-                    password = password,
-                    modeIndex = modeIndex,
-                    sni = sni,
-                    payload = payload,
-                    proxyHost = proxyHost,
-                    proxyPort = proxyPortText,
-                    tlsVersion = tlsVersion.orEmpty(),
-                    useWebSocket = true,
-                    wsPath = wsPath,
-                    proxyRawMode = proxyRawMode,
-                    xrayLink = "",
-                    customHeaders = customHeaders,
-                    ignoreCertErrors = ignoreCertErrors,
-                    dns1 = dns1,
-                    dns2 = dns2,
-                    accountName = accountName,
-                    lockMode = chosenLockMode
-                )
+        // FIX (multi-akun): dulu di sini ada logika "pertahankan xrayLink
+        // profil lain sebelum menyimpan" karena SSH & Xray berbagi SATU slot
+        // penyimpanan. Sekarang tiap akun (SSH maupun Xray) adalah profil
+        // [ProfileStore] sendiri-sendiri -- menyimpan profil SSH ini TIDAK
+        // pernah menyentuh profil lain sama sekali, jadi tidak perlu lagi
+        // baca+pertahankan field profil lain di sini.
+        editingProfileId = ProfileStore.upsert(
+            this,
+            editingProfileId,
+            SavedConfig(
+                host = host,
+                port = port,
+                username = username,
+                password = password,
+                modeIndex = modeIndex,
+                sni = sni,
+                payload = payload,
+                proxyHost = proxyHost,
+                proxyPort = proxyPortText,
+                tlsVersion = tlsVersion.orEmpty(),
+                useWebSocket = true,
+                wsPath = wsPath,
+                proxyRawMode = proxyRawMode,
+                xrayLink = "",
+                customHeaders = customHeaders,
+                ignoreCertErrors = ignoreCertErrors,
+                dns1 = dns1,
+                dns2 = dns2,
+                accountName = accountName
             )
+        )
 
-            finish()
-        }
+        finish()
     }
 }

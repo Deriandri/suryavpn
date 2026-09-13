@@ -59,16 +59,18 @@ data class SavedConfig(
     // ketidaksengajaan, TIDAK mengenkripsi/menyembunyikan data & TIDAK
     // memengaruhi logika koneksi sama sekali.
     val isLocked: Boolean = false,
-    // FITUR BARU (permintaan user, "kunci saat mau menyimpan konfig -- lock
-    // all, lock payload, unlock server, unlock user & password"): dipilih
-    // lewat dialog saat Simpan di SshConfigActivity/XrayConfigActivity.
-    // Beda dari [isLocked] di atas (kunci SATU akun secara utuh, cuma
-    // menahan tombol Edit/Hapus di ConfigActivity): field ini granular per
-    // GRUP field (server/payload/user&password, lihat ShareLockMode &
-    // lockedGroupsFor di ConfigIO.kt), memudarkan field terkait di FORM
-    // edit-nya sendiri, DAN membuat field itu benar-benar terenkripsi
-    // (bukan cuma tersembunyi) di dalam kode bagikan (lihat buildShareCode).
-    val lockMode: ShareLockMode = ShareLockMode.NONE
+    // FITUR BARU (permintaan user, "kunci konfig saat ekspor seperti HTTP
+    // Custom"): lihat dokumentasi lengkap di [ConfigLockMode]. NONE untuk
+    // akun biasa yang dibuat langsung di app ini. Nilai selain NONE hanya
+    // muncul di akun hasil IMPOR dari file/kode yang sengaja dikunci saat
+    // diekspor -- menandakan akun ini "terkunci total" di UI (lihat
+    // ConfigActivity.bindAccountRow): cuma nama akunnya yang ditampilkan,
+    // layar Edit tidak bisa dibuka sama sekali. Beda dari [isLocked] di atas
+    // yang murni proteksi ketidaksengajaan dan bisa dibuka lagi kapan pun
+    // oleh pemilik HP -- lockMode TIDAK bisa "dibuka" dari UI karena memang
+    // dimaksudkan supaya penerima akun (mis. dari penjual konfig) tidak bisa
+    // mengintip/menyalin kredensial & trik aslinya.
+    val lockMode: ConfigLockMode = ConfigLockMode.NONE
 )
 
 object ConfigStore {
@@ -143,9 +145,7 @@ object ConfigStore {
             dns1 = prefs.getString(KEY_DNS1, "").orEmpty(),
             dns2 = prefs.getString(KEY_DNS2, "").orEmpty(),
             accountName = prefs.getString(KEY_ACCOUNT_NAME, "").orEmpty(),
-            lockMode = runCatching {
-                ShareLockMode.valueOf(prefs.getString(KEY_LOCK_MODE, ShareLockMode.NONE.name)!!)
-            }.getOrDefault(ShareLockMode.NONE)
+            lockMode = ConfigLockMode.fromName(prefs.getString(KEY_LOCK_MODE, null))
         )
     }
 

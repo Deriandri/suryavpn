@@ -175,13 +175,6 @@ object ProfileStore {
         editor.putString(KEY_IDS, id)
         editor.putString(KEY_ACTIVE_ID, id)
         editor.apply()
-
-        // FITUR BARU (permintaan user, "maksimalkan enkripsi"): begitu data
-        // lama dari ConfigStore (single-slot, PLAINTEXT) sudah berhasil
-        // dipindah ke penyimpanan terenkripsi di atas, kosongkan file
-        // plaintext lamanya -- supaya host/password tidak nganggur dobel di
-        // disk dalam bentuk tidak terenkripsi setelah migrasi ini.
-        ConfigStore.clear(context)
     }
 
     // --- Helper serialisasi per-profil ----------------------------------
@@ -288,9 +281,7 @@ object ProfileStore {
             dns2 = prefs.getString(k(id, "dns2"), "").orEmpty(),
             accountName = prefs.getString(k(id, "accountName"), "").orEmpty(),
             isLocked = prefs.getBoolean(k(id, "isLocked"), false),
-            lockMode = runCatching {
-                ShareLockMode.valueOf(prefs.getString(k(id, "lockMode"), ShareLockMode.NONE.name)!!)
-            }.getOrDefault(ShareLockMode.NONE)
+            lockMode = ConfigLockMode.fromName(prefs.getString(k(id, "lockMode"), null))
         )
     }
 
