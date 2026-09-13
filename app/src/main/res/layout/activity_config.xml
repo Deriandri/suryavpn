@@ -411,6 +411,50 @@
                             android:focusable="true" />
                     </LinearLayout>
 
+                    <!-- FITUR BARU (permintaan user, "tambahkan tulisan kecil
+                         untuk ekspor semuanya"): keterangan kecil di bawah
+                         header supaya jelas tombol "Ekspor" di atas
+                         menyertakan SEMUA akun tersimpan (bukan cuma akun
+                         yang sedang aktif/dipakai koneksi) — lihat
+                         ConfigActivity.onExportAllClicked() yang memang
+                         ambil ProfileStore.getAll(), bukan cuma akun aktif. -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="10dp"
+                        android:text="Tombol Ekspor akan menyertakan SEMUA akun tersimpan di bawah ini, bukan cuma akun yang sedang aktif."
+                        android:textColor="@color/text_hint"
+                        android:textSize="11sp"
+                        android:textStyle="italic" />
+
+                    <!-- FITUR BARU (permintaan user, "tombol search konfig"):
+                         field pencarian akun, filter live lewat
+                         ConfigActivity.setupAccountSearch() — cocokkan ke
+                         accountName ATAU host (lihat filterAccounts()).
+                         Pakai style Field.Outlined yang sama dengan field
+                         lain di app (activity_ssh_config.xml dst) supaya
+                         konsisten. -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilSearchAccount"
+                        style="@style/Field.Outlined"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="10dp"
+                        android:hint="Cari akun (nama atau host)..."
+                        app:startIconDrawable="@drawable/ic_search"
+                        app:endIconMode="clear_text">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etSearchAccount"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:maxLines="1"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
                     <!-- Daftar akun: tiap baris (item_account_row.xml) dipisah
                          garis tipis "dividerRow" (disembunyikan di baris
                          pertama lewat ConfigActivity.refreshAccountsList()),
@@ -441,7 +485,15 @@
                             android:layout_marginEnd="12dp"
                             android:background="@drawable/bg_avatar_empty" />
 
+                        <!-- FITUR BARU (permintaan user, "tombol search konfig"):
+                             teks state kosong ini sekarang dinamis lewat id
+                             ini — ConfigActivity.filterAccounts() menimpa
+                             teksnya jadi pesan "tidak ada hasil pencarian"
+                             kalau kosongnya karena filter search yang tidak
+                             cocok (bukan karena memang belum ada akun sama
+                             sekali), lihat ConfigActivity.updateEmptyStateText(). -->
                         <TextView
+                            android:id="@+id/textAccountEmptyMessage"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"

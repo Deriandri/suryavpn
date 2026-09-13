@@ -3,6 +3,7 @@ package com.example.tunnelapp.tunnel
 import android.util.Log
 import com.example.tunnelapp.model.ServerConfig
 import net.schmizz.sshj.SSHClient
+import net.schmizz.sshj.common.SecurityUtils
 import net.schmizz.sshj.connection.channel.direct.Parameters
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -11,7 +12,6 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.security.Security
 import javax.net.SocketFactory
 
 /**
@@ -40,17 +40,30 @@ import javax.net.SocketFactory
  * juga): provider JCE bernama "BC" BAWAAN ANDROID ternyata memang sangat
  * terbatas (bukan Bouncy Castle asli/lengkap seperti di JVM desktop) --
  * banyak algoritma modern (X25519, kurva EC penuh, dll) memang tidak ada di
- * situ. sshj secara internal berulang kali minta provider bernama PERSIS
- * "BC" utk berbagai operasi kripto (KeyExchange, host key EC, dll), jadi
- * memfilter algoritma satu-per-satu (percobaan pertama, KHUSUS utk X25519)
- * terbukti TIDAK CUKUP -- begitu satu algoritma dihindari, algoritma
- * berikutnya yang sama-sama butuh provider "BC" lengkap ikut gagal juga.
+ * situ.
+ *
+ * PERBAIKAN (laporan user, "pakai engine sshj koneksi internet sering hilang
+ * sendiri"): fix SEBELUMNYA di sini salah -- MENIMPA provider "BC" secara
+ * GLOBAL lewat Security.removeProvider("BC") + Security.insertProviderAt(...,
+ * 1), yang efeknya BUKAN cuma buat sshj, tapi SELURUH proses app (semua
+ * TLS/HTTPS lain: Cloud Sync, engine Xray, dll) ikut kepindah ke Bouncy
+ * Castle murni-Java di posisi prioritas TERTINGGI begitu sshj dipakai SEKALI
+ * saja -- dan TIDAK PERNAH di-reset lagi selama proses app hidup. Bouncy
+ * Castle murni tidak seterintegrasi Conscrypt/AndroidOpenSSL dengan network
+ * stack Android, jadi bisa bikin koneksi TLS LAIN (bukan cuma tunnel SSH-nya)
+ * ikut melambat/gagal sesekali -- persis gejala "internet sering hilang
+ * sendiri" yang dilaporkan, karena dampaknya app-wide, bukan cuma pas tunnel
+ * sshj aktif.
+ *
  * FIX YANG BENAR (dipakai sekarang, lihat ensureBouncyCastleRegistered()):
- * daftarkan Bouncy Castle ASLI (dependency org.bouncycastle:bcprov-jdk18on,
- * lihat app/build.gradle.kts) sebagai provider "BC", MENGGANTIKAN versi
- * Android yang terpotong -- sekali daftar di awal connect(), SEMUA algoritma
- * yang diminta sshj (X25519, EC, dan apa pun lainnya) langsung tersedia
- * penuh, tidak perlu filter algoritma satu-satu lagi.
+ * sshj punya API RESMI untuk kasih tahu provider BC ke DIRINYA SENDIRI saja
+ * -- net.schmizz.sshj.common.SecurityUtils.setSecurityProvider(Provider) --
+ * TANPA menyentuh Security.insertProviderAt() / daftar provider JVM global
+ * sama sekali. Efeknya: X25519/EC dkk tetap lengkap tersedia KHUSUS untuk
+ * operasi kripto internal sshj (lewat SecurityUtils.getKeyPairGenerator()
+ * dkk, semuanya baca dari sini), sementara SEMUA kode lain di app (TLS
+ * Cloud Sync, Xray, dst) TETAP pakai provider default Android seperti biasa
+ * -- tidak ada lagi efek samping app-wide.
  *
  * ARSITEKTUR: memakai [ConnectRelay] yang SAMA PERSIS dengan [SshTunnelManager]
  * (relay itu murni socket loopback, tidak terikat ke satu library SSH manapun)
@@ -205,28 +218,30 @@ class SshjTunnelManager : SshEngineHandle {
 
         /**
          * FIX ROOT CAUSE (lihat catatan panjang di javadoc kelas ini) --
-         * ganti provider "BC" bawaan Android (terpotong, banyak algoritma
-         * modern hilang) dengan Bouncy Castle ASLI (dependency
-         * org.bouncycastle:bcprov-jdk18on, lihat app/build.gradle.kts).
-         * removeProvider() dulu supaya insertProviderAt() posisi 1 (prioritas
-         * TERTINGGI) tidak bentrok/didahului versi Android yang sudah
-         * terdaftar duluan dengan nama sama.
+         * kasih tahu Bouncy Castle ASLI (dependency org.bouncycastle:bcprov-jdk18on,
+         * lihat app/build.gradle.kts) KHUSUS ke sshj lewat SecurityUtils,
+         * BUKAN lewat Security.insertProviderAt() yang berlaku global ke
+         * seluruh proses app. Ini scoped, aman dipanggil kapan pun (tidak
+         * ada efek samping ke TLS/HTTPS/kripto lain di app), dan otomatis
+         * dipakai sshj untuk SEMUA algoritma yang ia minta lewat provider
+         * "BC" (X25519, kurva EC penuh, dll) -- tidak perlu filter algoritma
+         * satu-satu, sama seperti tujuan fix versi sebelumnya, cuma tanpa
+         * dampak global-nya.
          */
         private fun ensureBouncyCastleRegistered() {
             if (bcRegistered) return
             synchronized(bcRegisterLock) {
                 if (bcRegistered) return
                 try {
-                    Security.removeProvider("BC")
-                    Security.insertProviderAt(BouncyCastleProvider(), 1)
-                    Log.i(TAG, "Bouncy Castle asli terdaftar sebagai provider \"BC\" (menggantikan versi Android yang terpotong)")
+                    SecurityUtils.setSecurityProvider(BouncyCastleProvider())
+                    Log.i(TAG, "Bouncy Castle asli didaftarkan KHUSUS untuk sshj (scoped, tidak menyentuh provider JVM global)")
                 } catch (e: Exception) {
                     // Non-fatal di titik ini -- kalau ternyata masih ada
                     // algoritma yang hilang, error "no such algorithm: ...
                     // for provider BC" yang sama akan muncul lagi nanti pas
                     // handshake, dan itu ke-log jelas di StatusBus seperti
                     // sebelumnya, jadi tetap gampang didiagnosis.
-                    Log.e(TAG, "Gagal daftarkan Bouncy Castle asli sebagai provider BC, lanjut pakai provider bawaan Android", e)
+                    Log.e(TAG, "Gagal daftarkan Bouncy Castle asli ke sshj, lanjut pakai provider bawaan Android", e)
                 }
                 bcRegistered = true
             }
@@ -312,6 +327,21 @@ class SshjTunnelManager : SshEngineHandle {
         // di ConnectRelay. Tanpa ini, sesi yang idle (tidak ada trafik) lebih
         // dari CONNECT_TIMEOUT_MS akan salah dianggap putus.
         client.timeout = 0
+
+        // FIX (laporan user, "pakai engine sshj koneksi internet sering
+        // hilang sendiri"): SEBELUMNYA tidak ada keep-alive level protokol
+        // SSH sama sekali di sini -- selama tunnel idle (tidak ada trafik),
+        // sshj TIDAK PERNAH kirim apa pun ke server sampai probe watchdog app
+        // (MyVpnService, ~tiap 16 menit) lewat. Di jaringan seluler yang NAT-
+        // nya sering drop koneksi TCP idle LEBIH CEPAT dari 16 menit, tunnel
+        // bisa mati diam-diam di tengah jeda itu. keepAliveInterval di bawah
+        // bikin sshj kirim SSH_MSG_GLOBAL_REQUEST "keepalive" kecil tiap 30
+        // detik selama idle -- selain menjaga NAT tetap terbuka, kalau
+        // ternyata koneksi sudah putus, sshj juga lebih cepat sadar (lewat
+        // exception di reader thread -> disconnectWatchThread di bawah
+        // langsung menangkapnya), bukan menunggu sampai watchdog jarak jauh
+        // berikutnya.
+        client.connection.keepAlive.keepAliveInterval = 30
 
         sshClient = client
         val connHandle = SshjConnectionHandle(client)

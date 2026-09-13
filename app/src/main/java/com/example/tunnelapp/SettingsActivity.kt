@@ -13,8 +13,10 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import com.example.tunnelapp.databinding.ActivitySettingsBinding
+import com.example.tunnelapp.model.AppLanguage
 import com.example.tunnelapp.model.GeneralSettings
 import com.example.tunnelapp.model.GeneralSettingsStore
+import com.example.tunnelapp.model.LocaleStore
 import com.example.tunnelapp.model.ThemeMode
 import com.example.tunnelapp.model.ThemeStore
 import com.example.tunnelapp.model.VpnSettings
@@ -47,6 +49,7 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         loadThemeIntoForm()
+        loadLanguageIntoForm()
 
         loadVpnSettingsIntoForm()
         binding.btnSaveVpnSetting.setOnClickListener { saveVpnSettingsFromForm() }
@@ -55,7 +58,7 @@ class SettingsActivity : AppCompatActivity() {
         loadGeneralSettingsIntoForm()
         binding.btnSaveGeneralSetting.setOnClickListener { saveGeneralSettingsFromForm() }
 
-        binding.tvAppVersion.text = "SuryaVPN — versi ${appVersionName()}"
+        binding.tvAppVersion.text = getString(R.string.app_version_format, appVersionName())
 
         setupBottomNav()
     }
@@ -98,6 +101,32 @@ class SettingsActivity : AppCompatActivity() {
         AppCompatDelegate.setDefaultNightMode(mode.toNightMode())
     }
 
+    /**
+     * FITUR BARU (permintaan user, "tambahkan bahasa Inggris"): isi toggle
+     * Indonesia/English dari [LocaleStore], lalu pasang listener yang
+     * langsung menerapkan pilihan begitu user menekan salah satu opsi --
+     * sama seperti [loadThemeIntoForm], tidak perlu tombol "Simpan"
+     * terpisah supaya perubahan bahasa langsung terasa. Lihat
+     * activity_settings.xml kartu "Bahasa" (tepat di atas kartu
+     * "Pengaturan Dasar").
+     */
+    private fun loadLanguageIntoForm() {
+        binding.toggleLanguage.check(
+            when (LocaleStore.current()) {
+                AppLanguage.INDONESIAN -> R.id.btnLangIndonesian
+                AppLanguage.ENGLISH -> R.id.btnLangEnglish
+            }
+        )
+        binding.toggleLanguage.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            val language = when (checkedId) {
+                R.id.btnLangIndonesian -> AppLanguage.INDONESIAN
+                else -> AppLanguage.ENGLISH
+            }
+            LocaleStore.apply(language)
+        }
+    }
+
     /** Isi form Pengaturan Dasar dari [GeneralSettingsStore]. */
     private fun loadGeneralSettingsIntoForm() {
         val settings = GeneralSettingsStore.load(this)
@@ -126,9 +155,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateKeepAliveTargetHint(method: String) {
         binding.tilKeepAliveTarget.hint = if (method == GeneralSettings.METHOD_HTTP) {
-            "Target keep-alive (host/URL saja, tanpa port -- otomatis HTTP port 80)"
+            getString(R.string.keep_alive_target_hint_http)
         } else {
-            "Target keep-alive (host, port opsional -- default 443)"
+            getString(R.string.keep_alive_target_hint_tcp)
         }
     }
 
@@ -147,8 +176,11 @@ class SettingsActivity : AppCompatActivity() {
             interval < GeneralSettings.MIN_PING_INTERVAL_SECONDS ||
             interval > GeneralSettings.MAX_PING_INTERVAL_SECONDS
         ) {
-            binding.etPingInterval.error =
-                "Interval harus angka ${GeneralSettings.MIN_PING_INTERVAL_SECONDS}-${GeneralSettings.MAX_PING_INTERVAL_SECONDS} detik"
+            binding.etPingInterval.error = getString(
+                R.string.error_ping_interval,
+                GeneralSettings.MIN_PING_INTERVAL_SECONDS,
+                GeneralSettings.MAX_PING_INTERVAL_SECONDS
+            )
             return
         }
 
@@ -172,9 +204,9 @@ class SettingsActivity : AppCompatActivity() {
         }
         if (!isValidKeepAliveTarget(keepAliveTarget)) {
             binding.etKeepAliveTarget.error = if (keepAliveMethod == GeneralSettings.METHOD_HTTP) {
-                "Isi host/URL saja, mis. www.google.com"
+                getString(R.string.error_keepalive_http)
             } else {
-                "Isi host saja (port otomatis 443), atau host:port (mis. www.google.com:443)"
+                getString(R.string.error_keepalive_tcp)
             }
             return
         }
@@ -188,7 +220,7 @@ class SettingsActivity : AppCompatActivity() {
                 keepAliveMethod = keepAliveMethod
             )
         )
-        Toast.makeText(this, "Pengaturan Dasar disimpan", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.toast_general_saved), Toast.LENGTH_SHORT).show()
     }
 
     /**
@@ -232,20 +264,20 @@ class SettingsActivity : AppCompatActivity() {
      */
     private fun refreshBatteryStatus() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            binding.tvBatteryStatus.text = "Tidak berlaku di versi Android ini"
+            binding.tvBatteryStatus.text = getString(R.string.battery_not_applicable)
             binding.btnBatteryUsage.isEnabled = false
             return
         }
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         val isIgnoring = powerManager.isIgnoringBatteryOptimizations(packageName)
         if (isIgnoring) {
-            binding.tvBatteryStatus.text = "Tidak dibatasi -- tunnel aman jalan di background"
+            binding.tvBatteryStatus.text = getString(R.string.battery_not_restricted)
             binding.btnBatteryUsage.isEnabled = false
-            binding.btnBatteryUsage.text = "Aktif"
+            binding.btnBatteryUsage.text = getString(R.string.btn_battery_active)
         } else {
-            binding.tvBatteryStatus.text = "Dioptimalkan sistem -- tunnel bisa terputus di background"
+            binding.tvBatteryStatus.text = getString(R.string.battery_restricted)
             binding.btnBatteryUsage.isEnabled = true
-            binding.btnBatteryUsage.text = "Atur"
+            binding.btnBatteryUsage.text = getString(R.string.btn_battery_setup)
         }
     }
 
@@ -294,12 +326,12 @@ class SettingsActivity : AppCompatActivity() {
             )
             Toast.makeText(
                 this,
-                "Dialog izin baterai tidak tersedia di device ini -- cari menu baterai manual di halaman ini, atau di app Keamanan/Security bawaan HP",
+                getString(R.string.battery_dialog_unavailable),
                 Toast.LENGTH_LONG
             ).show()
         } catch (e2: Exception) {
             Log.e(TAG, "ACTION_APPLICATION_DETAILS_SETTINGS juga gagal", e2)
-            Toast.makeText(this, "Tidak bisa membuka pengaturan baterai di device ini", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.battery_settings_open_failed), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -312,9 +344,9 @@ class SettingsActivity : AppCompatActivity() {
     private fun applyCompressionSwitchAvailability(sshjSelected: Boolean) {
         binding.switchCompression.isEnabled = sshjSelected
         binding.tvCompressionHint.text = if (sshjSelected) {
-            "Compress trafik SSH pakai zlib -- BENERAN aktif di engine sshj."
+            getString(R.string.compression_hint_enabled)
         } else {
-            "Compress trafik SSH pakai zlib. Cuma berfungsi nyata di engine sshj -- pilih 'sshj (Beta)' di SSH Engine di atas dulu, baru toggle ini bisa dinyalakan. Engine Trilead tidak mendukung ini sama sekali (dikunci otomatis)."
+            getString(R.string.compression_hint_disabled)
         }
     }
 
@@ -350,6 +382,12 @@ class SettingsActivity : AppCompatActivity() {
                 binding.switchCompression.isChecked = false
             }
         }
+        // Pilih tombol Tunnel Engine sesuai setting tersimpan (default HEV).
+        // Independen dari toggleSshEngine di atas -- tidak ada listener
+        // silang antar keduanya, semua kombinasi sshEngine x tunEngine valid.
+        binding.toggleTunEngine.check(
+            if (settings.tunEngine == VpnSettings.TUN_ENGINE_BADVPN) R.id.btnTunEngineBadvpn else R.id.btnTunEngineHev
+        )
         // 0 berarti "tidak diisi" -- tampilkan field kosong, bukan "0",
         // supaya konsisten dengan makna kosong = pakai default/nonaktif.
         binding.etVpnSocksPort.setText(if (settings.socksPort > 0) settings.socksPort.toString() else "")
@@ -370,7 +408,7 @@ class SettingsActivity : AppCompatActivity() {
         if (text.isEmpty()) return 0
         val port = text.toIntOrNull()
         if (port == null || port < VpnSettings.MIN_PORT || port > VpnSettings.MAX_PORT) {
-            field.error = "$label harus angka ${VpnSettings.MIN_PORT}-${VpnSettings.MAX_PORT}, atau kosongkan"
+            field.error = getString(R.string.error_port, label, VpnSettings.MIN_PORT, VpnSettings.MAX_PORT)
             return null
         }
         return port
@@ -387,28 +425,34 @@ class SettingsActivity : AppCompatActivity() {
         val mtuText = binding.etVpnMtu.text.toString().trim()
 
         if (dns1.isNotEmpty() && !Patterns.IP_ADDRESS.matcher(dns1).matches()) {
-            binding.etVpnDns1.error = "Harus alamat IP (mis. 1.1.1.1), bukan domain"
+            binding.etVpnDns1.error = getString(R.string.error_dns1)
             return
         }
         if (dns2.isNotEmpty() && !Patterns.IP_ADDRESS.matcher(dns2).matches()) {
-            binding.etVpnDns2.error = "Harus alamat IP (mis. 1.0.0.1), bukan domain"
+            binding.etVpnDns2.error = getString(R.string.error_dns2)
             return
         }
 
         val mtu = mtuText.toIntOrNull()
         if (mtuText.isEmpty() || mtu == null || mtu < VpnSettings.MIN_MTU || mtu > VpnSettings.MAX_MTU) {
-            binding.etVpnMtu.error = "MTU harus angka ${VpnSettings.MIN_MTU}-${VpnSettings.MAX_MTU}"
+            binding.etVpnMtu.error = getString(R.string.error_mtu, VpnSettings.MIN_MTU, VpnSettings.MAX_MTU)
             return
         }
 
-        val socksPort = parseOptionalPort(binding.etVpnSocksPort, "SOCKS5 Port") ?: return
-        val httpPort = parseOptionalPort(binding.etVpnHttpPort, "HTTP Port") ?: return
-        val udpgwPort = parseOptionalPort(binding.etVpnUdpgwPort, "UDPGW Port") ?: return
+        val socksPort = parseOptionalPort(binding.etVpnSocksPort, getString(R.string.port_socks5_label)) ?: return
+        val httpPort = parseOptionalPort(binding.etVpnHttpPort, getString(R.string.port_http_label)) ?: return
+        val udpgwPort = parseOptionalPort(binding.etVpnUdpgwPort, getString(R.string.port_udpgw_label)) ?: return
 
         val sshEngine = if (binding.toggleSshEngine.checkedButtonId == R.id.btnEngineSshj) {
             VpnSettings.ENGINE_SSHJ
         } else {
             VpnSettings.ENGINE_TRILEAD
+        }
+
+        val tunEngine = if (binding.toggleTunEngine.checkedButtonId == R.id.btnTunEngineBadvpn) {
+            VpnSettings.TUN_ENGINE_BADVPN
+        } else {
+            VpnSettings.TUN_ENGINE_HEV
         }
 
         VpnSettingsStore.save(
@@ -430,10 +474,11 @@ class SettingsActivity : AppCompatActivity() {
                 // false -- jangan pernah simpan compressionEnabled=true
                 // berpasangan dengan sshEngine=TRILEAD.
                 compressionEnabled = binding.switchCompression.isChecked && sshEngine == VpnSettings.ENGINE_SSHJ,
-                sshEngine = sshEngine
+                sshEngine = sshEngine,
+                tunEngine = tunEngine
             )
         )
-        Toast.makeText(this, "VPN Setting disimpan", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.toast_vpn_saved), Toast.LENGTH_SHORT).show()
     }
 
     /** Ambil versionName dari PackageManager -- selalu sinkron dengan gradle, tidak perlu di-hardcode di sini. */

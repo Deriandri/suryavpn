@@ -1,6 +1,7 @@
 package com.example.tunnelapp
 
 import android.app.Application
+import com.example.tunnelapp.model.LocaleStore
 import com.example.tunnelapp.model.ThemeStore
 
 /**
@@ -21,5 +22,9 @@ class TunnelApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ThemeStore.applySaved(this)
+        // FITUR BARU (permintaan user, "tambahkan bahasa Inggris"): lihat
+        // LocaleStore -- cukup terapkan default kalau user belum pernah
+        // memilih bahasa, AndroidX sendiri yang mengembalikan pilihan lama.
+        LocaleStore.applyDefaultIfUnset()
     }
 }

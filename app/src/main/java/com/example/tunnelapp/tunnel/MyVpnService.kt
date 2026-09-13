@@ -46,8 +46,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * VpnService lengkap: SSH/Xray + bridging TUN<->SOCKS5 lewat [HevSocks5Engine]
- * (satu-satunya [TunEngine] yang dipakai app ini).
+ * VpnService lengkap: SSH/Xray + bridging TUN<->SOCKS5 lewat [TunEngine]
+ * (hev-socks5-tunnel atau badvpn-tun2socks, dipilih [TunEngineRouter]).
  *
  * Alur penuh:
  *  1. Buat TUN interface
@@ -492,8 +492,9 @@ class MyVpnService : VpnService() {
 
     // --- FIX ANR: scope KHUSUS untuk teardown (tunEngine.stop(), SSH/Xray
     // disconnect(), vpnInterface.close()) ---
-    // Semua panggilan itu BLOCKING: HevSocks5Engine.stop() nge-join thread
-    // native sampai 2 detik, SshTunnelManager.disconnect() nutup socket SSH
+    // Semua panggilan itu BLOCKING: TunEngine.stop() (baik HevSocks5Engine
+    // nge-join thread native, maupun BadVpnEngine nge-join proses child)
+    // sampai 2 detik, SshTunnelManager.disconnect() nutup socket SSH
     // (trilead-ssh2), XrayTunnelManager.disconnect() manggil JNI ke runtime Go
     // (libXray). stopVpn() dulu menjalankan semua itu LANGSUNG di badan
     // onStartCommand()/onDestroy() -- keduanya jalan di MAIN THREAD (sama
@@ -1992,10 +1993,15 @@ class MyVpnService : VpnService() {
         null
     }
 
-    /** Menjalankan [HevSocks5Engine], satu-satunya [TunEngine] yang dipakai app ini. */
+    /**
+     * Menjalankan [TunEngine] yang aktif lewat [TunEngineRouter] --
+     * pemilihan hev-socks5-tunnel vs badvpn-tun2socks dibaca dari
+     * `VpnSettingsStore.load(this).tunEngine` di dalam router itu sendiri,
+     * titik ini TIDAK PERLU tahu/berubah kalau nanti nambah engine ketiga.
+     */
     private fun startTunEngine(config: ServerConfig) {
         val fd = vpnInterface?.fd ?: throw IllegalStateException("TUN interface belum siap")
-        val engine = HevSocks5Engine()
+        val engine = TunEngineRouter(this)
         tunEngine = engine
         engine.start(
             tunFd = fd,
@@ -2003,7 +2009,7 @@ class MyVpnService : VpnService() {
             mtu = currentMtu,
             socksHost = "127.0.0.1",
             socksPort = config.socksPort,
-            onUnexpectedStop = { handleTunnelDeath("Engine tunnel (hev-socks5-tunnel) berhenti tak terduga") }
+            onUnexpectedStop = { handleTunnelDeath("Engine tunnel berhenti tak terduga") }
         )
     }
 

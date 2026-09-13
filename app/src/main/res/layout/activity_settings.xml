@@ -48,7 +48,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:text="Pengaturan"
+                android:text="@string/settings_title"
                 android:textColor="@color/text_primary"
                 android:textSize="22sp"
                 android:textStyle="bold" />
@@ -57,7 +57,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Pengaturan VPN &amp; info aplikasi"
+                android:text="@string/settings_subtitle"
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp" />
 
@@ -85,13 +85,13 @@
                     style="@style/SectionTitleText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Tampilan" />
+                    android:text="@string/section_display" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="6dp"
-                    android:text="Pilih tampilan terang, gelap, atau ikut pengaturan sistem HP."
+                    android:text="@string/display_desc"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
 
@@ -109,7 +109,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Terang" />
+                        android:text="@string/theme_light" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnThemeDark"
@@ -117,7 +117,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Gelap" />
+                        android:text="@string/theme_dark" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnThemeSystem"
@@ -125,7 +125,63 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Ikuti Sistem" />
+                        android:text="@string/theme_system" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Card: Bahasa (FITUR BARU, permintaan user "tambahkan bahasa
+             Inggris"), diletakkan TEPAT DI ATAS kartu "Pengaturan Dasar"
+             sesuai permintaan user. Lihat LocaleStore.kt dan
+             SettingsActivity.loadLanguageIntoForm(). -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/Card.Section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/SectionTitleText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/section_language" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:text="@string/language_desc"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/toggleLanguage"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnLangIndonesian"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/language_indonesian" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnLangEnglish"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/language_english" />
                 </com.google.android.material.button.MaterialButtonToggleGroup>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -147,7 +203,7 @@
                     style="@style/SectionTitleText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Pengaturan Dasar" />
+                    android:text="@string/section_general" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -165,7 +221,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Auto Ping"
+                            android:text="@string/auto_ping_title"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
@@ -173,7 +229,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Ping berkala ke server selama tunnel aktif, hasilnya tercatat di Log Koneksi"
+                            android:text="@string/auto_ping_desc"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -189,7 +245,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:hint="Interval ping (detik, default 30)">
+                    android:hint="@string/ping_interval_hint">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etPingInterval"
@@ -208,7 +264,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:hint="Target keep-alive (host, port opsional -- default 443)">
+                    android:hint="@string/keep_alive_target_hint_tcp">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etKeepAliveTarget"
@@ -225,7 +281,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="Metode keep-alive"
+                    android:text="@string/keep_alive_method_label"
                     android:textColor="@color/text_primary"
                     android:textSize="13sp"
                     android:textStyle="bold" />
@@ -244,7 +300,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="TCP Connect" />
+                        android:text="@string/method_tcp" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnMethodHttp"
@@ -252,7 +308,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="HTTP Request" />
+                        android:text="@string/method_http" />
                 </com.google.android.material.button.MaterialButtonToggleGroup>
 
                 <TextView
@@ -260,7 +316,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="TCP Connect: buka-tutup handshake SOCKS5 (ringan). HTTP Request: beneran kirim request HTTP &amp; tunggu balasan server (bukti koneksi lebih kuat)."
+                    android:text="@string/keep_alive_method_hint"
                     android:textColor="@color/text_hint"
                     android:textSize="12sp" />
 
@@ -270,7 +326,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:text="Simpan Pengaturan Dasar" />
+                    android:text="@string/btn_save_general" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -290,13 +346,13 @@
                     style="@style/SectionTitleText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="VPN Setting" />
+                    android:text="@string/section_vpn" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="SSH Engine"
+                    android:text="@string/ssh_engine_label"
                     android:textColor="@color/text_primary"
                     android:textStyle="bold"
                     android:textSize="14sp" />
@@ -304,7 +360,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Trilead: engine asli app ini, paling teruji. sshj: engine kedua, mendukung kompresi zlib nyata (lihat toggle Compression di bawah)."
+                    android:text="@string/ssh_engine_desc"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
 
@@ -322,7 +378,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Trilead (default)" />
+                        android:text="@string/engine_trilead" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnEngineSshj"
@@ -330,7 +386,48 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="sshj (Beta)" />
+                        android:text="@string/engine_sshj" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:text="@string/tun_engine_label"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/tun_engine_desc"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/toggleTunEngine"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTunEngineHev"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/engine_hev" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTunEngineBadvpn"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/engine_badvpn" />
                 </com.google.android.material.button.MaterialButtonToggleGroup>
 
                 <TextView
@@ -338,7 +435,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:layout_marginBottom="4dp"
-                    android:text="Kalau diisi, DNS di sini menimpa DNS profil SSH/Xray. Kosongkan untuk pakai default (1.1.1.1)."
+                    android:text="@string/dns_desc"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
 
@@ -353,7 +450,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginEnd="8dp"
-                        android:hint="DNS 1 (mis. 1.1.1.1)">
+                        android:hint="@string/dns1_hint">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etVpnDns1"
@@ -370,7 +467,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:hint="DNS 2 (opsional)">
+                        android:hint="@string/dns2_hint">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etVpnDns2"
@@ -388,7 +485,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:hint="MTU (default 1500)">
+                    android:hint="@string/mtu_hint">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etVpnMtu"
@@ -405,7 +502,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:text="Kosongkan port di bawah untuk pakai default masing-masing profil. SOCKS5 Port menimpa port semua profil. HTTP Port menyalakan proxy HTTP lokal tambahan (chaining ke SOCKS5) untuk app yang cuma dukung proxy HTTP. UDPGW Port, kalau diisi, meneruskan UDP non-DNS (game, QUIC/HTTP3, VoIP) lewat proses badvpn-udpgw di server (server WAJIB sudah menjalankan badvpn-udpgw di port ini)."
+                    android:text="@string/ports_desc"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp"
                     android:layout_marginBottom="8dp" />
@@ -421,7 +518,7 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:layout_marginEnd="8dp"
-                        android:hint="SOCKS5 Port (opsional)">
+                        android:hint="@string/socks_port_hint">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etVpnSocksPort"
@@ -439,7 +536,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:hint="HTTP Port (opsional)">
+                        android:hint="@string/http_port_hint">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/etVpnHttpPort"
@@ -458,8 +555,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:hint="UDPGW Port (opsional)"
-                    app:placeholderText="mis. 7300 (default badvpn-udpgw)">
+                    android:hint="@string/udpgw_port_hint"
+                    app:placeholderText="@string/udpgw_placeholder">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/etVpnUdpgwPort"
@@ -494,7 +591,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Keep CPU Awake"
+                            android:text="@string/keep_cpu_awake_title"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
@@ -502,7 +599,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Cegah CPU tidur selagi tunnel aktif, biar koneksi tidak putus-putus di background"
+                            android:text="@string/keep_cpu_awake_desc"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -535,7 +632,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Auto Reconnect"
+                            android:text="@string/auto_reconnect_title"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
@@ -543,7 +640,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Nyambung ulang otomatis kalau tunnel putus sendiri (maks. 3x percobaan)"
+                            android:text="@string/auto_reconnect_desc"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -576,7 +673,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Performance Mode"
+                            android:text="@string/performance_mode_title"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
@@ -584,7 +681,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Aktifkan untuk mode full traffic (download, speedtest, dll). Kalau dimatikan, mode multi-tasking yang dipakai."
+                            android:text="@string/performance_mode_desc"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -618,7 +715,7 @@
                             android:id="@+id/tvCompressionLabel"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Enable Compression"
+                            android:text="@string/compression_title"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
@@ -627,7 +724,7 @@
                             android:id="@+id/tvCompressionHint"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Compress trafik SSH pakai zlib. Cuma berfungsi nyata di engine sshj -- pilih 'sshj (Beta)' di SSH Engine di atas dulu, baru toggle ini bisa dinyalakan. Engine Trilead tidak mendukung ini sama sekali (dikunci otomatis)."
+                            android:text="@string/compression_hint_disabled"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -660,7 +757,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Battery Usage"
+                            android:text="@string/battery_usage_title"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
@@ -669,7 +766,7 @@
                             android:id="@+id/tvBatteryStatus"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Mengecek status..."
+                            android:text="@string/battery_checking"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
@@ -679,7 +776,7 @@
                         style="@style/Widget.Material3.Button.TonalButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Atur" />
+                        android:text="@string/btn_battery_setup" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
@@ -688,7 +785,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:text="Simpan VPN Setting" />
+                    android:text="@string/btn_save_vpn" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -708,7 +805,7 @@
                     style="@style/SectionTitleText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Tentang Aplikasi" />
+                    android:text="@string/section_about" />
 
                 <TextView
                     android:id="@+id/tvAppVersion"

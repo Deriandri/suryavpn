@@ -2,8 +2,17 @@ package com.example.tunnelapp.tunnel
 
 /**
  * Abstraksi engine yang membaca paket dari TUN fd lalu meneruskannya sebagai
- * koneksi SOCKS5 ke `127.0.0.1:<socksPort>`. Satu-satunya implementasi yang
- * dipakai app ini adalah [HevSocks5Engine] (hev-socks5-tunnel). Kontraknya:
+ * koneksi SOCKS5 ke `127.0.0.1:<socksPort>`. DUA implementasi yang dipakai
+ * app ini:
+ *  - [HevSocks5Engine] (hev-socks5-tunnel) -- engine ASLI/default, paling
+ *    teruji, native lib dipanggil langsung lewat JNI dalam satu proses.
+ *  - [BadVpnEngine] (badvpn-tun2socks) -- engine kedua, dijalankan sebagai
+ *    proses terpisah (native EXECUTABLE, bukan JNI) lewat `ProcessBuilder`.
+ *    Lihat [TunEngineRouter] yang memutuskan mana yang benar-benar dipakai
+ *    berdasarkan `VpnSettingsStore.load(context).tunEngine`, dan
+ *    `INTEGRASI_BADVPN.md` di root project untuk catatan penting soal
+ *    hal-hal yang BELUM bisa diverifikasi tanpa compile/test di device asli.
+ * Kontraknya (WAJIB dipatuhi implementasi manapun):
  *
  *  - [start] BOLEH blocking (dipanggil dari thread terpisah oleh caller,
  *    lihat [MyVpnService.startTunEngine]) ATAU non-blocking (spawn thread

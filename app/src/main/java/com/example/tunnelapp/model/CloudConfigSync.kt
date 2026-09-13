@@ -141,6 +141,27 @@ object CloudConfigSync {
      * Akun yang ditambahkan user SENDIRI (bukan hasil sinkron sebelumnya)
      * TIDAK PERNAH disentuh sama sekali, karena hanya id yang tercatat di
      * [CloudSyncSettings.managedProfileIds] yang jadi kandidat update/hapus.
+     *
+     * FITUR BARU (permintaan user, "konfig cloud jadi lock all"): SETIAP
+     * akun hasil sinkron ini (baru maupun update) SELALU dipaksa
+     * [ConfigLockMode.LOCK_ALL] + [SavedConfig.isLocked] true, APA PUN
+     * lockMode asli yang tertulis di JSON sumbernya -- lihat
+     * [forceCloudLock]. Efeknya di [com.example.tunnelapp.ConfigActivity]:
+     * baris akun cuma menampilkan nama & jenisnya, host/username/password/
+     * payload/xrayLink dkk TIDAK ditampilkan sama sekali & layar Edit tidak
+     * bisa dibuka -- persis akun hasil impor "Kunci Semua" biasa, cocok
+     * untuk penyedia config yang tidak mau kredensial/trik aslinya
+     * terlihat oleh pemakai app.
+     *
+     * KONSEKUENSI PENTING: karena [ConfigLockMode.LOCK_ALL] memang didesain
+     * TIDAK BISA dibuka lewat UI sama sekali (lihat dokumentasi
+     * [ConfigLockMode]), gembok [SavedConfig.isLocked] biasa (ikon gembok
+     * per-baris) jadi tidak relevan lagi untuk akun-akun ini -- makanya
+     * loop penghapusan di bawah TIDAK LAGI mengecualikan akun yang
+     * isLocked=true seperti sebelumnya (pengecekan itu percuma sekarang,
+     * isLocked SELALU true untuk semua akun cloud). Akun yang sudah
+     * dihapus dari sisi cloud akan SELALU ikut terhapus di lokal, tanpa
+     * pengecualian.
      */
     suspend fun sync(context: Context): CloudSyncResult {
         val settings = CloudSyncStore.load(context)
@@ -153,10 +174,14 @@ object CloudConfigSync {
             return CloudSyncResult(success = false, errorMessage = e.message ?: "Gagal mengambil data")
         }
 
-        val newConfigs = withContext(Dispatchers.Default) { importConfigsFromText(rawText) }
-        if (newConfigs.isEmpty()) {
+        val fetchedConfigs = withContext(Dispatchers.Default) { importConfigsFromText(rawText) }
+        if (fetchedConfigs.isEmpty()) {
             return CloudSyncResult(success = false, errorMessage = "Tidak ada konfigurasi valid di URL tersebut")
         }
+        // Paksa LOCK_ALL di sini (bukan di [identityKey]/parsing) supaya
+        // identitas pencocokan tetap dihitung dari field ASLI (host/xrayLink/
+        // dst), tidak terpengaruh forcing ini.
+        val newConfigs = fetchedConfigs.map(::forceCloudLock)
 
         // Peta identitas -> profil lama, HANYA untuk akun yang memang tercatat
         // sebagai hasil sinkron sebelumnya (lihat dokumentasi di atas) --
@@ -174,15 +199,7 @@ object CloudConfigSync {
         for (config in newConfigs) {
             val existingId = oldKeyToId[identityKey(config)]
             if (existingId != null) {
-                val existingProfile = oldManagedById[existingId]
-                // Pertahankan status kunci UI akun lama -- sinkron tidak boleh
-                // diam-diam membuka gembok yang sengaja dipasang user sendiri
-                // lewat ConfigActivity.
-                val merged = config.copy(
-                    isLocked = existingProfile?.config?.isLocked ?: config.isLocked,
-                    lockMode = existingProfile?.config?.lockMode ?: config.lockMode
-                )
-                ProfileStore.upsert(context, id = existingId, config = merged)
+                ProfileStore.upsert(context, id = existingId, config = config)
                 consumedIds.add(existingId)
                 newManagedIds.add(existingId)
                 updated++
@@ -194,18 +211,13 @@ object CloudConfigSync {
         }
 
         // Akun lama "milik cloud" yang TIDAK ikut ter-konsumsi di atas berarti
-        // sudah dihapus dari sisi cloud -- hapus juga di lokal, KECUALI yang
-        // sudah dikunci manual oleh user (lihat dokumentasi di atas).
+        // sudah dihapus dari sisi cloud -- hapus juga di lokal. Lihat catatan
+        // "KONSEKUENSI PENTING" di dokumentasi fungsi ini: tidak ada lagi
+        // pengecualian untuk akun isLocked, karena SEMUA akun cloud memang
+        // selalu isLocked=true sekarang (LOCK_ALL).
         var removed = 0
         for (profile in oldManagedById.values) {
             if (profile.id in consumedIds) continue
-            if (profile.config.isLocked) {
-                // Tetap dicatat sebagai "milik cloud" supaya begitu suatu saat
-                // dibuka kuncinya, sync berikutnya masih bisa mencocokkan/
-                // menghapusnya dengan benar alih-alih dianggap akun manual.
-                newManagedIds.add(profile.id)
-                continue
-            }
             ProfileStore.delete(context, profile.id)
             removed++
         }
@@ -219,4 +231,15 @@ object CloudConfigSync {
         )
         return result
     }
+
+    /**
+     * Paksa satu [SavedConfig] hasil fetch cloud jadi "terkunci total" --
+     * lihat dokumentasi "FITUR BARU (permintaan user, konfig cloud jadi
+     * lock all)" di [sync]. Dipanggil SEBELUM disimpan ke [ProfileStore],
+     * jadi apa pun lockMode/isLocked yang kebetulan tertulis di JSON
+     * sumbernya (mis. admin sempat pakai fitur ekspor "Tanpa Kunci") selalu
+     * ditimpa jadi [ConfigLockMode.LOCK_ALL] di sini.
+     */
+    private fun forceCloudLock(config: SavedConfig): SavedConfig =
+        config.copy(isLocked = true, lockMode = ConfigLockMode.LOCK_ALL)
 }

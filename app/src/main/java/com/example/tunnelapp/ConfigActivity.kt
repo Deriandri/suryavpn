@@ -11,7 +11,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.text.format.DateFormat
 import android.util.Base64
 import android.view.LayoutInflater
@@ -264,6 +266,7 @@ class ConfigActivity : AppCompatActivity() {
         binding.btnImportConfig.setOnClickListener { onImportClicked() }
         binding.btnExportAllConfig.setOnClickListener { onExportAllClicked() }
 
+        setupAccountSearch()
         setupBottomNav()
     }
 
@@ -365,7 +368,9 @@ class ConfigActivity : AppCompatActivity() {
                     "hosting sendiri), lalu tempel URL-nya di sini. Setiap kali disinkron, " +
                     "app menarik isi TERBARU dari URL itu -- akun baru ditambahkan, akun " +
                     "yang berubah diperbarui, dan akun yang sudah dihapus dari sana ikut " +
-                    "dihapus di sini (kecuali akun yang sudah Anda kunci manual)."
+                    "dihapus di sini. Akun hasil sinkron ini otomatis terkunci total " +
+                    "(host/username/password/link tidak bisa dilihat/diedit lewat app) -- " +
+                    "cuma bisa dipakai untuk connect atau dihapus."
             )
             .setView(container)
             .setNegativeButton("Tutup", null)
@@ -405,14 +410,66 @@ class ConfigActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * FITUR BARU (permintaan user, "tombol search konfig"): query pencarian
+     * akun yang sedang aktif, diisi lewat [setupAccountSearch]. Disimpan di
+     * sini (bukan cuma dibaca langsung dari [binding.etSearchAccount] tiap
+     * kali) supaya [refreshAccountsList] -- yang juga dipanggil dari
+     * [onResume]/setelah impor/hapus/dll, TANPA lewat TextWatcher -- tetap
+     * menghormati filter yang lagi diketik user, bukan diam-diam ke-reset
+     * balik ke daftar penuh.
+     */
+    private var accountSearchQuery: String = ""
+
+    /**
+     * Pasang [TextWatcher] di [binding.etSearchAccount]: filter daftar akun
+     * live setiap huruf diketik (tanpa perlu tombol "Cari" terpisah), cocok
+     * ke [SavedConfig.accountName] ATAU [SavedConfig.host] (case-insensitive,
+     * lihat [refreshAccountsList]). Ikon "x" (clear_text, lihat
+     * activity_config.xml) sudah otomatis mengosongkan teks & memicu
+     * afterTextChanged ini juga, jadi tidak perlu listener terpisah.
+     */
+    private fun setupAccountSearch() {
+        binding.etSearchAccount.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                accountSearchQuery = s?.toString().orEmpty()
+                refreshAccountsList()
+            }
+        })
+    }
+
     private fun refreshAccountsList() {
-        val profiles = ProfileStore.getAll(this)
+        val allProfiles = ProfileStore.getAll(this)
         val activeId = ProfileStore.getActiveId(this)
+
+        // FITUR BARU (permintaan user, "tombol search konfig"): kalau ada
+        // query, saring dulu sebelum ditampilkan -- cocokkan ke nama akun
+        // ATAU host, case-insensitive. Sengaja TETAP dicocokkan ke [host]
+        // walau akunnya [ConfigLockMode.LOCK_ALL] (tersembunyi di UI),
+        // karena ini cuma pencarian LOKAL di dalam app milik user sendiri
+        // (bukan mengekspos apa pun ke luar) -- user yang sama yang
+        // menyimpan akunnya berhak mencari pakai host yang dia tahu.
+        val query = accountSearchQuery.trim()
+        val profiles = if (query.isEmpty()) {
+            allProfiles
+        } else {
+            allProfiles.filter { profile ->
+                profile.config.accountName.contains(query, ignoreCase = true) ||
+                    profile.config.host.contains(query, ignoreCase = true)
+            }
+        }
 
         binding.llAccountsContainer.removeAllViews()
 
         if (profiles.isEmpty()) {
             binding.llAccountEmpty.visibility = View.VISIBLE
+            binding.textAccountEmptyMessage.text = if (query.isEmpty()) {
+                "Belum ada akun ditambahkan. Tambahkan lewat Konfigurasi SSH atau Xray di bawah."
+            } else {
+                "Tidak ada akun yang cocok dengan pencarian \"$query\"."
+            }
             return
         }
         binding.llAccountEmpty.visibility = View.GONE

@@ -1,3 +1,97 @@
 <resources>
     <string name="app_name">SuryaVPN</string>
+
+    <!-- Bilah navigasi bawah, dipakai di semua layar (Dashboard, Konfigurasi,
+         Pengaturan, Tools) -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_config">Konfigurasi</string>
+    <string name="nav_settings">Pengaturan</string>
+    <string name="nav_tools">Tools</string>
+    <string name="title_ssh_config">Konfigurasi SSH</string>
+    <string name="title_xray_config">Konfigurasi Xray</string>
+
+    <!-- Header layar Pengaturan -->
+    <string name="settings_title">Pengaturan</string>
+    <string name="settings_subtitle">Pengaturan VPN &amp; info aplikasi</string>
+
+    <!-- Kartu: Tampilan -->
+    <string name="section_display">Tampilan</string>
+    <string name="display_desc">Pilih tampilan terang, gelap, atau ikut pengaturan sistem HP.</string>
+    <string name="theme_light">Terang</string>
+    <string name="theme_dark">Gelap</string>
+    <string name="theme_system">Ikuti Sistem</string>
+
+    <!-- Kartu: Bahasa (FITUR BARU: pengganti bahasa aplikasi) -->
+    <string name="section_language">Bahasa</string>
+    <string name="language_desc">Pilih bahasa tampilan aplikasi.</string>
+    <string name="language_indonesian">Indonesia</string>
+    <string name="language_english">English</string>
+
+    <!-- Kartu: Pengaturan Dasar (Auto Ping) -->
+    <string name="section_general">Pengaturan Dasar</string>
+    <string name="auto_ping_title">Auto Ping</string>
+    <string name="auto_ping_desc">Ping berkala ke server selama tunnel aktif, hasilnya tercatat di Log Koneksi</string>
+    <string name="ping_interval_hint">Interval ping (detik, default 30)</string>
+    <string name="keep_alive_target_hint_tcp">Target keep-alive (host, port opsional -- default 443)</string>
+    <string name="keep_alive_target_hint_http">Target keep-alive (host/URL saja, tanpa port -- otomatis HTTP port 80)</string>
+    <string name="keep_alive_method_label">Metode keep-alive</string>
+    <string name="method_tcp">TCP Connect</string>
+    <string name="method_http">HTTP Request</string>
+    <string name="keep_alive_method_hint">TCP Connect: buka-tutup handshake SOCKS5 (ringan). HTTP Request: beneran kirim request HTTP &amp; tunggu balasan server (bukti koneksi lebih kuat).</string>
+    <string name="btn_save_general">Simpan Pengaturan Dasar</string>
+    <string name="toast_general_saved">Pengaturan Dasar disimpan</string>
+    <string name="error_ping_interval">Interval harus angka %1$d-%2$d detik</string>
+    <string name="error_keepalive_http">Isi host/URL saja, mis. www.google.com</string>
+    <string name="error_keepalive_tcp">Isi host saja (port otomatis 443), atau host:port (mis. www.google.com:443)</string>
+
+    <!-- Kartu: VPN Setting -->
+    <string name="section_vpn">VPN Setting</string>
+    <string name="ssh_engine_label">SSH Engine</string>
+    <string name="ssh_engine_desc">Trilead: engine asli app ini, paling teruji. sshj: engine kedua, mendukung kompresi zlib nyata (lihat toggle Compression di bawah).</string>
+    <string name="engine_trilead">Trilead (default)</string>
+    <string name="engine_sshj">sshj (Beta)</string>
+    <string name="tun_engine_label">Tunnel Engine</string>
+    <string name="tun_engine_desc">hev-socks5-tunnel: engine asli app ini, paling teruji. badvpn-tun2socks: engine kedua, jalan sebagai proses terpisah.</string>
+    <string name="engine_hev">hev-socks5-tunnel (default)</string>
+    <string name="engine_badvpn">badvpn-tun2socks (Beta)</string>
+    <string name="dns_desc">Kalau diisi, DNS di sini menimpa DNS profil SSH/Xray. Kosongkan untuk pakai default (1.1.1.1).</string>
+    <string name="dns1_hint">DNS 1 (mis. 1.1.1.1)</string>
+    <string name="dns2_hint">DNS 2 (opsional)</string>
+    <string name="mtu_hint">MTU (default 1500)</string>
+    <string name="ports_desc">Kosongkan port di bawah untuk pakai default masing-masing profil. SOCKS5 Port menimpa port semua profil. HTTP Port menyalakan proxy HTTP lokal tambahan (chaining ke SOCKS5) untuk app yang cuma dukung proxy HTTP. UDPGW Port, kalau diisi, meneruskan UDP non-DNS (game, QUIC/HTTP3, VoIP) lewat proses badvpn-udpgw di server (server WAJIB sudah menjalankan badvpn-udpgw di port ini).</string>
+    <string name="socks_port_hint">SOCKS5 Port (opsional)</string>
+    <string name="http_port_hint">HTTP Port (opsional)</string>
+    <string name="udpgw_port_hint">UDPGW Port (opsional)</string>
+    <string name="udpgw_placeholder">mis. 7300 (default badvpn-udpgw)</string>
+    <string name="keep_cpu_awake_title">Keep CPU Awake</string>
+    <string name="keep_cpu_awake_desc">Cegah CPU tidur selagi tunnel aktif, biar koneksi tidak putus-putus di background</string>
+    <string name="auto_reconnect_title">Auto Reconnect</string>
+    <string name="auto_reconnect_desc">Nyambung ulang otomatis kalau tunnel putus sendiri (maks. 3x percobaan)</string>
+    <string name="performance_mode_title">Performance Mode</string>
+    <string name="performance_mode_desc">Aktifkan untuk mode full traffic (download, speedtest, dll). Kalau dimatikan, mode multi-tasking yang dipakai.</string>
+    <string name="compression_title">Enable Compression</string>
+    <string name="compression_hint_enabled">Compress trafik SSH pakai zlib -- BENERAN aktif di engine sshj.</string>
+    <string name="compression_hint_disabled">Compress trafik SSH pakai zlib. Cuma berfungsi nyata di engine sshj -- pilih \'sshj (Beta)\' di SSH Engine di atas dulu, baru toggle ini bisa dinyalakan. Engine Trilead tidak mendukung ini sama sekali (dikunci otomatis).</string>
+    <string name="battery_usage_title">Battery Usage</string>
+    <string name="battery_checking">Mengecek status...</string>
+    <string name="battery_not_applicable">Tidak berlaku di versi Android ini</string>
+    <string name="battery_not_restricted">Tidak dibatasi -- tunnel aman jalan di background</string>
+    <string name="battery_restricted">Dioptimalkan sistem -- tunnel bisa terputus di background</string>
+    <string name="btn_battery_active">Aktif</string>
+    <string name="btn_battery_setup">Atur</string>
+    <string name="battery_dialog_unavailable">Dialog izin baterai tidak tersedia di device ini -- cari menu baterai manual di halaman ini, atau di app Keamanan/Security bawaan HP</string>
+    <string name="battery_settings_open_failed">Tidak bisa membuka pengaturan baterai di device ini</string>
+    <string name="btn_save_vpn">Simpan VPN Setting</string>
+    <string name="toast_vpn_saved">VPN Setting disimpan</string>
+    <string name="error_dns1">Harus alamat IP (mis. 1.1.1.1), bukan domain</string>
+    <string name="error_dns2">Harus alamat IP (mis. 1.0.0.1), bukan domain</string>
+    <string name="error_mtu">MTU harus angka %1$d-%2$d</string>
+    <string name="error_port">%1$s harus angka %2$d-%3$d, atau kosongkan</string>
+    <string name="port_socks5_label">SOCKS5 Port</string>
+    <string name="port_http_label">HTTP Port</string>
+    <string name="port_udpgw_label">UDPGW Port</string>
+
+    <!-- Kartu: Tentang Aplikasi -->
+    <string name="section_about">Tentang Aplikasi</string>
+    <string name="app_version_format">SuryaVPN — versi %1$s</string>
 </resources>
