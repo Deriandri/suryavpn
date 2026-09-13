@@ -11,12 +11,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import android.graphics.Typeface
 import android.text.InputType
 import android.util.Base64
 import android.view.LayoutInflater
 import android.view.View
-import android.widget.EditText
-import android.widget.ScrollView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -24,8 +23,12 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.example.tunnelapp.databinding.ActivityConfigBinding
 import com.example.tunnelapp.databinding.ItemAccountRowBinding
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import com.example.tunnelapp.model.ConfigLockMode
 import com.example.tunnelapp.model.ProfileStore
+import com.example.tunnelapp.model.SavedConfig
 import com.example.tunnelapp.model.SavedProfile
 import com.example.tunnelapp.model.buildShareCode
 import com.example.tunnelapp.model.decryptWholeFileBytes
@@ -34,6 +37,10 @@ import com.example.tunnelapp.model.importConfigsFromText
 import com.example.tunnelapp.model.profilesToJson
 import com.example.tunnelapp.tunnel.XrayLinkParser
 import java.io.File
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Layar "Konfigurasi" -- tab TENGAH baru di bilah navigasi bawah, di antara
@@ -414,7 +421,7 @@ class ConfigActivity : AppCompatActivity() {
             // Pakai nama akun kalau ada (row.tvRowTitle sudah menampilkan itu
             // di atas), fallback ke host:port -- konsisten dengan tvRowTitle.
             val label = row.tvRowTitle.text
-            AlertDialog.Builder(this)
+            MaterialAlertDialogBuilder(this)
                 .setTitle("Hapus akun?")
                 .setMessage("Akun \"$label\" akan dihapus permanen dari daftar.")
                 .setNegativeButton("Batal", null)
@@ -442,7 +449,7 @@ class ConfigActivity : AppCompatActivity() {
             "Akun \"$label\" tidak akan bisa diedit atau dihapus sampai kuncinya dibuka lagi."
         val positiveText = if (currentlyLocked) "Buka Kunci" else "Kunci"
 
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(title)
             .setMessage(message)
             .setNegativeButton("Batal", null)
@@ -470,28 +477,73 @@ class ConfigActivity : AppCompatActivity() {
         // apa adanya -- penerima tidak berhak melonggarkan kunci akun yang
         // bukan miliknya, lihat [buildShareCode].
         if (profile.config.lockMode != ConfigLockMode.NONE) {
-            showShareCodeDialog(buildShareCode(profile.config))
+            buildShareCodeAsync(profile.config) { showShareCodeDialog(it) }
+            return
+        }
+        // PERBAIKAN (permintaan user, "logika ekspor konfig X-ray langsung
+        // dibikin all lock aja"): akun Xray (modeIndex == 5) tidak lagi
+        // ditanya mau pakai mode kunci apa -- [buildShareCode] sudah
+        // memaksa LOCK_ALL untuk akun Xray lewat [effectiveExportLockMode]
+        // apa pun mode yang lewat di sini, jadi dialog pilihannya cuma
+        // membingungkan (user pilih "Tanpa Kunci" tapi hasilnya tetap
+        // terkunci) -- langsung saja tanpa tanya.
+        if (profile.config.modeIndex == 5) {
+            buildShareCodeAsync(profile.config, ConfigLockMode.LOCK_ALL) { showShareCodeDialog(it) }
             return
         }
         showLockModePicker { chosenMode ->
-            showShareCodeDialog(buildShareCode(profile.config, chosenMode))
+            buildShareCodeAsync(profile.config, chosenMode) { showShareCodeDialog(it) }
+        }
+    }
+
+    /**
+     * PERBAIKAN (permintaan user, "klik Lanjut kok agak nge-freeze"):
+     * [buildShareCode] internalnya menjalankan PBKDF2 150.000 iterasi +
+     * AES-GCM (lihat [com.example.tunnelapp.model.ConfigCipher]) untuk
+     * SETIAP field yang dikunci -- kerjaan CPU-bound yang bisa makan
+     * ratusan milidetik. Sebelumnya ini dijalankan LANGSUNG di listener
+     * tombol "Lanjut"/klik baris (main/UI thread), jadi selama proses itu
+     * seluruh UI (termasuk animasi ripple tombolnya sendiri) berhenti total
+     * -> terasa nge-freeze/patah-patah sesaat.
+     *
+     * Di sini kerjaan beratnya dipindah ke [Dispatchers.Default] (thread
+     * pool khusus kerjaan CPU-bound) lewat [lifecycleScope], baru hasilnya
+     * dikembalikan ke [onResult] di main thread lagi buat nampilin dialog.
+     * Kalau Activity sudah tidak hidup lagi (mis. user keluar duluan
+     * sebelum hitungannya selesai), [lifecycleScope] otomatis membatalkan
+     * coroutine ini -- [onResult] tidak pernah dipanggil, tidak ada crash.
+     */
+    private fun buildShareCodeAsync(
+        config: SavedConfig,
+        exportLockMode: ConfigLockMode = config.lockMode,
+        onResult: (String) -> Unit
+    ) {
+        lifecycleScope.launch {
+            val code = withContext(Dispatchers.Default) { buildShareCode(config, exportLockMode) }
+            onResult(code)
         }
     }
 
     private fun showShareCodeDialog(code: String) {
-        val input = EditText(this).apply {
+        // REDESIGN (modern/smooth): dialog_text_field.xml + Typeface.MONOSPACE
+        // supaya kode bagikan tampil rapi seperti kotak "kode", bukan lagi
+        // EditText polos -- tetap read-only & bisa diseleksi/disalin manual.
+        val fieldView = layoutInflater.inflate(R.layout.dialog_text_field, binding.root, false)
+        fieldView.findViewById<TextInputLayout>(R.id.tilDialogField).hint = "Kode akun"
+        fieldView.findViewById<TextInputEditText>(R.id.etDialogField).apply {
             setText(code)
             isFocusable = false
             isFocusableInTouchMode = false
             setTextIsSelectable(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            setPadding(48, 32, 48, 32)
+            maxLines = 6
+            typeface = Typeface.MONOSPACE
         }
 
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Bagikan akun")
             .setMessage("Salin atau bagikan kode di bawah. Siapa pun yang menempelkannya lewat tombol \"Impor\" di app ini akan mendapat akun yang sama persis.")
-            .setView(input)
+            .setView(fieldView)
             .setNegativeButton("Tutup", null)
             .setNeutralButton("Salin") { _, _ ->
                 copyToClipboard("Kode akun SuryaVPN", code)
@@ -522,7 +574,7 @@ class ConfigActivity : AppCompatActivity() {
         val labels = modes.map { it.label }.toTypedArray()
         var selected = 0
 
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Kunci konfigurasi?")
             .setSingleChoiceItems(labels, selected) { _, which -> selected = which }
             .setNegativeButton("Batal", null)
@@ -542,19 +594,24 @@ class ConfigActivity : AppCompatActivity() {
      * manual.
      */
     private fun onImportClicked() {
-        val input = EditText(this).apply {
-            hint = "Tempel kode akun (SVPN1:...) atau isi file JSON hasil ekspor di sini"
+        // REDESIGN (modern/smooth): dialog_text_field.xml (TextInputLayout
+        // Field.Outlined) menggantikan EditText polos + ScrollView manual --
+        // maxLines membatasi tinggi dialog, teks yang lebih panjang tetap
+        // bisa digulir NORMAL di dalam kolom itu sendiri (bawaan EditText
+        // multiline), jadi ScrollView pembungkus tidak diperlukan lagi.
+        val fieldView = layoutInflater.inflate(R.layout.dialog_text_field, binding.root, false)
+        fieldView.findViewById<TextInputLayout>(R.id.tilDialogField).hint =
+            "Tempel kode akun (SVPN1:...) atau isi file JSON hasil ekspor"
+        val input = fieldView.findViewById<TextInputEditText>(R.id.etDialogField).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             minLines = 4
-            setPadding(48, 32, 48, 32)
+            maxLines = 8
+            gravity = android.view.Gravity.TOP or android.view.Gravity.START
         }
-        // Dibungkus ScrollView supaya tetap nyaman diketik/ditempel kalau
-        // isinya panjang (JSON hasil ekspor banyak akun bisa lumayan panjang).
-        val container = ScrollView(this).apply { addView(input) }
 
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Impor konfigurasi")
-            .setView(container)
+            .setView(fieldView)
             .setNegativeButton("Batal", null)
             .setNeutralButton("Pilih File") { _, _ ->
                 importFileLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
@@ -574,14 +631,21 @@ class ConfigActivity : AppCompatActivity() {
      * jumlah berhasil, dan jumlah entry yang dilewati kalau ada.
      */
     private fun performImport(rawText: String) {
-        val configs = importConfigsFromText(rawText)
-        if (configs.isEmpty()) {
-            Toast.makeText(this, "Tidak ada konfigurasi valid yang ditemukan", Toast.LENGTH_LONG).show()
-            return
+        // PERBAIKAN (permintaan user, "klik Lanjut kok agak nge-freeze"):
+        // [importConfigsFromText] bisa lewat [decryptWholeFileBytes] (jalur
+        // clipboard/file .spn terenkripsi) yang sama-sama CPU-bound (PBKDF2)
+        // -- dipindah ke Dispatchers.Default juga supaya tombol "Impor"
+        // tidak macet sesaat kalau isinya kode terenkripsi/panjang.
+        lifecycleScope.launch {
+            val configs = withContext(Dispatchers.Default) { importConfigsFromText(rawText) }
+            if (configs.isEmpty()) {
+                Toast.makeText(this@ConfigActivity, "Tidak ada konfigurasi valid yang ditemukan", Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            configs.forEach { ProfileStore.upsert(this@ConfigActivity, id = null, config = it) }
+            refreshAccountsList()
+            Toast.makeText(this@ConfigActivity, "${configs.size} akun berhasil diimpor", Toast.LENGTH_SHORT).show()
         }
-        configs.forEach { ProfileStore.upsert(this, id = null, config = it) }
-        refreshAccountsList()
-        Toast.makeText(this, "${configs.size} akun berhasil diimpor", Toast.LENGTH_SHORT).show()
     }
 
     /**
@@ -607,7 +671,7 @@ class ConfigActivity : AppCompatActivity() {
             return
         }
         val options = arrayOf("Simpan sebagai File (.spn)", "Salin ke Clipboard")
-        AlertDialog.Builder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle("Ekspor Semua Akun")
             .setItems(options) { _, which ->
                 when (which) {
@@ -627,15 +691,24 @@ class ConfigActivity : AppCompatActivity() {
      */
     private fun onExportToFileClicked(profiles: List<SavedProfile>) {
         showLockModePicker { chosenMode ->
-            val json = profilesToJson(profiles, chosenMode)
-            // FITUR BARU (permintaan user, "sekalian ganti biner"): seluruh
-            // envelope JSON (bukan cuma field yang dikunci per-akun)
-            // dienkripsi jadi satu blob biner di sini, SEBELUM ditulis ke
-            // file -- lihat dokumentasi [encryptWholeFileBytes].
-            val bytes = encryptWholeFileBytes(json)
-
             showExportFilenameDialog(profiles) { filename ->
-                proceedWithExport(bytes, filename)
+                // PERBAIKAN (permintaan user, "klik Lanjut kok agak nge-
+                // freeze"): lihat dokumentasi lengkap di [buildShareCodeAsync]
+                // -- masalah & solusinya sama persis di sini, cuma untuk
+                // BANYAK akun sekaligus (profilesToJson) jadi potensi
+                // freeze-nya malah lebih terasa lagi kalau tetap dijalankan
+                // di main thread.
+                lifecycleScope.launch {
+                    val bytes = withContext(Dispatchers.Default) {
+                        val json = profilesToJson(profiles, chosenMode)
+                        // FITUR BARU (permintaan user, "sekalian ganti biner"): seluruh
+                        // envelope JSON (bukan cuma field yang dikunci per-akun)
+                        // dienkripsi jadi satu blob biner di sini, SEBELUM ditulis ke
+                        // file -- lihat dokumentasi [encryptWholeFileBytes].
+                        encryptWholeFileBytes(json)
+                    }
+                    proceedWithExport(bytes, filename)
+                }
             }
         }
     }
@@ -656,15 +729,24 @@ class ConfigActivity : AppCompatActivity() {
      *    clipboard (lihat [copyToClipboard]), siap ditempel ke chat/pesan.
      */
     private fun onExportToClipboardClicked(profiles: List<SavedProfile>) {
-        val json = profilesToJson(profiles, ConfigLockMode.LOCK_ALL)
-        val bytes = encryptWholeFileBytes(json)
-        val text = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        copyToClipboard("Konfigurasi SuryaVPN", text)
-        Toast.makeText(
-            this,
-            "Konfigurasi (terkunci penuh) disalin ke clipboard",
-            Toast.LENGTH_LONG
-        ).show()
+        // PERBAIKAN (permintaan user, "klik Lanjut kok agak nge-freeze"):
+        // sama seperti [onExportToFileClicked]/[buildShareCodeAsync] --
+        // profilesToJson + encryptWholeFileBytes CPU-bound, dipindah ke
+        // Dispatchers.Default supaya tombol menu "Salin ke Clipboard" tidak
+        // bikin UI macet sesaat.
+        lifecycleScope.launch {
+            val text = withContext(Dispatchers.Default) {
+                val json = profilesToJson(profiles, ConfigLockMode.LOCK_ALL)
+                val bytes = encryptWholeFileBytes(json)
+                Base64.encodeToString(bytes, Base64.NO_WRAP)
+            }
+            copyToClipboard("Konfigurasi SuryaVPN", text)
+            Toast.makeText(
+                this@ConfigActivity,
+                "Konfigurasi (terkunci penuh) disalin ke clipboard",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     /**
@@ -694,18 +776,24 @@ class ConfigActivity : AppCompatActivity() {
     private fun showExportFilenameDialog(profiles: List<SavedProfile>, onConfirmed: (String) -> Unit) {
         val suggestedName = if (profiles.size == 1) profiles[0].config.accountName.trim() else ""
 
-        val input = EditText(this).apply {
+        // REDESIGN (modern/smooth): dialog_text_field.xml (TextInputLayout
+        // Field.Outlined) menggantikan EditText polos -- suffixText ".spn" &
+        // helperText menyampaikan info lokasi penyimpanan yang sebelumnya ada
+        // di setMessage(), jadi dialog ini sekarang tanpa pesan panjang lagi.
+        val fieldView = layoutInflater.inflate(R.layout.dialog_text_field, binding.root, false)
+        val til = fieldView.findViewById<TextInputLayout>(R.id.tilDialogField).apply {
             hint = "Contoh: konfigurasi-kantor"
-            inputType = InputType.TYPE_CLASS_TEXT
-            setPadding(48, 32, 48, 32)
+            suffixText = ".spn"
+            helperText = "Disimpan di folder Download/SuryaVPN/"
+        }
+        val input = fieldView.findViewById<TextInputEditText>(R.id.etDialogField).apply {
             setText(suggestedName)
             setSelection(suggestedName.length)
         }
 
-        val dialog = AlertDialog.Builder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle("Nama file ekspor")
-            .setMessage("File akan disimpan sebagai \"<nama>.spn\" di folder Download/SuryaVPN/.")
-            .setView(input)
+            .setView(fieldView)
             .setNegativeButton("Batal", null)
             // Positive listener dipasang manual lewat setOnShowListener di
             // bawah (bukan langsung di sini) supaya dialog TIDAK otomatis
@@ -719,9 +807,10 @@ class ConfigActivity : AppCompatActivity() {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val clean = sanitizeFilename(input.text?.toString().orEmpty())
                 if (clean.isBlank()) {
-                    input.error = "Nama file tidak boleh kosong"
+                    til.error = "Nama file tidak boleh kosong"
                     return@setOnClickListener
                 }
+                til.error = null
                 dialog.dismiss()
                 onConfirmed("$clean.spn")
             }

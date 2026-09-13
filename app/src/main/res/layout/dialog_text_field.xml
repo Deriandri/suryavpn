@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- REDESIGN (permintaan user: "tampilan modern, profesional, smooth" untuk
+     dialog Impor/Ekspor/Bagikan di ConfigActivity). Sebelumnya kolom input di
+     dialog-dialog ini cuma EditText polos + setPadding() manual (piksel
+     mentah) untuk meniru kotak input -- terlihat "murahan" & tidak konsisten
+     dengan Field.Outlined (TextInputLayout bergaya Material3) yang sudah
+     dipakai di SshConfigActivity/XrayConfigActivity.
+
+     Satu layout generik ini dipakai ulang untuk SEMUA kolom input di dialog
+     ConfigActivity (nama file ekspor, tempel kode impor, tampilkan kode
+     bagikan) -- hint/suffix/helper/multiline diatur lewat kode Kotlin sesuai
+     kebutuhan tiap dialog (lihat ConfigActivity.showExportFilenameDialog,
+     onImportClicked, showShareCodeDialog). Margin kiri-kanan 24dp & atas 4dp
+     dipasang di sini karena setView() pada MaterialAlertDialogBuilder TIDAK
+     otomatis diberi padding seperti setMessage()/setItems(). -->
+<com.google.android.material.textfield.TextInputLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tilDialogField"
+    style="@style/Field.Outlined"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginStart="24dp"
+    android:layout_marginEnd="24dp"
+    android:layout_marginTop="4dp"
+    android:layout_marginBottom="8dp">
+
+    <com.google.android.material.textfield.TextInputEditText
+        android:id="@+id/etDialogField"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+</com.google.android.material.textfield.TextInputLayout>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BARU (permintaan user, "kelayakan publish Play Store" -> adaptive
+     icon): sebelumnya AndroidManifest langsung memakai
+     drawable/ic_app_icon.xml sebagai android:icon -- vector BIASA, bukan
+     adaptive icon, jadi tidak bisa di-mask jadi lingkaran/squircle/dll
+     oleh launcher OEM (tampil kotak polos apa adanya, kadang beda-beda
+     terlihatnya antar HP dibanding app lain di homescreen yang sama).
+
+     minSdk project ini SUDAH 28 (>= 26), jadi TIDAK perlu fallback PNG
+     legacy per-densitas (mipmap-hdpi/xhdpi/dst ic_launcher.png) -- XML
+     adaptive icon ini saja cukup untuk 100% device yang didukung app ini.
+
+     monochrome: layer TAMBAHAN untuk "themed icon" Android 13+ (opsional
+     di homescreen sebagian OEM/Android bawaan, ikon jadi satu warna
+     mengikuti wallpaper) -- pakai foreground yang sama (sudah 1 warna
+     solid di atas transparan, jadi valid dipakai ulang sebagai
+     monochrome tanpa file terpisah). -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/brand_primary" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

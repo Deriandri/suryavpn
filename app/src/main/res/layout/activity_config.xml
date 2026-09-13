@@ -11,7 +11,8 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="@color/app_background">
+    android:background="@color/app_background"
+    android:animateLayoutChanges="true">
 
     <ScrollView
         android:layout_width="match_parent"
@@ -350,7 +351,8 @@
                         android:id="@+id/llAccountsContainer"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical" />
+                        android:orientation="vertical"
+                        android:animateLayoutChanges="true" />
 
                     <!-- State: BELUM ada konfigurasi tersimpan — jadi konten
                          biasa di dalam kartu yang sama (bukan kartu sendiri

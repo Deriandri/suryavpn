@@ -5,13 +5,18 @@ plugins {
 
 android {
     namespace = "com.example.tunnelapp"
-    compileSdk = 34
+    // NAIK (permintaan user, "kelayakan publish Play Store"): Google Play
+    // MEWAJIBKAN app baru/update target Android 16 (API 36) mulai 31 Agustus
+    // 2026 -- deadline ini SUDAH LEWAT per hari ini, jadi wajib naik supaya
+    // submission tidak ditolak. AGP di root build.gradle.kts JUGA harus naik
+    // (lihat catatan di sana) -- AGP < 8.9 tidak resmi mendukung compileSdk 36.
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.example.tunnelapp"
         minSdk = 28        // Android 9.0
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
 
@@ -46,6 +51,24 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+        }
+    }
+
+    // WAJIB (Google Play 16 KB page size compatibility requirement, berlaku
+    // untuk app yang target Android 15+ -- app ini sekarang targetSdk 36):
+    // useLegacyPackaging = false memastikan file .so di dalam APK/AAB
+    // di-ZIP-align 16KB-aware oleh AGP sendiri (default AGP baru, dikunci
+    // eksplisit di sini biar tidak bergantung versi default). CATATAN
+    // PENTING: ini HANYA menangani sisi packaging APK -- file .so hasil
+    // compile SENDIRI (lihat cpp/CMakeLists.txt, sudah ditambah linker flag
+    // 16KB) maupun .so BAWAAN di libs/xray.aar (prebuilt, di luar kendali
+    // proyek ini) tetap harus SECARA TERPISAH dicek/di-generate dengan
+    // toolchain yang 16KB-aware -- lihat penjelasan lengkap di chat, cek
+    // pakai APK Analyzer / check_elf_alignment.sh sebelum upload ke Play
+    // Console.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 

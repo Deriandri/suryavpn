@@ -144,19 +144,40 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
 }
 
 /**
+ * PERBAIKAN (permintaan user, "logika ekspor konfig X-ray langsung dibikin
+ * all lock aja"): tentukan mode kunci EFEKTIF yang benar-benar dipakai saat
+ * ekspor/bagikan satu [config], dengan urutan prioritas:
+ *
+ *  1. Akun yang SUDAH terkunci sebelumnya (config.lockMode != NONE, mis.
+ *     hasil impor dari orang lain) selalu mempertahankan mode kuncinya
+ *     SENDIRI apa adanya -- penerima tidak berhak melonggarkan kunci akun
+ *     yang bukan miliknya.
+ *  2. Akun Xray (modeIndex == 5) yang BELUM terkunci SELALU dipaksa
+ *     [ConfigLockMode.LOCK_ALL], apa pun [exportLockMode] yang
+ *     diminta/dipilih pemanggil (termasuk kalau user sempat memilih "Tanpa
+ *     Kunci" di [ConfigActivity.showLockModePicker]) -- link/host/username/
+ *     password Xray tidak boleh pernah ke-ekspor polos.
+ *  3. Selain itu (akun SSH yang belum terkunci) -- pakai [exportLockMode]
+ *     apa adanya seperti sebelumnya, user bebas pilih lewat dialog.
+ */
+private fun effectiveExportLockMode(config: SavedConfig, exportLockMode: ConfigLockMode): ConfigLockMode = when {
+    config.lockMode != ConfigLockMode.NONE -> config.lockMode
+    config.modeIndex == 5 -> ConfigLockMode.LOCK_ALL
+    else -> exportLockMode
+}
+
+/**
  * Bangun isi file untuk "Ekspor Semua" (lihat [ConfigActivity]) -- satu
  * amplop JSON berisi SEMUA akun tersimpan di [ProfileStore], rapi
  * (indent 2 spasi) supaya enak dibaca manual kalau perlu.
  */
 fun profilesToJson(profiles: List<SavedProfile>, exportLockMode: ConfigLockMode = ConfigLockMode.NONE): String {
     val arr = JSONArray()
-    // Akun yang SUDAH terkunci (config.lockMode != NONE, mis. hasil impor
-    // dari orang lain) selalu mempertahankan mode kuncinya SENDIRI (lewat
-    // default parameter toConfigJson) -- [exportLockMode] di sini cuma
-    // berlaku untuk akun yang belum terkunci sama sekali, lihat dokumentasi
-    // [SavedConfig.toConfigJson].
+    // Lihat dokumentasi [effectiveExportLockMode]: akun Xray belum-terkunci
+    // dipaksa LOCK_ALL di sini, terlepas dari [exportLockMode] yang dipilih
+    // user untuk keseluruhan ekspor.
     profiles.forEach { profile ->
-        val mode = if (profile.config.lockMode != ConfigLockMode.NONE) profile.config.lockMode else exportLockMode
+        val mode = effectiveExportLockMode(profile.config, exportLockMode)
         arr.put(profile.config.toConfigJson(mode))
     }
 
@@ -174,7 +195,10 @@ fun profilesToJson(profiles: List<SavedProfile>, exportLockMode: ConfigLockMode 
  * "Bagikan" per-baris akun di [ConfigActivity].
  */
 fun buildShareCode(config: SavedConfig, exportLockMode: ConfigLockMode = config.lockMode): String {
-    val mode = if (config.lockMode != ConfigLockMode.NONE) config.lockMode else exportLockMode
+    // Lihat dokumentasi [effectiveExportLockMode]: akun Xray belum-terkunci
+    // dipaksa LOCK_ALL di sini juga, terlepas dari mode yang dipilih user
+    // lewat [ConfigActivity.showLockModePicker].
+    val mode = effectiveExportLockMode(config, exportLockMode)
     val json = config.toConfigJson(mode).toString()
     val b64 = Base64.encodeToString(json.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
     return SHARE_CODE_PREFIX + b64

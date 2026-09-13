@@ -73,6 +73,14 @@ set_target_properties(hev-task-system PROPERTIES
 add_library(tunneljni SHARED hev_socks5_jni.c config_lock_jni.c)
 add_dependencies(tunneljni hev_socks5_tunnel_external)
 
+# WAJIB (Google Play 16 KB page size compatibility requirement, berlaku
+# untuk app yang target Android 15+): pastikan ELF LOAD segment
+# libtunneljni.so hasil compile ini di-align ke 16KB, bukan cuma 4KB
+# bawaan lama. NDK 27 SUDAH mendukung flag ini, tapi belum tentu jadi
+# DEFAULT tanpa disebut eksplisit tergantung patch version -- disebut
+# manual di sini supaya pasti, tidak bergantung asumsi versi NDK.
+target_link_options(tunneljni PRIVATE "-Wl,-z,max-page-size=16384")
+
 target_include_directories(tunneljni PRIVATE
     ${HEV_SOURCE_DIR}/src
 )
