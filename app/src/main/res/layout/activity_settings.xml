@@ -390,7 +390,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Card: Log Debug (FITUR BARU, default OFF -- lihat tunnel/DebugLog.kt). -->
+        <!-- Card: Log Debug (FITUR BARU, default OFF , lihat tunnel/DebugLog.kt). -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"
             android:layout_width="match_parent"

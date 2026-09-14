@@ -44,7 +44,7 @@
     <string name="error_keepalive_http">Isi host/URL saja, mis. www.google.com</string>
     <string name="error_keepalive_tcp">Isi host saja (port otomatis 443), atau host:port (mis. www.google.com:443)</string>
 
-    <!-- Kartu: Log Debug (FITUR BARU, default OFF -- lihat tunnel/DebugLog.kt) -->
+    <!-- Kartu: Log Debug (FITUR BARU, default OFF, lihat tunnel/DebugLog.kt) -->
     <string name="section_debug_log">Log Debug</string>
     <string name="debug_log_title">Aktifkan Log Debug</string>
     <string name="debug_log_desc">Catat detail error tingkat tinggi (stack trace lengkap, termasuk crash) ke file lokal di HP ini. Mati secara default -- nyalakan cuma saat butuh menelusuri masalah.</string>

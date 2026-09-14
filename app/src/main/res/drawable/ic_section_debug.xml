@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- BARU: ikon untuk chip judul section "Log Debug" -- siluet layar
+<!-- BARU: ikon untuk chip judul section "Log Debug" , siluet layar
      terminal kecil (persegi + sudut membulat, tanda ">" & garis kursor),
      fillColor putih polos supaya kontras di bg_section_title_seablue,
      sama seperti pola ic_section_vpn/ic_section_basic. -->

@@ -44,7 +44,7 @@
     <string name="error_keepalive_http">Enter host/URL only, e.g. www.google.com</string>
     <string name="error_keepalive_tcp">Enter host only (port defaults to 443), or host:port (e.g. www.google.com:443)</string>
 
-    <!-- Card: Debug Log (NEW FEATURE, default OFF -- see tunnel/DebugLog.kt) -->
+    <!-- Card: Debug Log (NEW FEATURE, default OFF, see tunnel/DebugLog.kt) -->
     <string name="section_debug_log">Debug Log</string>
     <string name="debug_log_title">Enable Debug Log</string>
     <string name="debug_log_desc">Record high-detail errors (full stack traces, including crashes) to a local file on this device. Off by default -- turn it on only when you need to troubleshoot.</string>

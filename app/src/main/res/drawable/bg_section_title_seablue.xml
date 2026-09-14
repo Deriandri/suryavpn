@@ -2,7 +2,7 @@
 <!-- Pill judul chip "Appearance/Language/Basic Settings/VPN Setting/About",
      sudut membulat + garis tepi tipis semi-transparan supaya terasa glossy.
      DIUBAH (permintaan user, "samakan warna dengan tombol Save Basic
-     Settings"): sebelumnya gradasi biru laut (sea_blue_gradient_*) --
+     Settings"): sebelumnya gradasi biru laut (sea_blue_gradient_*) ,
      sekarang gradasi indigo/ungu senada dengan brand_primary (warna
      backgroundTint tombol "Save Basic Settings", lihat Button.Primary di
      styles.xml & section_title_gradient_* di colors.xml). -->
