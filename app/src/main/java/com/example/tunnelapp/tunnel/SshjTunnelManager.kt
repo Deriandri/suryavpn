@@ -12,6 +12,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.security.Security
 import javax.net.SocketFactory
 
 /**
@@ -56,14 +57,20 @@ import javax.net.SocketFactory
  * sshj aktif.
  *
  * FIX YANG BENAR (dipakai sekarang, lihat ensureBouncyCastleRegistered()):
- * sshj punya API RESMI untuk kasih tahu provider BC ke DIRINYA SENDIRI saja
- * -- net.schmizz.sshj.common.SecurityUtils.setSecurityProvider(Provider) --
- * TANPA menyentuh Security.insertProviderAt() / daftar provider JVM global
- * sama sekali. Efeknya: X25519/EC dkk tetap lengkap tersedia KHUSUS untuk
- * operasi kripto internal sshj (lewat SecurityUtils.getKeyPairGenerator()
- * dkk, semuanya baca dari sini), sementara SEMUA kode lain di app (TLS
- * Cloud Sync, Xray, dst) TETAP pakai provider default Android seperti biasa
- * -- tidak ada lagi efek samping app-wide.
+ * di sshj:0.38.0, SecurityUtils.setSecurityProvider() menerima NAMA provider
+ * (String, "BC"), BUKAN objek Provider -- jadi tetap perlu Security.addProvider()
+ * SEKALI supaya JVM bisa menemukan provider "BC" lewat nama itu saat sshj
+ * memintanya. BEDANYA dengan fix versi sebelumnya yang bikin "koneksi sering
+ * hilang sendiri": versi lama pakai Security.insertProviderAt(provider, 1)
+ * yang MEMAKSA Bouncy Castle jadi provider prioritas TERTINGGI utk SELURUH
+ * proses (termasuk TLS/HTTPS lain seperti Cloud Sync & Xray, tanpa mereka
+ * minta). Di sini kita pakai Security.addProvider() yang cuma MENAMBAHKAN BC
+ * ke akhir daftar provider (prioritas rendah) -- Conscrypt/AndroidOpenSSL
+ * bawaan Android TETAP jadi provider default utk kode lain, BC hanya dipakai
+ * kalau ada kode yang secara eksplisit minta provider "BC" lewat nama
+ * (persis yang dilakukan SecurityUtils.setSecurityProvider("BC") di bawah,
+ * khusus utk sshj). Efeknya: X25519/EC dkk tetap lengkap tersedia utk sshj,
+ * TANPA mengubah provider default TLS lain di app.
  *
  * ARSITEKTUR: memakai [ConnectRelay] yang SAMA PERSIS dengan [SshTunnelManager]
  * (relay itu murni socket loopback, tidak terikat ke satu library SSH manapun)
@@ -233,8 +240,20 @@ class SshjTunnelManager : SshEngineHandle {
             synchronized(bcRegisterLock) {
                 if (bcRegistered) return
                 try {
-                    SecurityUtils.setSecurityProvider(BouncyCastleProvider())
-                    Log.i(TAG, "Bouncy Castle asli didaftarkan KHUSUS untuk sshj (scoped, tidak menyentuh provider JVM global)")
+                    // Daftarkan provider BC "asli" ke JVM HANYA kalau belum ada
+                    // (mis. dari SecurityProvider.PROVIDER_NAME Android) --
+                    // addProvider = ditaruh di AKHIR daftar (prioritas rendah),
+                    // BEDA dengan insertProviderAt(p, 1) yang memaksa jadi
+                    // prioritas TERTINGGI utk seluruh app.
+                    if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
+                        Security.addProvider(BouncyCastleProvider())
+                    }
+                    // sshj cuma perlu NAMA provider ("BC"), bukan objeknya --
+                    // API ini yang bikin sshj (lewat SecurityUtils.getKeyPairGenerator()
+                    // dkk) secara internal minta provider "BC" ke JVM by name,
+                    // dan sekarang ketemu Bouncy Castle asli yang barusan didaftarkan.
+                    SecurityUtils.setSecurityProvider(BouncyCastleProvider.PROVIDER_NAME)
+                    Log.i(TAG, "Bouncy Castle asli didaftarkan (prioritas rendah, dipakai sshj lewat nama provider \"BC\")")
                 } catch (e: Exception) {
                     // Non-fatal di titik ini -- kalau ternyata masih ada
                     // algoritma yang hilang, error "no such algorithm: ...
