@@ -25,6 +25,15 @@ import android.content.Context
  * TETAP dipakai apa adanya (dulu -- bug -- host ikut dibuang & diganti
  * default Google kalau usernya lupa nulis port).
  *
+ * DEFAULT_KEEP_ALIVE_TARGET (permintaan user: "sembunyikan port dari
+ * tampilan") SEKARANG cuma "www.google.com" TANPA ":443" -- field jadi
+ * lebih ringkas & tidak bikin bingung user awam yang lihat angka port yang
+ * sebenarnya tidak perlu mereka utak-atik. Port 443 TETAP dipakai persis
+ * sama seperti sebelumnya karena parseKeepAliveTarget() di atas otomatis
+ * fallback ke DEFAULT_KEEP_ALIVE_PORT waktu tidak ada ":port" di teksnya --
+ * jadi ini MURNI perubahan tampilan, perilaku keep-alive-nya sama sekali
+ * tidak berubah.
+ *
  * [keepAliveMethod] pilih MEKANISME keep-alive-nya (dua-duanya tetap lewat
  * SOCKS5 lokal/tunnel yang aktif, beda cuma di "kedalaman" pembuktiannya):
  *  - [METHOD_TCP]: buka-tutup handshake SOCKS5 CONNECT ke target (cepat,
@@ -44,7 +53,7 @@ data class GeneralSettings(
         const val DEFAULT_PING_INTERVAL_SECONDS = 30
         const val MIN_PING_INTERVAL_SECONDS = 5
         const val MAX_PING_INTERVAL_SECONDS = 3600
-        const val DEFAULT_KEEP_ALIVE_TARGET = "www.google.com:443"
+        const val DEFAULT_KEEP_ALIVE_TARGET = "www.google.com"
 
         /** Port yang dipakai kalau user cuma isi host tanpa ":port" sama sekali. */
         const val DEFAULT_KEEP_ALIVE_PORT = 443

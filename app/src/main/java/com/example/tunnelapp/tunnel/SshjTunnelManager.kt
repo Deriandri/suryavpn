@@ -58,18 +58,21 @@ import javax.net.SocketFactory
  *
  * FIX YANG BENAR (dipakai sekarang, lihat ensureBouncyCastleRegistered()):
  * di sshj:0.38.0, SecurityUtils.setSecurityProvider() menerima NAMA provider
- * (String, "BC"), BUKAN objek Provider -- jadi tetap perlu Security.addProvider()
- * SEKALI supaya JVM bisa menemukan provider "BC" lewat nama itu saat sshj
- * memintanya. BEDANYA dengan fix versi sebelumnya yang bikin "koneksi sering
- * hilang sendiri": versi lama pakai Security.insertProviderAt(provider, 1)
- * yang MEMAKSA Bouncy Castle jadi provider prioritas TERTINGGI utk SELURUH
- * proses (termasuk TLS/HTTPS lain seperti Cloud Sync & Xray, tanpa mereka
- * minta). Di sini kita pakai Security.addProvider() yang cuma MENAMBAHKAN BC
- * ke akhir daftar provider (prioritas rendah) -- Conscrypt/AndroidOpenSSL
- * bawaan Android TETAP jadi provider default utk kode lain, BC hanya dipakai
- * kalau ada kode yang secara eksplisit minta provider "BC" lewat nama
- * (persis yang dilakukan SecurityUtils.setSecurityProvider("BC") di bawah,
- * khusus utk sshj). Efeknya: X25519/EC dkk tetap lengkap tersedia utk sshj,
+ * (String, "BC"), BUKAN objek Provider. Karena Android SUDAH mendaftarkan
+ * provider bernama "BC" sejak boot (versi TERBATAS) dan nama provider itu
+ * UNIK per JVM, satu-satunya cara sshj bisa menemukan Bouncy Castle ASLI
+ * lewat nama "BC" adalah MENGGANTI registrasi nama itu: Security.removeProvider("BC")
+ * lalu Security.addProvider(BouncyCastleProvider()) (BUKAN insertProviderAt(p, 1)).
+ * BEDANYA dengan fix versi sebelumnya yang bikin "koneksi sering hilang
+ * sendiri": versi lama pakai insertProviderAt(provider, 1) yang MEMAKSA
+ * Bouncy Castle jadi provider prioritas TERTINGGI utk SELURUH proses
+ * (termasuk TLS/HTTPS lain seperti Cloud Sync & Xray, tanpa mereka minta).
+ * addProvider menaruh BC di AKHIR daftar prioritas -- Conscrypt/AndroidOpenSSL
+ * bawaan Android TETAP jadi pilihan pertama utk kode lain yang cari algoritma
+ * TANPA sebut nama provider secara eksplisit. Bouncy Castle asli hanya
+ * "kepakai" kalau ada kode yang EKSPLISIT minta provider by name "BC" --
+ * persis yang dilakukan SecurityUtils.setSecurityProvider("BC") di bawah,
+ * khusus utk sshj. Efeknya: X25519/EC dkk tetap lengkap tersedia utk sshj,
  * TANPA mengubah provider default TLS lain di app.
  *
  * ARSITEKTUR: memakai [ConnectRelay] yang SAMA PERSIS dengan [SshTunnelManager]
@@ -240,20 +243,35 @@ class SshjTunnelManager : SshEngineHandle {
             synchronized(bcRegisterLock) {
                 if (bcRegistered) return
                 try {
-                    // Daftarkan provider BC "asli" ke JVM HANYA kalau belum ada
-                    // (mis. dari SecurityProvider.PROVIDER_NAME Android) --
-                    // addProvider = ditaruh di AKHIR daftar (prioritas rendah),
-                    // BEDA dengan insertProviderAt(p, 1) yang memaksa jadi
-                    // prioritas TERTINGGI utk seluruh app.
-                    if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
-                        Security.addProvider(BouncyCastleProvider())
-                    }
+                    // PENTING (root cause error "no such algorithm: X25519 for
+                    // provider BC" yang MASIH muncul): Android SUDAH mendaftarkan
+                    // provider bernama "BC" sejak proses boot (versi TERBATAS,
+                    // bukan Bouncy Castle asli) -- karena nama provider itu UNIK
+                    // per JVM (cuma satu provider boleh pakai nama "BC"
+                    // sekaligus), cek "kalau belum ada" SELALU false dan Bouncy
+                    // Castle asli TIDAK PERNAH benar-benar terpasang. Satu-
+                    // satunya cara sshj bisa menemukan Bouncy Castle ASLI lewat
+                    // nama "BC" adalah MENGGANTI registrasi nama itu: copot versi
+                    // Android punya dulu, baru pasang versi asli.
+                    Security.removeProvider(BouncyCastleProvider.PROVIDER_NAME)
+                    // addProvider (BUKAN insertProviderAt(p, 1)) = ditaruh di
+                    // AKHIR daftar prioritas. Ini yang menjaga TIDAK terulang
+                    // bug "internet sering hilang sendiri": kode lain di app
+                    // yang mencari algoritma TANPA sebut nama provider secara
+                    // eksplisit (kebanyakan TLS/HTTPS biasa, termasuk Cloud
+                    // Sync & Xray) tetap memilih Conscrypt/AndroidOpenSSL dulu
+                    // (prioritas lebih tinggi) seperti biasa -- Bouncy Castle
+                    // asli hanya "kepakai" kalau ada kode yang EKSPLISIT minta
+                    // provider by name "BC", persis yang sshj lakukan di baris
+                    // setSecurityProvider() di bawah.
+                    Security.addProvider(BouncyCastleProvider())
                     // sshj cuma perlu NAMA provider ("BC"), bukan objeknya --
                     // API ini yang bikin sshj (lewat SecurityUtils.getKeyPairGenerator()
                     // dkk) secara internal minta provider "BC" ke JVM by name,
-                    // dan sekarang ketemu Bouncy Castle asli yang barusan didaftarkan.
+                    // dan sekarang ketemu Bouncy Castle asli yang barusan
+                    // menggantikan versi Android di nama itu.
                     SecurityUtils.setSecurityProvider(BouncyCastleProvider.PROVIDER_NAME)
-                    Log.i(TAG, "Bouncy Castle asli didaftarkan (prioritas rendah, dipakai sshj lewat nama provider \"BC\")")
+                    Log.i(TAG, "Bouncy Castle asli MENGGANTIKAN provider \"BC\" bawaan Android (prioritas tetap rendah, dipakai sshj lewat nama provider)")
                 } catch (e: Exception) {
                     // Non-fatal di titik ini -- kalau ternyata masih ada
                     // algoritma yang hilang, error "no such algorithm: ...

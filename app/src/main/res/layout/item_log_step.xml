@@ -1,39 +1,105 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- REDESIGN (permintaan user: kartu "Tahapan Koneksi" lebih profesional/
+     modern/smooth): sebelumnya cuma titik warna polos + label sejajar kiri,
+     TIDAK ada penanda urutan/alur antar tahap. Sekarang jadi pola "timeline/
+     stepper" — badge lingkaran per tahap (isi ikon centang/silang utk
+     sukses/gagal, titik kecil utk belum jalan, spinner utk lagi berjalan)
+     DIHUBUNGKAN garis vertikal tipis ke tahap sebelum & sesudahnya, senada
+     pola stepper yang umum dipakai app modern (mis. tracking pengiriman).
+     Semua id lama (dot, spinner, tvLabel, tvDetail) TETAP dipertahankan
+     supaya sebagian logika Kotlin lama tidak perlu ditulis ulang total —
+     cuma ditambah id baru (rowRoot, lineTop, lineBottom, circleBg,
+     iconCheck, iconClose, dotPending) utk elemen barunya. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rowRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
-    android:paddingTop="10dp"
-    android:paddingBottom="10dp"
+    android:background="@drawable/bg_step_row_highlight"
+    android:paddingHorizontal="8dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
     android:gravity="center_vertical">
 
-    <FrameLayout
-        android:layout_width="22dp"
-        android:layout_height="22dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginTop="2dp">
+    <!-- Rail kiri: garis-atas + badge lingkaran + garis-bawah, tersusun
+         VERTICAL dengan garis diberi layout_weight supaya otomatis mengisi
+         sisa tinggi baris di atas & di bawah badge — badge jadi selalu
+         center secara vertikal terhadap label di sebelah kanannya, dan
+         garisnya otomatis nyambung mulus ke baris tahap berikutnya waktu
+         semua baris ditumpuk dalam llLogSteps. -->
+    <LinearLayout
+        android:layout_width="30dp"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center_horizontal">
 
         <View
-            android:id="@+id/dot"
-            android:layout_width="14dp"
-            android:layout_height="14dp"
-            android:layout_gravity="center"
-            android:background="@drawable/bg_dot" />
+            android:id="@+id/lineTop"
+            android:layout_width="2dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@color/divider" />
 
-        <ProgressBar
-            android:id="@+id/spinner"
-            style="?android:attr/progressBarStyleSmall"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:layout_gravity="center"
-            android:visibility="gone"
-            android:indeterminateTint="@color/status_running" />
-    </FrameLayout>
+        <FrameLayout
+            android:layout_width="26dp"
+            android:layout_height="26dp">
+
+            <View
+                android:id="@+id/dot"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/bg_step_circle" />
+
+            <ImageView
+                android:id="@+id/iconCheck"
+                android:layout_width="13dp"
+                android:layout_height="13dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_step_check"
+                android:visibility="gone"
+                android:contentDescription="@null" />
+
+            <ImageView
+                android:id="@+id/iconClose"
+                android:layout_width="12dp"
+                android:layout_height="12dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_step_close"
+                android:visibility="gone"
+                android:contentDescription="@null" />
+
+            <View
+                android:id="@+id/dotPending"
+                android:layout_width="7dp"
+                android:layout_height="7dp"
+                android:layout_gravity="center"
+                android:background="@drawable/bg_dot_pending_small"
+                android:visibility="gone" />
+
+            <ProgressBar
+                android:id="@+id/spinner"
+                style="?android:attr/progressBarStyleSmall"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:layout_gravity="center"
+                android:visibility="gone"
+                android:indeterminateTint="@color/status_running" />
+        </FrameLayout>
+
+        <View
+            android:id="@+id/lineBottom"
+            android:layout_width="2dp"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@color/divider" />
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
+        android:layout_marginStart="14dp"
+        android:paddingVertical="4dp"
         android:orientation="vertical">
 
         <TextView

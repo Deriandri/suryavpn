@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Badge lingkaran status per-tahap di kartu "Tahapan Koneksi" (timeline
+     modern). Warna diisi ulang secara dinamis lewat GradientDrawable.setColor()
+     di DashboardMainFragment.renderLogSteps() — SUKSES/ERROR pakai warna
+     solid pekat (status_success/status_error) + ikon putih di atasnya,
+     PENDING/SKIPPED pakai warna lembut (status_pending_bg) + titik kecil
+     di tengah, sama pola "mutate warna" seperti bg_dot.xml sebelumnya. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/status_pending_bg" />
+</shape>

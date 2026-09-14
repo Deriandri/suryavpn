@@ -19,6 +19,7 @@
        Kotlin yang sudah ada tidak perlu diubah sama sekali. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/app_background"
@@ -237,16 +238,45 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <TextView
-                    style="@style/SectionTitleText"
-                    android:layout_width="wrap_content"
+                <!-- REDESIGN (permintaan user: kartu ini lebih profesional/
+                     modern/smooth): judul digabung satu baris dengan badge
+                     progres "x/y selesai" (tvStepsProgress) di kanan —
+                     diisi & disembunyikan otomatis dari
+                     DashboardMainFragment.renderLogSteps(), sama seperti
+                     tvLogEmpty/llLogSteps sebelumnya. -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Tahapan Koneksi" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        style="@style/SectionTitleText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginBottom="0dp"
+                        android:text="Tahapan Koneksi" />
+
+                    <TextView
+                        android:id="@+id/tvStepsProgress"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_pill_brand_soft"
+                        android:paddingHorizontal="10dp"
+                        android:paddingVertical="4dp"
+                        android:textColor="@color/brand_primary_dark"
+                        android:textSize="11.5sp"
+                        android:textStyle="bold"
+                        android:visibility="gone"
+                        tools:text="6/8 selesai" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/tvLogEmpty"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
                     android:lineSpacingExtra="2dp"
                     android:text="Belum ada aktivitas koneksi. Tekan Connect di tab Main untuk memulai."
                     android:textColor="@color/text_secondary"
@@ -256,6 +286,7 @@
                     android:id="@+id/llLogSteps"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
                     android:orientation="vertical"
                     android:animateLayoutChanges="true" />
             </LinearLayout>

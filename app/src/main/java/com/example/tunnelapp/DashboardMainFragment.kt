@@ -218,6 +218,7 @@ class DashboardMainFragment : Fragment() {
             b.tvLogEmpty.visibility = View.VISIBLE
             b.llLogSteps.visibility = View.GONE
             b.llLogSteps.removeAllViews()
+            b.tvStepsProgress.visibility = View.GONE
             return
         }
         b.tvLogEmpty.visibility = View.GONE
@@ -225,28 +226,72 @@ class DashboardMainFragment : Fragment() {
         b.llLogSteps.removeAllViews()
         val ctx = requireContext()
         val inflater = LayoutInflater.from(ctx)
-        steps.forEach { step ->
+
+        // REDESIGN (permintaan user: "Tahapan Koneksi" lebih profesional/
+        // modern/smooth): badge "x/y selesai" di header kartu -- y itung
+        // semua tahap SELAIN yang di-skip (mis. "CONNECT dilewati" pada mode
+        // raw passthrough), supaya persentasenya tetap masuk akal biarpun
+        // ada tahap yang memang sengaja tidak dijalankan.
+        val countedSteps = steps.count { it.status != StepStatus.SKIPPED }
+        val doneSteps = steps.count { it.status == StepStatus.SUCCESS }
+        if (countedSteps > 0) {
+            b.tvStepsProgress.visibility = View.VISIBLE
+            b.tvStepsProgress.text = "$doneSteps/$countedSteps selesai"
+        } else {
+            b.tvStepsProgress.visibility = View.GONE
+        }
+
+        steps.forEachIndexed { index, step ->
             val row = inflater.inflate(R.layout.item_log_step, b.llLogSteps, false)
+            val rowRoot = row.findViewById<View>(R.id.rowRoot)
+            val lineTop = row.findViewById<View>(R.id.lineTop)
+            val lineBottom = row.findViewById<View>(R.id.lineBottom)
             val dot = row.findViewById<View>(R.id.dot)
+            val iconCheck = row.findViewById<View>(R.id.iconCheck)
+            val iconClose = row.findViewById<View>(R.id.iconClose)
+            val dotPending = row.findViewById<View>(R.id.dotPending)
             val spinner = row.findViewById<ProgressBar>(R.id.spinner)
             val tvLabel = row.findViewById<TextView>(R.id.tvLabel)
             val tvDetail = row.findViewById<TextView>(R.id.tvDetail)
 
             tvLabel.text = step.label
 
-            if (step.status == StepStatus.RUNNING) {
-                dot.visibility = View.GONE
-                spinner.visibility = View.VISIBLE
-            } else {
-                dot.visibility = View.VISIBLE
-                spinner.visibility = View.GONE
-                val colorRes = when (step.status) {
-                    StepStatus.SUCCESS -> R.color.status_success
-                    StepStatus.ERROR -> R.color.status_error
-                    else -> R.color.status_pending
+            // Garis rail cuma nyambung ke tahap SEBELUM/SESUDAHnya -- tahap
+            // paling atas tidak punya garis di atas, tahap paling bawah
+            // tidak punya garis di bawah, biar timeline-nya rapi tanpa
+            // "nub" nyangkut di ujung kartu.
+            lineTop.visibility = if (index == 0) View.INVISIBLE else View.VISIBLE
+            lineBottom.visibility = if (index == steps.lastIndex) View.INVISIBLE else View.VISIBLE
+
+            // Sembunyikan semua isi badge dulu, baru tampilkan yang relevan
+            // sesuai status -- badge sekarang punya 4 kemungkinan isi (dulu
+            // cuma dot polos/spinner): ikon centang (SUCCESS), ikon silang
+            // (ERROR), titik kecil (PENDING/SKIPPED), spinner (RUNNING).
+            iconCheck.visibility = View.GONE
+            iconClose.visibility = View.GONE
+            dotPending.visibility = View.GONE
+            spinner.visibility = View.GONE
+
+            val circleColorRes: Int
+            when (step.status) {
+                StepStatus.RUNNING -> {
+                    spinner.visibility = View.VISIBLE
+                    circleColorRes = R.color.status_running_bg
                 }
-                (dot.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(ctx, colorRes))
+                StepStatus.SUCCESS -> {
+                    iconCheck.visibility = View.VISIBLE
+                    circleColorRes = R.color.status_success
+                }
+                StepStatus.ERROR -> {
+                    iconClose.visibility = View.VISIBLE
+                    circleColorRes = R.color.status_error
+                }
+                else -> {
+                    dotPending.visibility = View.VISIBLE
+                    circleColorRes = R.color.status_pending_bg
+                }
             }
+            (dot.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(ctx, circleColorRes))
 
             if (step.status == StepStatus.ERROR && !step.detail.isNullOrEmpty()) {
                 tvDetail.visibility = View.VISIBLE
@@ -261,6 +306,18 @@ class DashboardMainFragment : Fragment() {
                     ctx,
                     if (step.status == StepStatus.SKIPPED) R.color.text_hint else R.color.text_primary
                 )
+            )
+
+            // Highlight lembut & bulat di belakang baris yang lagi RUNNING/
+            // ERROR supaya tahap yang butuh perhatian user langsung menonjol
+            // sekilas dari daftar, tanpa perlu scroll baca satu-satu.
+            val highlightColorRes = when (step.status) {
+                StepStatus.RUNNING -> R.color.status_running_bg
+                StepStatus.ERROR -> R.color.status_error_bg
+                else -> android.R.color.transparent
+            }
+            (rowRoot.background.mutate() as GradientDrawable).setColor(
+                ContextCompat.getColor(ctx, highlightColorRes)
             )
 
             b.llLogSteps.addView(row)

@@ -44,7 +44,7 @@
             android:textColor="@color/terminal_text"
             android:lineSpacingExtra="3dp"
             android:paddingHorizontal="14dp"
-            android:paddingTop="56dp"
+            android:paddingTop="40dp"
             android:paddingBottom="14dp"
             android:textIsSelectable="true"
             android:text="" />
@@ -57,20 +57,25 @@
          sebagai tombol walau warna log di belakangnya berubah-ubah. Margin
          disesuaikan (14dp margin svTerminal + 12dp jarak) supaya tombol
          tetap pas menumpuk di dalam kartu biru barunya, tidak nabrak sudut
-         membulat. -->
+         membulat.
+         DIPERKECIL (permintaan user: "log kepepet ke atas, ruang kosong
+         kebanyakan") -- marginTop & paddingVertical tombol dikurangi supaya
+         tombol ikut naik, lalu paddingTop tvTerminal di atas ikut dikurangi
+         proporsional (56dp -> 40dp) supaya baris log PALING ATAS tetap tidak
+         ketimpa tombol yang sekarang lebih pendek & lebih naik. -->
     <TextView
         android:id="@+id/btnClearLog"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
-        android:layout_marginTop="26dp"
-        android:layout_marginEnd="26dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="18dp"
         android:elevation="4dp"
         android:text="Hapus Log"
         android:textColor="@color/terminal_text_dim"
         android:textSize="12sp"
-        android:paddingHorizontal="14dp"
-        android:paddingVertical="8dp"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp"
         android:background="@drawable/bg_pill_floating"
         android:clickable="true"
         android:focusable="true"

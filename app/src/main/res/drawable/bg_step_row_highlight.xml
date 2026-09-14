@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Latar baris tahap yang sedang RUNNING/ERROR di kartu "Tahapan Koneksi" —
+     dimutasi transparan utk tahap normal, atau status_running_bg/status_error_bg
+     utk tahap yang lagi butuh perhatian, supaya baris itu "menonjol" halus
+     dari daftar tanpa perlu kartu/border terpisah per baris. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="12dp" />
+    <solid android:color="@android:color/transparent" />
+</shape>
