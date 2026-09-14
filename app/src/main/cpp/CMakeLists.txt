@@ -176,6 +176,45 @@ ExternalProject_Add(
         # sekali (ExternalProject terpisah, CMAKE_ARGS ini cuma dikirim ke
         # configure step badvpn_tun2socks_external).
         -DCMAKE_POLICY_DEFAULT_CMP0057=NEW
+        # FIX build error nyata (CI log user, putaran ke-3): "unknown target"
+        # sudah teratasi (build tanpa --target), TAPI compile badvpn sendiri
+        # gagal: system/BReactor_badvpn.h:39 "#error Unknown event backend
+        # or too many event backends" & system/BUnixSignal.h:38 "#error
+        # Unknown signal backend or too many signal backends". Dua header
+        # itu isinya rantai #if/#elif yang MEMILIH implementasi reactor/
+        # signal berdasarkan salah satu dari beberapa macro yang harus
+        # SUDAH terdefinisi lewat -D (mis. BADVPN_USE_EPOLL, BADVPN_USE_SIGNALFD,
+        # dst) -- normalnya macro ini disuntik OTOMATIS oleh CMakeLists.txt
+        # badvpn sendiri lewat deteksi platform (try_compile/try_run), TAPI
+        # baris command compiler di log CI (lihat -DBADVPN_BREACTOR_BADVPN
+        # yang JELAS bukan nama macro valid manapun, bukan BADVPN_USE_EPOLL
+        # dkk) menunjukkan deteksi itu GAGAL/salah saat CROSS-COMPILE ke
+        # Android (try_run BIASANYA tidak bisa jalan sama sekali saat
+        # cross-compiling tanpa emulator, karena binary hasil compile-nya
+        # untuk arch Android, bukan bisa dieksekusi langsung di runner
+        # x86_64 CI) -- akibatnya CMake badvpn jatuh ke semacam nilai
+        # fallback yang tidak valid, bukan salah satu backend asli.
+        #
+        # FIX: paksa backend yang BENAR secara eksplisit lewat CMAKE_C_FLAGS
+        # (ditambahkan, BUKAN mengganti -DBADVPN_BREACTOR_BADVPN yang sudah
+        # ada -- itu tidak match apa pun jadi aman diabaikan/tidak
+        # konflik). Android (bionic libc, minSdk 28 app ini) mendukung
+        # epoll dan signalfd penuh, jadi BADVPN_USE_EPOLL + BADVPN_USE_SIGNALFD
+        # adalah pasangan backend yang benar untuk Linux/Android modern.
+        #
+        # JUJUR: nama KEDUA macro ini saya tulis dari pengetahuan umum
+        # source badvpn (system/BReactor_badvpn.h & system/BUnixSignal.h),
+        # BUKAN hasil verifikasi langsung ke source-nya (tidak ada akses
+        # network di lingkungan penyusunan kode ini) -- confidence CUKUP
+        # TINGGI (ini nama macro yang cukup dikenal luas di project
+        # badvpn), tapi BUKAN 100% pasti. Kalau CI berikutnya masih error
+        # "#error Unknown ... backend" juga, buka LANGSUNG file
+        # badvpn-src/badvpn/system/BReactor_badvpn.h dan
+        # badvpn-src/badvpn/system/BUnixSignal.h di runner (folder itu
+        # hasil clone, ada persis di path yang muncul di pesan error CMake
+        # Error di log) -- daftar #elif defined(...) di situ adalah daftar
+        # PASTI nama macro yang diterima, jadi tidak perlu tebak lagi.
+        "-DCMAKE_C_FLAGS=-DBADVPN_USE_EPOLL -DBADVPN_USE_SIGNALFD"
         # Opsi upstream badvpn: matikan semua target default (udpgw, dst
         # -- app ini sudah punya UdpgwClient Kotlin sendiri, lihat
         # VpnSettingsStore.udpgwPort), nyalakan HANYA tun2socks.
