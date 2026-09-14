@@ -181,7 +181,25 @@ ExternalProject_Add(
         # VpnSettingsStore.udpgwPort), nyalakan HANYA tun2socks.
         -DBUILD_NOTHING_BY_DEFAULT=1
         -DBUILD_TUN2SOCKS=1
-    BUILD_COMMAND ${CMAKE_COMMAND} --build ${BADVPN_BUILD_DIR} --target tun2socks
+    BUILD_COMMAND ${CMAKE_COMMAND} --build ${BADVPN_BUILD_DIR}
+    # ^ FIX build error nyata (CI log user, putaran ke-2): configure SUKSES
+    # (log CMake badvpn sendiri konfirmasi "tun2socks yes" di ringkasan
+    # komponennya), tapi step build sebelumnya gagal "ninja: error: unknown
+    # target 'tun2socks'" -- nama KOMPONEN di opsi -DBUILD_TUN2SOCKS=1
+    # ternyata beda dari nama TARGET ninja/CMake sungguhan untuk
+    # executable-nya (sempat ditebak "badvpn-tun2socks", TAPI tanpa akses
+    # buat verifikasi ke source badvpn sungguhan, menebak nama lagi sama
+    # berisikonya). DIGANTI ke pendekatan yang tidak butuh tebak nama sama
+    # sekali: HAPUS --target, build target default ("all") saja -- karena
+    # -DBUILD_NOTHING_BY_DEFAULT=1 di atas SUDAH membatasi apa saja yang
+    # ke-configure ke target "all" (cuma tun2socks, komponen lain "no" di
+    # ringkasan configure), jadi build tanpa --target seharusnya otomatis
+    # HANYA compile tun2socks apa pun nama target CMake-nya sungguhan.
+    # Byproduct di bawah (badvpn-tun2socks) tetap asumsi nama file OUTPUT
+    # -- itu independen dari nama target CMake, dan kalaupun namanya
+    # ternyata beda juga, errornya akan jelas: "byproduct file was not
+    # created" dengan path lengkap yang gampang dicocokkan ke isi
+    # sungguhan folder ${BADVPN_BUILD_DIR}/tun2socks/ di log CI.
     INSTALL_COMMAND ""
     LOG_BUILD ON
     LOG_OUTPUT_ON_FAILURE ON
