@@ -89,27 +89,6 @@ android {
     buildFeatures {
         viewBinding = true
     }
-
-    // FITUR BARU (permintaan user, tunnel engine badvpn): WAJIB -- lihat
-    // catatan di kepala BadVpnTun2socksEngine.kt. Binary badvpn-tun2socks
-    // dibundel di app/src/main/jniLibs/<ABI>/libbadvpn-tun2socks.so (nama
-    // "lib*.so" cuma konvensi supaya AGP mau membundelnya, isinya
-    // sebenarnya EXECUTABLE, bukan shared library beneran) dan dijalankan
-    // lewat ProcessBuilder saat runtime -- itu HANYA bisa berhasil kalau
-    // file itu benar-benar ada sebagai file fisik di disk device
-    // (Context.applicationInfo.nativeLibraryDir). Default AGP modern
-    // (useLegacyPackaging = false) TIDAK meng-extract native lib ke disk
-    // lagi -- lib tetap terkompresi di dalam APK dan cuma di-mmap
-    // langsung untuk kebutuhan JNI (dlopen), yang TIDAK cukup untuk
-    // spawn proses lewat ProcessBuilder. tunneljni.so (JNI, hev-socks5-
-    // tunnel) TIDAK terpengaruh oleh flag ini sama sekali (loadLibrary()
-    // JNI jalan baik lewat mmap maupun file fisik) -- perubahan ini murni
-    // demi badvpn-tun2socks.
-    packaging {
-        jniLibs {
-            useLegacyPackaging = true
-        }
-    }
 }
 
 // FIX (error build: "Duplicate class com.google.crypto.tink.* found in modules

@@ -79,22 +79,6 @@ import android.content.Context
  * [sshEngine] = [ENGINE_SSHJ] -- SettingsActivity mengunci (disable) switch
  * ini kalau engine yang dipilih masih ENGINE_TRILEAD, supaya tidak
  * menyesatkan user seolah aktif padahal enginenya tidak mendukung.
- *
- * [tunEngine] pilih IMPLEMENTASI [com.example.tunnelapp.tunnel.TunEngine]
- * (jembatan TUN fd <-> SOCKS5 lokal) yang dipakai [com.example.tunnelapp.tunnel.MyVpnService]:
- *  - [ENGINE_HEV] (default): [com.example.tunnelapp.tunnel.HevSocks5Engine]
- *    (hev-socks5-tunnel, native lib lewat JNI, jalan di thread yang sama
- *    proses app) -- satu-satunya engine yang sebelumnya teruji jalan di app
- *    ini, TIDAK berubah default-nya supaya user lama tidak kena regresi.
- *  - [ENGINE_BADVPN]: [com.example.tunnelapp.tunnel.BadVpnTun2socksEngine]
- *    (badvpn-tun2socks, binary native TERPISAH yang dijalankan lewat
- *    ProcessBuilder -- BUKAN JNI seperti hev). JUJUR: engine ini BELUM
- *    PERNAH dites jalan sungguhan di device fisik (lingkungan penyusunan
- *    kode ini tidak punya NDK/Android SDK utk compile+run APK) -- lihat
- *    catatan panjang di kepala file BadVpnTun2socksEngine.kt dan di
- *    app/src/main/cpp/CMakeLists.txt sebelum mengandalkan opsi ini di
- *    produksi. WAJIB coba di device fisik dulu; kalau bermasalah, tinggal
- *    pindah balik ke ENGINE_HEV di kartu "VPN Setting" ini.
  */
 data class VpnSettings(
     val dns1: String = "",
@@ -123,11 +107,7 @@ data class VpnSettings(
     // Default ENGINE_TRILEAD -- engine asli app ini, paling teruji. User
     // pindah ke ENGINE_SSHJ secara sadar lewat kartu "VPN Setting" kalau mau
     // kompresi beneran aktif atau mau coba engine alternatif.
-    val sshEngine: String = ENGINE_TRILEAD,
-    // Default ENGINE_HEV -- lihat catatan [tunEngine] di atas. User pindah
-    // ke ENGINE_BADVPN secara sadar lewat kartu "VPN Setting" kalau mau
-    // coba engine alternatif ini.
-    val tunEngine: String = ENGINE_HEV
+    val sshEngine: String = ENGINE_TRILEAD
 ) {
     companion object {
         const val DEFAULT_MTU = 1500
@@ -153,9 +133,6 @@ data class VpnSettings(
 
         const val ENGINE_TRILEAD = "TRILEAD"
         const val ENGINE_SSHJ = "SSHJ"
-
-        const val ENGINE_HEV = "HEV"
-        const val ENGINE_BADVPN = "BADVPN"
     }
 }
 
@@ -172,7 +149,6 @@ object VpnSettingsStore {
     private const val KEY_PERFORMANCE_MODE = "vpn_performance_mode"
     private const val KEY_COMPRESSION_ENABLED = "vpn_compression_enabled"
     private const val KEY_SSH_ENGINE = "vpn_ssh_engine"
-    private const val KEY_TUN_ENGINE = "vpn_tun_engine"
 
     fun load(context: Context): VpnSettings {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -191,12 +167,7 @@ object VpnSettingsStore {
             // ini sama sekali -- default ke ENGINE_TRILEAD supaya perilaku
             // user lama TIDAK BERUBAH sama sekali.
             sshEngine = prefs.getString(KEY_SSH_ENGINE, VpnSettings.ENGINE_TRILEAD)
-                ?: VpnSettings.ENGINE_TRILEAD,
-            // Sama seperti sshEngine: data lama tidak punya key ini sama
-            // sekali -- default ke ENGINE_HEV supaya perilaku user lama
-            // (sebelum badvpn-tun2socks ada) TIDAK BERUBAH sama sekali.
-            tunEngine = prefs.getString(KEY_TUN_ENGINE, VpnSettings.ENGINE_HEV)
-                ?: VpnSettings.ENGINE_HEV
+                ?: VpnSettings.ENGINE_TRILEAD
         )
     }
 
@@ -214,7 +185,6 @@ object VpnSettingsStore {
             .putBoolean(KEY_PERFORMANCE_MODE, settings.performanceMode)
             .putBoolean(KEY_COMPRESSION_ENABLED, settings.compressionEnabled)
             .putString(KEY_SSH_ENGINE, settings.sshEngine)
-            .putString(KEY_TUN_ENGINE, settings.tunEngine)
             .apply()
     }
 }

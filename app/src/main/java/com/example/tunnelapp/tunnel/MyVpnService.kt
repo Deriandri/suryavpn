@@ -285,11 +285,6 @@ class MyVpnService : VpnService() {
     // diambil dari VpnSettingsStore sekali di startVpn() supaya kedua sisi
     // pasti konsisten walau user ganti nilainya di tengah sesi tunnel aktif.
     private var currentMtu: Int = com.example.tunnelapp.model.VpnSettings.DEFAULT_MTU
-    // FITUR BARU (permintaan user, tunnel engine badvpn): sama pola dengan
-    // currentMtu di atas -- diambil dari VpnSettingsStore.tunEngine sekali
-    // di startVpn(), dipakai startTunEngine() untuk memilih HevSocks5Engine
-    // vs BadVpnTun2socksEngine. Default ENGINE_HEV (lihat VpnSettingsStore).
-    private var currentTunEngine: String = com.example.tunnelapp.model.VpnSettings.ENGINE_HEV
     // Diambil dari VpnSettingsStore.autoReconnect sekali di startVpn(),
     // dicek di scheduleReconnectOrGiveUp() -- kalau false, tunnel yang mati
     // sendiri LANGSUNG di-stopVpn() tanpa retry sama sekali (bukan cuma
@@ -780,7 +775,6 @@ class MyVpnService : VpnService() {
         }
 
         currentMtu = vpnSettings.mtu
-        currentTunEngine = vpnSettings.tunEngine
         currentAutoReconnect = vpnSettings.autoReconnect
         acquireWakeLockIfNeeded(vpnSettings.keepCpuAwake)
 
@@ -1998,24 +1992,10 @@ class MyVpnService : VpnService() {
         null
     }
 
-    /**
-     * Menjalankan [TunEngine] sesuai pilihan user di VpnSettingsStore.tunEngine
-     * ([currentTunEngine], diambil sekali di startVpn()) -- [HevSocks5Engine]
-     * (default, satu-satunya yang sebelumnya teruji jalan di app ini) atau
-     * [BadVpnTun2socksEngine] (FITUR BARU, JUJUR belum pernah dites di
-     * device fisik -- lihat catatan panjang di kepala file kelas itu).
-     */
+    /** Menjalankan [HevSocks5Engine], satu-satunya [TunEngine] yang dipakai app ini. */
     private fun startTunEngine(config: ServerConfig) {
         val fd = vpnInterface?.fd ?: throw IllegalStateException("TUN interface belum siap")
-        val engine: TunEngine
-        val engineLabel: String
-        if (currentTunEngine == com.example.tunnelapp.model.VpnSettings.ENGINE_BADVPN) {
-            engine = BadVpnTun2socksEngine(this)
-            engineLabel = "badvpn-tun2socks"
-        } else {
-            engine = HevSocks5Engine()
-            engineLabel = "hev-socks5-tunnel"
-        }
+        val engine = HevSocks5Engine()
         tunEngine = engine
         engine.start(
             tunFd = fd,
@@ -2023,7 +2003,7 @@ class MyVpnService : VpnService() {
             mtu = currentMtu,
             socksHost = "127.0.0.1",
             socksPort = config.socksPort,
-            onUnexpectedStop = { handleTunnelDeath("Engine tunnel ($engineLabel) berhenti tak terduga") }
+            onUnexpectedStop = { handleTunnelDeath("Engine tunnel (hev-socks5-tunnel) berhenti tak terduga") }
         )
     }
 

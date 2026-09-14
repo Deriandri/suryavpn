@@ -218,39 +218,23 @@ class SshjTunnelManager : SshEngineHandle {
 
         /**
          * FIX ROOT CAUSE (lihat catatan panjang di javadoc kelas ini) --
-         * daftarkan Bouncy Castle ASLI (dependency org.bouncycastle:bcprov-jdk18on,
-         * lihat app/build.gradle.kts) supaya sshj benar-benar memakainya,
-         * bukan provider "BC" bawaan Android yang sangat terbatas.
-         *
-         * FIX BUILD ERROR ("Type mismatch: inferred type is BouncyCastleProvider
-         * but String! was expected"): [SecurityUtils.setSecurityProvider]
-         * milik sshj menerima NAMA provider (String, mis. "BC"), BUKAN
-         * instance [BouncyCastleProvider] langsung -- sebelumnya salah
-         * dikira ada overload yang menerima objek Provider (tidak ada).
-         * Method ini SENDIRIAN cuma memilih nama provider mana yang sshj
-         * minta ke JCA -- ia TIDAK mendaftarkan providernya. Supaya lookup
-         * "BC" itu benar-benar resolve ke Bouncy Castle asli (bukan versi
-         * terbatas bawaan Android yang kebetulan terdaftar dengan nama
-         * SAMA PERSIS "BC"), kita tetap WAJIB mendaftarkan instance asli ke
-         * java.security.Security lebih dulu lewat insertProviderAt(...,1)
-         * (prioritas tertinggi) -- ini SATU-SATUNYA cara sshj (lewat API
-         * publiknya) bisa dapat provider asli, jadi (koreksi dari komentar
-         * versi sebelumnya di sini): efeknya TETAP GLOBAL ke proses app,
-         * PERSIS seperti yang sudah didokumentasikan di app/build.gradle.kts
-         * ("MENGGANTIKAN provider 'BC' bawaan Android saat runtime") --
-         * bukan "scoped khusus sshj" seperti klaim comment lama di sini.
-         * Aman: cuma menambah PRIORITAS lookup nama "BC", tidak menghapus/
-         * merusak provider Android lain (Conscrypt/AndroidOpenSSL dst)
-         * yang dipakai TLS/HTTPS normal app ini.
+         * kasih tahu Bouncy Castle ASLI (dependency org.bouncycastle:bcprov-jdk18on,
+         * lihat app/build.gradle.kts) KHUSUS ke sshj lewat SecurityUtils,
+         * BUKAN lewat Security.insertProviderAt() yang berlaku global ke
+         * seluruh proses app. Ini scoped, aman dipanggil kapan pun (tidak
+         * ada efek samping ke TLS/HTTPS/kripto lain di app), dan otomatis
+         * dipakai sshj untuk SEMUA algoritma yang ia minta lewat provider
+         * "BC" (X25519, kurva EC penuh, dll) -- tidak perlu filter algoritma
+         * satu-satu, sama seperti tujuan fix versi sebelumnya, cuma tanpa
+         * dampak global-nya.
          */
         private fun ensureBouncyCastleRegistered() {
             if (bcRegistered) return
             synchronized(bcRegisterLock) {
                 if (bcRegistered) return
                 try {
-                    java.security.Security.insertProviderAt(BouncyCastleProvider(), 1)
-                    SecurityUtils.setSecurityProvider(BouncyCastleProvider.PROVIDER_NAME)
-                    Log.i(TAG, "Bouncy Castle asli didaftarkan (prioritas tertinggi) untuk sshj")
+                    SecurityUtils.setSecurityProvider(BouncyCastleProvider())
+                    Log.i(TAG, "Bouncy Castle asli didaftarkan KHUSUS untuk sshj (scoped, tidak menyentuh provider JVM global)")
                 } catch (e: Exception) {
                     // Non-fatal di titik ini -- kalau ternyata masih ada
                     // algoritma yang hilang, error "no such algorithm: ...
