@@ -9,11 +9,14 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import android.util.Patterns
+import android.widget.EditText
+import android.widget.ScrollView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import com.example.tunnelapp.databinding.ActivitySettingsBinding
 import com.example.tunnelapp.model.AppLanguage
+import com.example.tunnelapp.model.DebugLogStore
 import com.example.tunnelapp.model.GeneralSettings
 import com.example.tunnelapp.model.GeneralSettingsStore
 import com.example.tunnelapp.model.LocaleStore
@@ -21,6 +24,8 @@ import com.example.tunnelapp.model.ThemeMode
 import com.example.tunnelapp.model.ThemeStore
 import com.example.tunnelapp.model.VpnSettings
 import com.example.tunnelapp.model.VpnSettingsStore
+import com.example.tunnelapp.tunnel.DebugLog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
 /**
  * Layar Pengaturan, dibuka lewat tab "Pengaturan" di bilah navigasi bawah
@@ -57,6 +62,8 @@ class SettingsActivity : AppCompatActivity() {
 
         loadGeneralSettingsIntoForm()
         binding.btnSaveGeneralSetting.setOnClickListener { saveGeneralSettingsFromForm() }
+
+        loadDebugLogIntoForm()
 
         binding.tvAppVersion.text = getString(R.string.app_version_format, appVersionName())
 
@@ -159,6 +166,81 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             getString(R.string.keep_alive_target_hint_tcp)
         }
+    }
+
+    /**
+     * FITUR BARU (permintaan user, "log debug, default off, pengamat log
+     * detail error tinggi"): isi switch dari [DebugLogStore], lalu terapkan
+     * LANGSUNG begitu user menekannya (sama seperti toggle tema/bahasa di
+     * atas -- tidak perlu tombol "Simpan" terpisah, karena ini murni
+     * on/off, bukan form). [DebugLog.setEnabled] yang benar-benar
+     * mengubah perilaku observer-nya secara live tanpa perlu restart app.
+     */
+    private fun loadDebugLogIntoForm() {
+        binding.switchDebugLog.isChecked = DebugLogStore.isEnabled(this)
+        binding.switchDebugLog.setOnCheckedChangeListener { _, isChecked ->
+            DebugLog.setEnabled(this, isChecked)
+        }
+        binding.btnViewDebugLog.setOnClickListener { showDebugLogDialog() }
+        binding.btnClearDebugLog.setOnClickListener { confirmClearDebugLog() }
+    }
+
+    /**
+     * Tampilkan isi file log debug di dialog read-only, dengan tombol
+     * "Salin" & "Bagikan" -- pola SAMA PERSIS dengan
+     * [ConfigActivity.showShareCodeDialog] (termasuk ScrollView dengan
+     * tinggi maksimum supaya baris tombol di bawah tidak ikut terdorong
+     * keluar layar kalau isi log-nya panjang).
+     */
+    private fun showDebugLogDialog() {
+        val logText = DebugLog.readLogText(this).ifBlank { getString(R.string.debug_log_empty) }
+
+        val input = EditText(this).apply {
+            setText(logText)
+            isFocusable = false
+            isFocusableInTouchMode = false
+            setTextIsSelectable(true)
+            setPadding(32, 24, 32, 24)
+            textSize = 12f
+            typeface = android.graphics.Typeface.MONOSPACE
+        }
+        val maxHeightPx = (resources.displayMetrics.heightPixels * 0.5f).toInt()
+        val container = ScrollView(this).apply {
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                maxHeightPx
+            )
+            addView(input)
+        }
+
+        MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog)
+            .setTitle(R.string.debug_log_dialog_title)
+            .setView(container)
+            .setNegativeButton(R.string.dialog_close, null)
+            .setNeutralButton(R.string.dialog_copy) { _, _ ->
+                val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("Log Debug SuryaVPN", logText))
+                Toast.makeText(this, getString(R.string.toast_copied), Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton(R.string.dialog_share) { _, _ ->
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, logText)
+                }
+                startActivity(Intent.createChooser(send, getString(R.string.debug_log_dialog_title)))
+            }
+            .show()
+    }
+
+    private fun confirmClearDebugLog() {
+        MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog)
+            .setTitle(R.string.btn_clear_debug_log)
+            .setNegativeButton(R.string.dialog_close, null)
+            .setPositiveButton(R.string.btn_clear_debug_log) { _, _ ->
+                DebugLog.clear(this)
+                Toast.makeText(this, getString(R.string.toast_debug_log_cleared), Toast.LENGTH_SHORT).show()
+            }
+            .show()
     }
 
     /**

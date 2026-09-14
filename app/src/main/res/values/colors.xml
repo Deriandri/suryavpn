@@ -58,12 +58,30 @@
 
     <!-- BARU (permintaan user: label section di Settings dikasih logo +
          background "biru laut smooth") — pasangan gradasi biru laut,
-         sengaja beda hue dari brand_primary (indigo) supaya chip judul
-         section langsung kebaca beda dari elemen brand lain, dipakai di
-         bg_section_title_seablue.xml. -->
+         DULU sengaja beda hue dari brand_primary. SEKARANG (permintaan
+         user, "samakan warna chip Appearance/Language/Basic Settings/VPN
+         Setting/About dengan warna tombol Save Basic Settings") sudah
+         TIDAK dipakai lagi di bg_section_title_seablue.xml -- dibiarkan
+         di sini (bukan dihapus) siapa tahu masih dipakai/dibutuhkan lagi
+         nanti di tempat lain. -->
     <color name="sea_blue_gradient_start">#38BDF8</color>
     <color name="sea_blue_gradient_mid">#0EA5E9</color>
     <color name="sea_blue_gradient_end">#0369A1</color>
+
+    <!-- BARU (permintaan user: chip judul section "Appearance/Language/
+         Basic Settings/VPN Setting/About" disamakan warnanya dengan
+         tombol "Save Basic Settings" -- lihat Button.Primary di
+         styles.xml, backgroundTint = brand_primary #4F46E5). Dibuat
+         gradasi (bukan flat solid) supaya tetap terasa "smooth"/glossy
+         seperti gaya chip sebelumnya, TAPI seluruh 3 stop-nya tetap
+         satu keluarga indigo/ungu yang sama dengan brand_primary --
+         start sedikit lebih terang (hero_gradient_start), tengah PERSIS
+         brand_primary, akhir PERSIS brand_primary_dark -- jadi kalau
+         dilihat sekilas warnanya senada dengan tombol Simpan itu, bukan
+         cuma mirip-mirip. Dipakai di bg_section_title_seablue.xml. -->
+    <color name="section_title_gradient_start">#6366F1</color>
+    <color name="section_title_gradient_mid">#4F46E5</color>
+    <color name="section_title_gradient_end">#4338CA</color>
 
     <!-- Status -->
     <color name="status_success">#16A34A</color>

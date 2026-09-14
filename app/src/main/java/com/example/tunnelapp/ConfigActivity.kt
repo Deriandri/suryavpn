@@ -826,11 +826,31 @@ class ConfigActivity : AppCompatActivity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             setPadding(48, 32, 48, 32)
         }
+        // PERBAIKAN (bug: tombol Salin/Bagikan tidak kelihatan): sebelumnya
+        // [input] langsung dipasang ke setView() tanpa ScrollView, jadi
+        // tingginya WRAP_CONTENT mengikuti PANJANG kode apa adanya. Karena
+        // kode sekarang SELALU double-enkripsi + LOCK_ALL (lihat
+        // shareRowAsTextCode -> selalu lebih panjang dari sebelumnya),
+        // tinggi dialog gampang melebihi tinggi layar -- baris tombol di
+        // bawah (Tutup/Salin/Bagikan) ikut terdorong ke luar layar dan
+        // TIDAK BISA DIJANGKAU sama sekali, walau kode tombolnya sendiri
+        // benar. Dibungkus ScrollView + batas tinggi maksimum di sini,
+        // sama seperti pola yang sudah dipakai di dialog Impor
+        // (onImportClicked), supaya kotak kode yang scroll, bukan seluruh
+        // dialognya -- baris tombol selalu tetap kelihatan di bawah.
+        val maxHeightPx = (resources.displayMetrics.heightPixels * 0.4f).toInt()
+        val container = ScrollView(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                maxHeightPx
+            )
+            addView(dialogInputLayout(input))
+        }
 
         newDialogBuilder()
             .setTitle("Bagikan akun")
             .setMessage("Salin atau bagikan kode di bawah. Siapa pun yang menempelkannya lewat tombol \"Impor\" di app ini akan mendapat akun yang sama persis.")
-            .setView(dialogInputLayout(input))
+            .setView(container)
             .setNegativeButton("Tutup", null)
             .setNeutralButton("Salin") { _, _ ->
                 copyToClipboard("Kode akun SuryaVPN", code)

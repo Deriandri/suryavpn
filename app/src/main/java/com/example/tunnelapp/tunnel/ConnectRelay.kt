@@ -103,7 +103,7 @@ class ConnectRelay(
                 val clientSocket = ss.accept() // trilead-ssh2 yang connect ke sini
                 handleClient(clientSocket)
             } catch (e: Exception) {
-                if (running) Log.e(TAG, "Error accept relay", e)
+                if (running) DebugLog.e(TAG, "Error accept relay", e)
             }
         }, "ssh-connect-relay").apply { start() }
 
@@ -120,7 +120,7 @@ class ConnectRelay(
             // asli. Sekarang alasan sebenarnya (host unreachable, protect()
             // gagal, proxy menolak, TLS gagal, dll) dilaporkan ke StatusBus
             // supaya muncul di log tahap koneksi.
-            Log.e(TAG, "Gagal membuka koneksi ke server SSH asli", e)
+            DebugLog.e(TAG, "Gagal membuka koneksi ke server SSH asli", e)
             clientSocket.close()
             return
         }
@@ -150,7 +150,7 @@ class ConnectRelay(
         try {
             rawSocket.bind(InetSocketAddress(0))
         } catch (e: Exception) {
-            Log.w(TAG, "Gagal bind socket sebelum protect()", e)
+            DebugLog.w(TAG, "Gagal bind socket sebelum protect()", e)
         }
 
         val protected = protect(rawSocket)
@@ -161,7 +161,7 @@ class ConnectRelay(
             // sendiri. Ini yang menyebabkan ECONNABORTED walau akun SSH-nya
             // sendiri valid dan jalan normal di aplikasi lain.
             val msg = "protect() gagal -- koneksi akan looping balik ke VPN sendiri"
-            Log.e(TAG, msg)
+            DebugLog.e(TAG, msg)
             StatusBus.fail(StepId.CONNECT_SERVER, msg)
             rawSocket.close()
             throw IOException(msg)
@@ -281,7 +281,7 @@ class ConnectRelay(
                         sslSocket.enabledProtocols = arrayOf(forcedVersion)
                         Log.i(TAG, "Versi TLS dipaksa ke $forcedVersion")
                     } else {
-                        Log.w(
+                        DebugLog.w(
                             TAG,
                             "Versi TLS $forcedVersion tidak didukung device ini " +
                                 "(tersedia: ${sslSocket.supportedProtocols.joinToString()}), " +
@@ -401,7 +401,7 @@ class ConnectRelay(
                 return WebSocketSocket(socket)
             } catch (e: Exception) {
                 val reason = e.message ?: e.javaClass.simpleName
-                Log.w(TAG, "WebSocket ditolak/gagal ($reason) -- fallback otomatis ke raw tanpa WebSocket", e)
+                DebugLog.w(TAG, "WebSocket ditolak/gagal ($reason) -- fallback otomatis ke raw tanpa WebSocket", e)
                 StatusBus.skip(StepId.WEBSOCKET, "Ditolak/gagal ($reason) -- fallback ke raw")
                 try {
                     socket.close()

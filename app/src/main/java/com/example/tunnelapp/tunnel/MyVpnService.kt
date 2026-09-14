@@ -262,7 +262,7 @@ class MyVpnService : VpnService() {
             try {
                 block()
             } catch (e: Exception) {
-                Log.e(TAG, "Error saat $label", e)
+                DebugLog.e(TAG, "Error saat $label", e)
             } finally {
                 latch.countDown()
             }
@@ -272,7 +272,7 @@ class MyVpnService : VpnService() {
         }
         val finishedInTime = latch.await(timeoutMs, TimeUnit.MILLISECONDS)
         if (!finishedInTime) {
-            Log.w(
+            DebugLog.w(
                 TAG,
                 "$label tidak selesai dalam ${timeoutMs}ms -- melanjutkan tanpa menunggu " +
                     "(thread '${thread.name}' dibiarkan jalan sendiri di background)"
@@ -427,12 +427,12 @@ class MyVpnService : VpnService() {
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
-                Log.w(TAG, "Jaringan fisik device hilang (data seluler/WiFi dimatikan) -- menunggu ${networkLossGraceMs}ms sebelum putus tunnel")
+                DebugLog.w(TAG, "Jaringan fisik device hilang (data seluler/WiFi dimatikan) -- menunggu ${networkLossGraceMs}ms sebelum putus tunnel")
                 scheduleNetworkLossCheck("Jaringan device terputus (data/WiFi mati)")
             }
 
             override fun onUnavailable() {
-                Log.w(TAG, "Tidak ada jaringan fisik yang tersedia -- menunggu ${networkLossGraceMs}ms sebelum putus tunnel")
+                DebugLog.w(TAG, "Tidak ada jaringan fisik yang tersedia -- menunggu ${networkLossGraceMs}ms sebelum putus tunnel")
                 scheduleNetworkLossCheck("Tidak ada jaringan aktif di device")
             }
 
@@ -448,7 +448,7 @@ class MyVpnService : VpnService() {
             connectivityManager.registerNetworkCallback(request, callback)
             networkCallback = callback
         } catch (e: Exception) {
-            Log.e(TAG, "Gagal mendaftarkan pemantau jaringan", e)
+            DebugLog.e(TAG, "Gagal mendaftarkan pemantau jaringan", e)
         }
     }
 
@@ -473,7 +473,7 @@ class MyVpnService : VpnService() {
                 Log.i(TAG, "Jaringan fisik sudah pulih dalam ${networkLossGraceMs}ms, batal putus tunnel")
                 return@launch
             }
-            Log.w(TAG, "Jaringan fisik tetap hilang setelah ${networkLossGraceMs}ms, putus tunnel")
+            DebugLog.w(TAG, "Jaringan fisik tetap hilang setelah ${networkLossGraceMs}ms, putus tunnel")
             handleTunnelDeath(reason)
         }
     }
@@ -486,7 +486,7 @@ class MyVpnService : VpnService() {
         try {
             connectivityManager.unregisterNetworkCallback(callback)
         } catch (e: Exception) {
-            Log.w(TAG, "Gagal melepas pemantau jaringan (mungkin sudah tidak terdaftar)", e)
+            DebugLog.w(TAG, "Gagal melepas pemantau jaringan (mungkin sudah tidak terdaftar)", e)
         }
     }
 
@@ -581,7 +581,7 @@ class MyVpnService : VpnService() {
                     try {
                         startForegroundService(quickConnectIntent)
                     } catch (e: Exception) {
-                        Log.e(TAG, "Gagal reconnect otomatis dari notifikasi", e)
+                        DebugLog.e(TAG, "Gagal reconnect otomatis dari notifikasi", e)
                     }
                 }, RECONNECT_NOTIFICATION_DELAY_MS)
                 return START_NOT_STICKY
@@ -729,11 +729,11 @@ class MyVpnService : VpnService() {
 
     private fun startVpn(rawConfig: ServerConfig, profileId: String? = null) {
         if (vpnInterface != null) {
-            Log.w(TAG, "VPN sudah berjalan, abaikan permintaan start kedua")
+            DebugLog.w(TAG, "VPN sudah berjalan, abaikan permintaan start kedua")
             return
         }
         if (!startInProgress.compareAndSet(false, true)) {
-            Log.w(TAG, "Permintaan connect sudah sedang diproses, abaikan permintaan kedua")
+            DebugLog.w(TAG, "Permintaan connect sudah sedang diproses, abaikan permintaan kedua")
             return
         }
 
@@ -836,7 +836,7 @@ class MyVpnService : VpnService() {
             vpnInterface = try {
                 builder.establish()
             } catch (e: Exception) {
-                Log.e(TAG, "Gagal membuat TUN interface", e)
+                DebugLog.e(TAG, "Gagal membuat TUN interface", e)
                 StatusBus.fail(StepId.TUN, e.message ?: e.javaClass.simpleName)
                 StatusBus.skipRemainingPending()
                 StatusBus.state.value = "Gagal membuat TUN interface: ${e.message}"
@@ -891,7 +891,7 @@ class MyVpnService : VpnService() {
                 builder.addDnsServer(value)
                 addedAny = true
             } catch (e: IllegalArgumentException) {
-                Log.w(TAG, "$label \"$value\" bukan alamat IP valid, diabaikan", e)
+                DebugLog.w(TAG, "$label \"$value\" bukan alamat IP valid, diabaikan", e)
                 StatusBus.log("$label \"$value\" bukan alamat IP valid -- diabaikan")
             }
         }
@@ -925,7 +925,7 @@ class MyVpnService : VpnService() {
             }
             Log.i(TAG, "Keep CPU Awake aktif: wake lock dipegang")
         } catch (e: Exception) {
-            Log.e(TAG, "Gagal memegang wake lock (Keep CPU Awake)", e)
+            DebugLog.e(TAG, "Gagal memegang wake lock (Keep CPU Awake)", e)
         }
     }
 
@@ -933,7 +933,7 @@ class MyVpnService : VpnService() {
         try {
             wakeLock?.let { if (it.isHeld) it.release() }
         } catch (e: Exception) {
-            Log.e(TAG, "Gagal melepas wake lock", e)
+            DebugLog.e(TAG, "Gagal melepas wake lock", e)
         }
         wakeLock = null
     }
@@ -964,7 +964,7 @@ class MyVpnService : VpnService() {
      */
     private fun checkStoppedMidway(engineJustStarted: TunEngine?): Boolean {
         if (!stoppingIntentionally) return false
-        Log.w(TAG, "Stop diminta di tengah proses connect -- membatalkan & membongkar hasil parsial")
+        DebugLog.w(TAG, "Stop diminta di tengah proses connect -- membatalkan & membongkar hasil parsial")
         stopHttpProxyServer()
         if (engineJustStarted != null && tunEngine === engineJustStarted) {
             tunEngine = null
@@ -1111,7 +1111,7 @@ class MyVpnService : VpnService() {
                         }
                         StatusBus.log("Proxy HTTP lokal aktif di 127.0.0.1:${vpnSettingsForHttpProxy.httpPort}")
                     } catch (e: Exception) {
-                        Log.e(TAG, "Gagal menyalakan proxy HTTP lokal", e)
+                        DebugLog.e(TAG, "Gagal menyalakan proxy HTTP lokal", e)
                         StatusBus.log("Proxy HTTP lokal GAGAL dinyalakan di port ${vpnSettingsForHttpProxy.httpPort}: ${e.message}")
                         httpProxyServer = null
                     }
@@ -1135,7 +1135,7 @@ class MyVpnService : VpnService() {
                 // scheduleReconnectOrGiveUp()/stopVpn() lagi -- stopVpn() asli
                 // sudah/sedang menangani teardown & status "Terputus".
                 if (stoppingIntentionally) return@launch
-                Log.e(TAG, "Gagal menyalakan tunnel", e)
+                DebugLog.e(TAG, "Gagal menyalakan tunnel", e)
                 StatusBus.skipRemainingPending()
                 // Pakai pesan dari tahap yang benar-benar gagal (lebih akurat)
                 // kalau ada, baru fallback ke pesan exception generik.
@@ -1228,7 +1228,7 @@ class MyVpnService : VpnService() {
             return
         }
 
-        Log.w(TAG, "Tunnel mati sendiri: $reason")
+        DebugLog.w(TAG, "Tunnel mati sendiri: $reason")
         watchdogJob?.cancel()
         pingJob?.cancel()
         pingJob = null
@@ -1362,7 +1362,7 @@ class MyVpnService : VpnService() {
      * state internal TUN/engine yang nyangkut & butuh benar-benar dari nol).
      */
     private fun hardResetAndRetry(config: ServerConfig, reason: String) {
-        Log.w(TAG, "Reconnect ringan gagal $MAX_RECONNECT_ATTEMPTS kali ($reason) -- melakukan reset penuh (termasuk TUN interface)")
+        DebugLog.w(TAG, "Reconnect ringan gagal $MAX_RECONNECT_ATTEMPTS kali ($reason) -- melakukan reset penuh (termasuk TUN interface)")
         StatusBus.log("Reconnect otomatis gagal $MAX_RECONNECT_ATTEMPTS kali ($reason) -- mencoba reset penuh (termasuk antarmuka VPN) sebagai upaya terakhir")
         StatusBus.state.value = "Reset penuh tunnel, mencoba sekali lagi..."
         updateNotification("Reset penuh, mencoba sekali lagi...")
@@ -1389,7 +1389,7 @@ class MyVpnService : VpnService() {
         try {
             vpnIf?.close()
         } catch (e: Exception) {
-            Log.e(TAG, "Error saat menutup TUN interface (hard reset)", e)
+            DebugLog.e(TAG, "Error saat menutup TUN interface (hard reset)", e)
         }
 
         // Jeda sebentar (biar OS/network settle) sebelum bikin ulang TUN
@@ -1417,7 +1417,7 @@ class MyVpnService : VpnService() {
             vpnInterface = try {
                 builder.establish()
             } catch (e: Exception) {
-                Log.e(TAG, "Hard reset: gagal membuat ulang TUN interface", e)
+                DebugLog.e(TAG, "Hard reset: gagal membuat ulang TUN interface", e)
                 StatusBus.fail(StepId.TUN, e.message ?: e.javaClass.simpleName)
                 StatusBus.skipRemainingPending()
                 StatusBus.state.value = "Gagal: reset penuh juga gagal membuat antarmuka VPN (${e.message})"
@@ -1478,7 +1478,7 @@ class MyVpnService : VpnService() {
                 //    proxy-nya sendiri yang crash, tidak perlu tunggu probe
                 //    reachability segala.
                 if (!isSocksPortAlive(config.socksPort)) {
-                    Log.w(TAG, "Watchdog: SOCKS5 lokal (127.0.0.1:${config.socksPort}) tidak merespons")
+                    DebugLog.w(TAG, "Watchdog: SOCKS5 lokal (127.0.0.1:${config.socksPort}) tidak merespons")
                     handleTunnelDeath("SOCKS5 lokal tidak merespons")
                     break
                 }
@@ -1506,7 +1506,7 @@ class MyVpnService : VpnService() {
                     consecutiveReachabilityFailures = 0
                 } else {
                     consecutiveReachabilityFailures++
-                    Log.w(
+                    DebugLog.w(
                         TAG,
                         "Watchdog: probe lewat tunnel gagal " +
                             "($consecutiveReachabilityFailures/$WATCHDOG_REACHABILITY_FAIL_THRESHOLD)"
@@ -2097,7 +2097,7 @@ class MyVpnService : VpnService() {
             try {
                 vpnIf?.close()
             } catch (e: Exception) {
-                Log.e(TAG, "Error saat menutup TUN interface", e)
+                DebugLog.e(TAG, "Error saat menutup TUN interface", e)
             }
 
             if (!StatusBus.state.value.startsWith("Gagal")) {

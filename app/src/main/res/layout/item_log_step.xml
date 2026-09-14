@@ -26,13 +26,13 @@
          putih di atas lingkaran solid pekat (iconCheck/iconClose) DIHAPUS.
          SEMUA status non-RUNNING sekarang pakai satu titik kecil polos yang
          sama (dotStatus, gaya PERSIS seperti titik teal di chip "Profil
-         aktif" -- bg_dot_active_profile), cuma warnanya dimutasi per status
-         di Kotlin (hijau/merah/abu-abu) -- lihat
+         aktif" (lihat bg_dot_active_profile), cuma warnanya dimutasi per
+         status di Kotlin (hijau/merah/abu-abu), lihat
          DashboardMainFragment.renderLogSteps(). Lingkaran badge di
          belakangnya (dot) juga ikut disamakan jadi warna LEMBUT/pastel utk
          semua status (bukan solid pekat lagi) supaya senada satu sama lain,
          cuma titik kecil di tengah yang jadi penanda warna status
-         sebenarnya -- id lama "dotPending" diganti nama jadi "dotStatus"
+         sebenarnya, id lama "dotPending" diganti nama jadi "dotStatus"
          karena sekarang dipakai utk SUCCESS & ERROR juga, bukan cuma
          PENDING. -->
     <LinearLayout

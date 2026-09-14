@@ -168,7 +168,7 @@ class SshTunnelManager : SshEngineHandle {
         onUnexpectedDisconnect: (String) -> Unit
     ) {
         if (compressionEnabled) {
-            Log.w(TAG, "compressionEnabled=true diabaikan -- trilead-ssh2 tidak mendukung kompresi zlib")
+            DebugLog.w(TAG, "compressionEnabled=true diabaikan -- trilead-ssh2 tidak mendukung kompresi zlib")
         }
         // (a) Relay lokal -- trilead-ssh2 akan connect ke sini, BUKAN
         // langsung ke server asli. Relay inilah yang benar-benar membuka
@@ -192,7 +192,7 @@ class SshTunnelManager : SshEngineHandle {
             // Non-fatal: gagal atur TCP_NODELAY bukan alasan buat batalkan
             // seluruh koneksi SSH, cukup lanjut pakai default library (Nagle
             // aktif) & catat di log buat debugging.
-            Log.w(TAG, "Gagal atur TCP_NODELAY (Performance Mode=$performanceMode), lanjut pakai default", e)
+            DebugLog.w(TAG, "Gagal atur TCP_NODELAY (Performance Mode=$performanceMode), lanjut pakai default", e)
         }
 
         // REVERT (laporan user: "terhubung tapi internet tidak jalan" di mode
@@ -487,7 +487,7 @@ class SshTunnelManager : SshEngineHandle {
         bannerField?.isAccessible = true
         (bannerField?.get(am) as? String)?.takeIf { it.isNotBlank() }
     } catch (e: Exception) {
-        Log.w(TAG, "Tidak bisa ambil server banner (kemungkinan internal trilead-ssh2 berubah)", e)
+        DebugLog.w(TAG, "Tidak bisa ambil server banner (kemungkinan internal trilead-ssh2 berubah)", e)
         null
     }
 
@@ -507,12 +507,12 @@ class SshTunnelManager : SshEngineHandle {
             try {
                 connection?.close()
             } catch (e: Exception) {
-                Log.e(TAG, "Error close SSH", e)
+                DebugLog.e(TAG, "Error close SSH", e)
             }
             try {
                 connectRelay?.stop()
             } catch (e: Exception) {
-                Log.e(TAG, "Error stop relay", e)
+                DebugLog.e(TAG, "Error stop relay", e)
             }
             connection = null
             connectRelay = null
@@ -532,22 +532,22 @@ class SshTunnelManager : SshEngineHandle {
             try {
                 socks5Server?.stop()
             } catch (e: Exception) {
-                Log.e(TAG, "Error stop SOCKS5", e)
+                DebugLog.e(TAG, "Error stop SOCKS5", e)
             }
             try {
                 udpgwClient?.stop()
             } catch (e: Exception) {
-                Log.e(TAG, "Error stop udpgw client", e)
+                DebugLog.e(TAG, "Error stop udpgw client", e)
             }
             try {
                 connection?.close()
             } catch (e: Exception) {
-                Log.e(TAG, "Error close SSH", e)
+                DebugLog.e(TAG, "Error close SSH", e)
             }
             try {
                 connectRelay?.stop()
             } catch (e: Exception) {
-                Log.e(TAG, "Error stop relay", e)
+                DebugLog.e(TAG, "Error stop relay", e)
             }
             socks5Server = null
             udpgwClient = null
