@@ -389,10 +389,12 @@
                         android:text="@string/engine_sshj" />
                 </com.google.android.material.button.MaterialButtonToggleGroup>
 
+                <!-- FITUR BARU (permintaan user): pilih TunEngine, mirror persis
+                     pola toggleSshEngine di atas. -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
+                    android:layout_marginTop="12dp"
                     android:text="@string/tun_engine_label"
                     android:textColor="@color/text_primary"
                     android:textStyle="bold"
@@ -414,20 +416,20 @@
                     app:singleSelection="true">
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnTunEngineHev"
+                        android:id="@+id/btnEngineHev"
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="@string/tun_engine_hev" />
+                        android:text="@string/engine_hev" />
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnTunEngineTun2socks"
+                        android:id="@+id/btnEngineBadvpn"
                         style="?attr/materialButtonOutlinedStyle"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="@string/tun_engine_tun2socks" />
+                        android:text="@string/engine_badvpn" />
                 </com.google.android.material.button.MaterialButtonToggleGroup>
 
                 <TextView

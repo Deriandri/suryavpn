@@ -2,10 +2,8 @@ package com.example.tunnelapp.tunnel
 
 /**
  * Abstraksi engine yang membaca paket dari TUN fd lalu meneruskannya sebagai
- * koneksi SOCKS5 ke `127.0.0.1:<socksPort>`. Dua implementasi yang dipakai
- * app ini: [HevSocks5Engine] (hev-socks5-tunnel, default) dan
- * [Tun2socksEngine] (xjasonlyu/tun2socks, alternatif -- lihat toggle
- * "Tunnel Engine (TUN)" di Pengaturan). Kontraknya:
+ * koneksi SOCKS5 ke `127.0.0.1:<socksPort>`. Satu-satunya implementasi yang
+ * dipakai app ini adalah [HevSocks5Engine] (hev-socks5-tunnel). Kontraknya:
  *
  *  - [start] BOLEH blocking (dipanggil dari thread terpisah oleh caller,
  *    lihat [MyVpnService.startTunEngine]) ATAU non-blocking (spawn thread

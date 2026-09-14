@@ -79,6 +79,22 @@ import android.content.Context
  * [sshEngine] = [ENGINE_SSHJ] -- SettingsActivity mengunci (disable) switch
  * ini kalau engine yang dipilih masih ENGINE_TRILEAD, supaya tidak
  * menyesatkan user seolah aktif padahal enginenya tidak mendukung.
+ *
+ * [tunEngine] pilih IMPLEMENTASI [com.example.tunnelapp.tunnel.TunEngine]
+ * (jembatan TUN fd <-> SOCKS5 lokal) yang dipakai [com.example.tunnelapp.tunnel.MyVpnService]:
+ *  - [ENGINE_HEV] (default): [com.example.tunnelapp.tunnel.HevSocks5Engine]
+ *    (hev-socks5-tunnel, native lib lewat JNI, jalan di thread yang sama
+ *    proses app) -- satu-satunya engine yang sebelumnya teruji jalan di app
+ *    ini, TIDAK berubah default-nya supaya user lama tidak kena regresi.
+ *  - [ENGINE_BADVPN]: [com.example.tunnelapp.tunnel.BadVpnTun2socksEngine]
+ *    (badvpn-tun2socks, binary native TERPISAH yang dijalankan lewat
+ *    ProcessBuilder -- BUKAN JNI seperti hev). JUJUR: engine ini BELUM
+ *    PERNAH dites jalan sungguhan di device fisik (lingkungan penyusunan
+ *    kode ini tidak punya NDK/Android SDK utk compile+run APK) -- lihat
+ *    catatan panjang di kepala file BadVpnTun2socksEngine.kt dan di
+ *    app/src/main/cpp/CMakeLists.txt sebelum mengandalkan opsi ini di
+ *    produksi. WAJIB coba di device fisik dulu; kalau bermasalah, tinggal
+ *    pindah balik ke ENGINE_HEV di kartu "VPN Setting" ini.
  */
 data class VpnSettings(
     val dns1: String = "",
@@ -108,18 +124,9 @@ data class VpnSettings(
     // pindah ke ENGINE_SSHJ secara sadar lewat kartu "VPN Setting" kalau mau
     // kompresi beneran aktif atau mau coba engine alternatif.
     val sshEngine: String = ENGINE_TRILEAD,
-    // [tunEngine] pilih IMPLEMENTASI [com.example.tunnelapp.tunnel.TunEngine]
-    // yang dipakai [com.example.tunnelapp.tunnel.MyVpnService.startTunEngine]
-    // untuk membaca paket dari TUN fd lalu meneruskannya ke SOCKS5 lokal:
-    //  - [ENGINE_HEV] (default): hev-socks5-tunnel (native C + lwIP, dibundel
-    //    lewat CMake -- lihat HevSocks5Engine/HevSocks5Bridge). Engine ASLI
-    //    app ini, satu-satunya yang teruji sampai fitur ini ditambahkan.
-    //  - [ENGINE_TUN2SOCKS]: engine kedua, xjasonlyu/tun2socks (Go, gvisor
-    //    netstack) lewat binding gomobile app/libs/tun2socks.aar -- lihat
-    //    Tun2socksEngine. Alternatif kalau ada device/kondisi tertentu di
-    //    mana hev-socks5-tunnel bermasalah.
-    // Default ENGINE_HEV supaya perilaku user lama (sebelum fitur ini ada)
-    // TIDAK BERUBAH sama sekali.
+    // Default ENGINE_HEV -- lihat catatan [tunEngine] di atas. User pindah
+    // ke ENGINE_BADVPN secara sadar lewat kartu "VPN Setting" kalau mau
+    // coba engine alternatif ini.
     val tunEngine: String = ENGINE_HEV
 ) {
     companion object {
@@ -148,7 +155,7 @@ data class VpnSettings(
         const val ENGINE_SSHJ = "SSHJ"
 
         const val ENGINE_HEV = "HEV"
-        const val ENGINE_TUN2SOCKS = "TUN2SOCKS"
+        const val ENGINE_BADVPN = "BADVPN"
     }
 }
 
@@ -185,9 +192,9 @@ object VpnSettingsStore {
             // user lama TIDAK BERUBAH sama sekali.
             sshEngine = prefs.getString(KEY_SSH_ENGINE, VpnSettings.ENGINE_TRILEAD)
                 ?: VpnSettings.ENGINE_TRILEAD,
-            // Data lama (sebelum fitur tun2socks ini ada) tidak punya key ini
-            // sama sekali -- default ke ENGINE_HEV supaya perilaku user lama
-            // TIDAK BERUBAH sama sekali.
+            // Sama seperti sshEngine: data lama tidak punya key ini sama
+            // sekali -- default ke ENGINE_HEV supaya perilaku user lama
+            // (sebelum badvpn-tun2socks ada) TIDAK BERUBAH sama sekali.
             tunEngine = prefs.getString(KEY_TUN_ENGINE, VpnSettings.ENGINE_HEV)
                 ?: VpnSettings.ENGINE_HEV
         )

@@ -89,6 +89,27 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    // FITUR BARU (permintaan user, tunnel engine badvpn): WAJIB -- lihat
+    // catatan di kepala BadVpnTun2socksEngine.kt. Binary badvpn-tun2socks
+    // dibundel di app/src/main/jniLibs/<ABI>/libbadvpn-tun2socks.so (nama
+    // "lib*.so" cuma konvensi supaya AGP mau membundelnya, isinya
+    // sebenarnya EXECUTABLE, bukan shared library beneran) dan dijalankan
+    // lewat ProcessBuilder saat runtime -- itu HANYA bisa berhasil kalau
+    // file itu benar-benar ada sebagai file fisik di disk device
+    // (Context.applicationInfo.nativeLibraryDir). Default AGP modern
+    // (useLegacyPackaging = false) TIDAK meng-extract native lib ke disk
+    // lagi -- lib tetap terkompresi di dalam APK dan cuma di-mmap
+    // langsung untuk kebutuhan JNI (dlopen), yang TIDAK cukup untuk
+    // spawn proses lewat ProcessBuilder. tunneljni.so (JNI, hev-socks5-
+    // tunnel) TIDAK terpengaruh oleh flag ini sama sekali (loadLibrary()
+    // JNI jalan baik lewat mmap maupun file fisik) -- perubahan ini murni
+    // demi badvpn-tun2socks.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
 }
 
 // FIX (error build: "Duplicate class com.google.crypto.tink.* found in modules
@@ -174,15 +195,6 @@ dependencies {
     // 3. Cek ulang import "libXray.LibXray" di XrayTunnelManager.kt sesuai package
     //    sebenarnya di AAR yang kamu pakai -- lihat komentar panjang di kepala file itu.
     implementation(files("libs/xray.aar"))
-
-    // --- Engine TUN KEDUA (permintaan user): tun2socks (xjasonlyu/tun2socks) ---
-    // AAR hasil build gomobile dari https://github.com/xjasonlyu/tun2socks
-    // (package Java: com.xjasonlyu.tun2socks.mobile.Mobile -- lihat
-    // Tun2socksEngine untuk detail API startTun2Socks/stopTun2Socks/isRunning
-    // yang dibongkar langsung dari classes.jar AAR ini karena tidak ada
-    // dokumentasi header resmi ikut di dalamnya). Sama seperti xray.aar di
-    // atas, dependency file lokal biasa -- BUKAN dari Maven/JitPack.
-    implementation(files("libs/tun2socks.aar"))
 
     // Coroutines, untuk operasi jaringan di background thread
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

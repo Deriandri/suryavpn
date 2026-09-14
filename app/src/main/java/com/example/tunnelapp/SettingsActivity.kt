@@ -382,9 +382,13 @@ class SettingsActivity : AppCompatActivity() {
                 binding.switchCompression.isChecked = false
             }
         }
-        // Pilih tombol Tunnel Engine (TUN) sesuai setting tersimpan (default HEV).
+        // FITUR BARU (permintaan user): pilih tombol Tunnel Engine sesuai
+        // setting tersimpan (default HEV) -- mirror persis pola toggleSshEngine
+        // di atas, tapi TIDAK butuh listener tambahan (beda dari sshEngine,
+        // tidak ada field lain di form ini yang perlu dikunci/dibuka
+        // tergantung pilihan tunEngine).
         binding.toggleTunEngine.check(
-            if (settings.tunEngine == VpnSettings.ENGINE_TUN2SOCKS) R.id.btnTunEngineTun2socks else R.id.btnTunEngineHev
+            if (settings.tunEngine == VpnSettings.ENGINE_BADVPN) R.id.btnEngineBadvpn else R.id.btnEngineHev
         )
         // 0 berarti "tidak diisi" -- tampilkan field kosong, bukan "0",
         // supaya konsisten dengan makna kosong = pakai default/nonaktif.
@@ -446,9 +450,8 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             VpnSettings.ENGINE_TRILEAD
         }
-
-        val tunEngine = if (binding.toggleTunEngine.checkedButtonId == R.id.btnTunEngineTun2socks) {
-            VpnSettings.ENGINE_TUN2SOCKS
+        val tunEngine = if (binding.toggleTunEngine.checkedButtonId == R.id.btnEngineBadvpn) {
+            VpnSettings.ENGINE_BADVPN
         } else {
             VpnSettings.ENGINE_HEV
         }

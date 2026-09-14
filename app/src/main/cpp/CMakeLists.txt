@@ -84,3 +84,107 @@ target_link_libraries(tunneljni
     hev-task-system
     log
 )
+
+# ============================================================================
+# FITUR BARU (permintaan user): badvpn-tun2socks sebagai TunEngine KEDUA
+# ([com.example.tunnelapp.tunnel.BadVpnTun2socksEngine]), alternatif dari
+# hev-socks5-tunnel di atas. BEDA PENDEKATAN dari hev: badvpn TIDAK
+# di-wrap jadi JNI library (upstream ambrop72/badvpn tun2socks didesain
+# jalan sebagai proses `main()` sendiri, bukan library dengan entry
+# function seperti hev yang punya makro ENABLE_LIBRARY resmi) -- jadi di
+# sini kita compile jadi EXECUTABLE ELF biasa, lalu disalin manual (lihat
+# custom command di bawah) ke app/src/main/jniLibs/<ABI>/, supaya AGP ikut
+# mem-bundle-nya ke dalam APK dan Kotlin (BadVpnTun2socksEngine) tinggal
+# menjalankannya lewat ProcessBuilder saat runtime -- pola yang sama
+# dipakai app-app tunnel Android lain untuk membundel core native yang
+# didesain sebagai proses mandiri (v2ray-core, xray-core, dst).
+#
+# Source: fork "shadowsocks/badvpn" (BUKAN ambrop72/badvpn upstream asli).
+# Fork ini menambahkan opsi CLI --tunfd/--tunmtu KHUSUS untuk Android --
+# upstream asli cuma bisa buka /dev/net/tun sendiri lewat --tundev (butuh
+# root, tidak dipakai VpnService), sedangkan Android WAJIB memakai fd yang
+# SUDAH terbuka dari VpnService.Builder().establish(). Fork ini pula yang
+# historisnya dipakai shadowsocks-android versi lama untuk kebutuhan
+# persis sama.
+#
+# JUJUR (WAJIB DIBACA): blok CMake ini DITULIS dari pengetahuan umum
+# tentang cara badvpn di-cross-compile untuk Android (mengikuti pola
+# ExternalProject_Add hev-socks5-tunnel di atas -- badvpn sendiri juga
+# pakai CMake sebagai build system upstream-nya, BUKAN autotools/Makefile
+# polos), TAPI belum pernah dijalankan sungguhan (lingkungan penyusunan
+# kode ini tidak punya NDK/CMake/network access untuk clone+compile+link
+# beneran). Kemungkinan hal yang perlu disesuaikan setelah build pertama
+# GAGAL/berhasil sebagian:
+#   - Nama target CMake hasil compile tun2socks (di sini diasumsikan
+#     "tun2socks", cek CMakeLists.txt badvpn sendiri kalau beda).
+#   - Opsi CMAKE_ARGS yang badvpn butuhkan (BUILD_NOTHING_BY_DEFAULT=1
+#     BUILD_TUN2SOCKS=1 adalah opsi upstream yang terdokumentasi, dipakai
+#     apa adanya di sini).
+#   - Apakah badvpn butuh dependency tambahan (mis. nspr/nss) untuk fitur
+#     yang TIDAK dipakai di sini (--dns-resolver via mDNSResponder dst) --
+#     kalau CMake badvpn gagal karena package itu tidak ada, opsi
+#     BUILD_TUN2SOCKS sendirian SEHARUSNYA tidak butuh itu, tapi ini perlu
+#     diverifikasi di build log sungguhan.
+# WAJIB: build APK ini di mesin dengan Android SDK/NDK + koneksi internet,
+# perhatikan baris log "badvpn_tun2socks_external" di output Gradle
+# (externalNativeBuild), lalu tes koneksi VPN sungguhan di device fisik
+# dengan ENGINE_BADVPN dipilih di kartu "VPN Setting" SEBELUM dipakai
+# produksi -- kalau gagal, ENGINE_HEV (default) tetap tidak terpengaruh
+# sama sekali oleh blok ini.
+set(BADVPN_PREFIX ${CMAKE_CURRENT_BINARY_DIR}/badvpn-src)
+set(BADVPN_SOURCE_DIR ${BADVPN_PREFIX}/badvpn)
+set(BADVPN_BUILD_DIR ${BADVPN_PREFIX}/badvpn-build)
+# Lokasi jniLibs SUMBER (bukan output build) app module -- disalin ke sini
+# secara LANGSUNG (bukan lewat mekanisme auto-packaging CMake/AGP yang
+# hanya mengenali target add_library) supaya AGP menganggapnya file
+# jniLibs biasa seperti file .so lain yang memang sudah ada di folder ini,
+# tanpa perlu utak-atik konfigurasi packaging tambahan.
+set(BADVPN_JNILIBS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../jniLibs/${ANDROID_ABI})
+
+ExternalProject_Add(
+    badvpn_tun2socks_external
+    PREFIX ${BADVPN_PREFIX}
+    SOURCE_DIR ${BADVPN_SOURCE_DIR}
+    BINARY_DIR ${BADVPN_BUILD_DIR}
+    GIT_REPOSITORY https://github.com/shadowsocks/badvpn.git
+    GIT_TAG master
+    CMAKE_ARGS
+        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DANDROID_ABI=${ANDROID_ABI}
+        -DANDROID_PLATFORM=${ANDROID_PLATFORM}
+        -DCMAKE_BUILD_TYPE=Release
+        # Opsi upstream badvpn: matikan semua target default (udpgw, dst
+        # -- app ini sudah punya UdpgwClient Kotlin sendiri, lihat
+        # VpnSettingsStore.udpgwPort), nyalakan HANYA tun2socks.
+        -DBUILD_NOTHING_BY_DEFAULT=1
+        -DBUILD_TUN2SOCKS=1
+    BUILD_COMMAND ${CMAKE_COMMAND} --build ${BADVPN_BUILD_DIR} --target tun2socks
+    INSTALL_COMMAND ""
+    LOG_BUILD ON
+    LOG_OUTPUT_ON_FAILURE ON
+    BUILD_BYPRODUCTS
+        ${BADVPN_BUILD_DIR}/tun2socks/badvpn-tun2socks
+)
+
+# Salin binary hasil build + strip simbol debug (memperkecil ukuran APK,
+# sama seperti STRIP=${CMAKE_STRIP} yang dipakai hev-socks5-tunnel di
+# atas) LANGSUNG ke folder jniLibs sumber app module, dengan nama
+# "lib...so" (lihat catatan BINARY_NAME di BadVpnTun2socksEngine.kt untuk
+# alasan konvensi penamaan ini WAJIB, walau isinya executable bukan
+# shared library).
+add_custom_command(
+    OUTPUT ${BADVPN_JNILIBS_DIR}/libbadvpn-tun2socks.so
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${BADVPN_JNILIBS_DIR}
+    COMMAND ${CMAKE_STRIP} --strip-all
+        ${BADVPN_BUILD_DIR}/tun2socks/badvpn-tun2socks
+        -o ${BADVPN_JNILIBS_DIR}/libbadvpn-tun2socks.so
+    DEPENDS badvpn_tun2socks_external
+    COMMENT "Menyalin badvpn-tun2socks (${ANDROID_ABI}) ke jniLibs"
+)
+add_custom_target(badvpn_tun2socks_copy ALL
+    DEPENDS ${BADVPN_JNILIBS_DIR}/libbadvpn-tun2socks.so
+)
+# tunneljni TIDAK butuh badvpn secara teknis (dua engine ini independen),
+# tapi digantungkan di sini supaya "make"/ninja default (target ALL) ikut
+# men-trigger badvpn_tun2socks_copy tanpa perlu invocation CMake terpisah.
+add_dependencies(tunneljni badvpn_tun2socks_copy)

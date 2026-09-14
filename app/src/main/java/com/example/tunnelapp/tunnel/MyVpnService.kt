@@ -46,9 +46,8 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * VpnService lengkap: SSH/Xray + bridging TUN<->SOCKS5 lewat [TunEngine]
- * ([HevSocks5Engine] default, atau [Tun2socksEngine] kalau dipilih user --
- * lihat [startTunEngine]).
+ * VpnService lengkap: SSH/Xray + bridging TUN<->SOCKS5 lewat [HevSocks5Engine]
+ * (satu-satunya [TunEngine] yang dipakai app ini).
  *
  * Alur penuh:
  *  1. Buat TUN interface
@@ -286,17 +285,17 @@ class MyVpnService : VpnService() {
     // diambil dari VpnSettingsStore sekali di startVpn() supaya kedua sisi
     // pasti konsisten walau user ganti nilainya di tengah sesi tunnel aktif.
     private var currentMtu: Int = com.example.tunnelapp.model.VpnSettings.DEFAULT_MTU
+    // FITUR BARU (permintaan user, tunnel engine badvpn): sama pola dengan
+    // currentMtu di atas -- diambil dari VpnSettingsStore.tunEngine sekali
+    // di startVpn(), dipakai startTunEngine() untuk memilih HevSocks5Engine
+    // vs BadVpnTun2socksEngine. Default ENGINE_HEV (lihat VpnSettingsStore).
+    private var currentTunEngine: String = com.example.tunnelapp.model.VpnSettings.ENGINE_HEV
     // Diambil dari VpnSettingsStore.autoReconnect sekali di startVpn(),
     // dicek di scheduleReconnectOrGiveUp() -- kalau false, tunnel yang mati
     // sendiri LANGSUNG di-stopVpn() tanpa retry sama sekali (bukan cuma
     // MAX_RECONNECT_ATTEMPTS diset 0, supaya pesan status ke user juga beda:
     // "auto reconnect nonaktif" vs "reconnect otomatis gagal").
     private var currentAutoReconnect: Boolean = true
-    // Diambil dari VpnSettingsStore.tunEngine sekali di startVpn() (sama
-    // seperti currentMtu/currentAutoReconnect di atas) supaya konsisten
-    // selama satu sesi tunnel walau user ganti pilihan engine di Pengaturan
-    // sementara tunnel masih aktif -- lihat startTunEngine() di bawah.
-    private var currentTunEngine: String = com.example.tunnelapp.model.VpnSettings.ENGINE_HEV
     // CATATAN: dulu autoPingEnabled/pingIntervalSeconds di-cache ke sini
     // SEKALI di startVpn() -- akibatnya toggle Auto Ping atau ganti interval
     // di Pengaturan SAAT tunnel sudah aktif tidak ngefek sampai
@@ -781,8 +780,8 @@ class MyVpnService : VpnService() {
         }
 
         currentMtu = vpnSettings.mtu
-        currentAutoReconnect = vpnSettings.autoReconnect
         currentTunEngine = vpnSettings.tunEngine
+        currentAutoReconnect = vpnSettings.autoReconnect
         acquireWakeLockIfNeeded(vpnSettings.keepCpuAwake)
 
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
@@ -2000,28 +1999,31 @@ class MyVpnService : VpnService() {
     }
 
     /**
-     * Menjalankan [TunEngine] yang dipilih user lewat toggle "Tunnel Engine
-     * (TUN)" di Pengaturan ([currentTunEngine], default
-     * [com.example.tunnelapp.model.VpnSettings.ENGINE_HEV]) -- [HevSocks5Engine]
-     * (native, hev-socks5-tunnel) atau [Tun2socksEngine] (xjasonlyu/tun2socks
-     * lewat libs/tun2socks.aar).
+     * Menjalankan [TunEngine] sesuai pilihan user di VpnSettingsStore.tunEngine
+     * ([currentTunEngine], diambil sekali di startVpn()) -- [HevSocks5Engine]
+     * (default, satu-satunya yang sebelumnya teruji jalan di app ini) atau
+     * [BadVpnTun2socksEngine] (FITUR BARU, JUJUR belum pernah dites di
+     * device fisik -- lihat catatan panjang di kepala file kelas itu).
      */
     private fun startTunEngine(config: ServerConfig) {
         val fd = vpnInterface?.fd ?: throw IllegalStateException("TUN interface belum siap")
-        val engine: TunEngine = if (currentTunEngine == com.example.tunnelapp.model.VpnSettings.ENGINE_TUN2SOCKS) {
-            Tun2socksEngine()
+        val engine: TunEngine
+        val engineLabel: String
+        if (currentTunEngine == com.example.tunnelapp.model.VpnSettings.ENGINE_BADVPN) {
+            engine = BadVpnTun2socksEngine(this)
+            engineLabel = "badvpn-tun2socks"
         } else {
-            HevSocks5Engine()
+            engine = HevSocks5Engine()
+            engineLabel = "hev-socks5-tunnel"
         }
         tunEngine = engine
-        val engineName = if (engine is Tun2socksEngine) "tun2socks" else "hev-socks5-tunnel"
         engine.start(
             tunFd = fd,
             tunAddress = TUN_ADDRESS,
             mtu = currentMtu,
             socksHost = "127.0.0.1",
             socksPort = config.socksPort,
-            onUnexpectedStop = { handleTunnelDeath("Engine tunnel ($engineName) berhenti tak terduga") }
+            onUnexpectedStop = { handleTunnelDeath("Engine tunnel ($engineLabel) berhenti tak terduga") }
         )
     }
 
