@@ -28,6 +28,7 @@ import com.example.tunnelapp.model.VpnSettingsStore
 // diakses lewat nama lengkap (fully-qualified), harus di-import eksplisit.
 import com.example.tunnelapp.model.toServerConfigOrNull
 import com.example.tunnelapp.model.ProfileStore
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -315,8 +316,32 @@ class MyVpnService : VpnService() {
     // dengan parent job yang sudah cancelled itu diam-diam gagal jalan.
     // Makanya sekarang `var`, dan startVpn() mengecek+membuat ulang
     // keduanya kalau job lama sudah tidak aktif lagi.
-    private var serviceJob = Job()
-    private var serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    // FIX (crash "app tiba-tiba close" -- root cause KEDUA yang berbeda dari
+    // race udpgw-reader di UdpgwClient: ini soal serviceScope itu sendiri).
+    // Sebelumnya serviceJob = Job() biasa TANPA CoroutineExceptionHandler.
+    // Semua coroutine di scheduleNetworkLossCheck()/scheduleReconnectOrGiveUp()/
+    // watchdogJob/pingJob/startVpn() jalan lewat serviceScope ini -- baris
+    // mana pun di dalamnya yang TIDAK dibungkus runBlockingWithTimeout() (yang
+    // sudah py try/catch internal sendiri) dan melempar exception tak terduga
+    // akan naik sampai ke root job tanpa tertangkap -> karena tidak ada
+    // CoroutineExceptionHandler, exception itu diteruskan ke
+    // Thread.defaultUncaughtExceptionHandler -> menjatuhkan SELURUH proses
+    // app, bukan cuma satu coroutine itu. Belum pernah terbukti jadi PEMICU
+    // crash yang sudah dikonfirmasi (itu race udpgw-reader), tapi kelemahan
+    // strukturalnya tetap laten -- fix ini pencegahan (defense-in-depth).
+    //
+    // Dua perubahan:
+    // 1) CoroutineExceptionHandler: exception tak terduga dari coroutine
+    //    manapun di scope ini SEKARANG cuma dicatat (DebugLog.e), TIDAK ikut
+    //    menjatuhkan proses.
+    // 2) Job() -> SupervisorJob(): supaya satu child coroutine gagal (mis.
+    //    networkLossJob) tidak otomatis ikut membatalkan child lain yang
+    //    masih berjalan (watchdogJob, pingJob, dst) lewat serviceJob yang sama.
+    private val serviceExceptionHandler = CoroutineExceptionHandler { context, throwable ->
+        DebugLog.e(TAG, "Exception tak tertangkap di serviceScope (thread=${Thread.currentThread().name})", throwable)
+    }
+    private var serviceJob: Job = SupervisorJob()
+    private var serviceScope = CoroutineScope(Dispatchers.IO + serviceJob + serviceExceptionHandler)
     // FITUR BARU (permintaan user: "tambah library SSH kedua, bisa pilih di
     // Pengaturan"): SshEngineRouter memilih trilead-ssh2 ATAU sshj berdasarkan
     // VpnSettingsStore.sshEngine -- lihat javadoc lengkap di SshEngineRouter.kt.
@@ -770,8 +795,8 @@ class MyVpnService : VpnService() {
         // di bawah maupun di establishTunnel()/scheduleReconnectOrGiveUp()
         // benar-benar jalan, bukan diam-diam ter-drop.
         if (!serviceJob.isActive) {
-            serviceJob = Job()
-            serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+            serviceJob = SupervisorJob()
+            serviceScope = CoroutineScope(Dispatchers.IO + serviceJob + serviceExceptionHandler)
         }
 
         currentMtu = vpnSettings.mtu
