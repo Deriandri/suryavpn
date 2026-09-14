@@ -1275,20 +1275,6 @@ class MyVpnService : VpnService() {
         watchdogJob?.cancel()
         pingJob?.cancel()
         pingJob = null
-        // FIX BUG "sshj tidak reconnect otomatis" (laporan user): kalau tunnel
-        // mati sendiri terdeteksi dari sinyal LAIN (mis. disconnectWatchThread
-        // SshjTunnelManager yang lebih cepat dari networkLossGraceMs), job
-        // penundaan 6 detik dari scheduleNetworkLossCheck() yang MASIH
-        // berjalan di latar belakang HARUS dibatalkan di sini juga -- tanpa
-        // ini, begitu delay 6 detiknya habis dia memanggil handleTunnelDeath()
-        // LAGI (lolos guard handlingDeath karena sudah direset false oleh
-        // scheduleReconnectOrGiveUp() saat reconnect mulai jalan), lalu
-        // membongkar ulang tunnel yang BARU SAJA mulai reconnect -- persis
-        // gejala "reconnect otomatis kelihatan tidak pernah jalan" yang
-        // dilaporkan (terlihat di Log: SSH mati jam 22:30:59, tapi networkLoss
-        // check lama masih nembak jam 22:31:04 dan memutus ulang).
-        networkLossJob?.cancel()
-        networkLossJob = null
 
         // Bongkar SSH/Xray + tun engine yang mati itu -- TUN interface
         // (vpnInterface) SENGAJA DIBIARKAN HIDUP supaya reconnect tidak perlu
