@@ -21,12 +21,20 @@
     android:paddingBottom="8dp"
     android:gravity="center_vertical">
 
-    <!-- Rail kiri: garis-atas + badge lingkaran + garis-bawah, tersusun
-         VERTICAL dengan garis diberi layout_weight supaya otomatis mengisi
-         sisa tinggi baris di atas & di bawah badge — badge jadi selalu
-         center secara vertikal terhadap label di sebelah kanannya, dan
-         garisnya otomatis nyambung mulus ke baris tahap berikutnya waktu
-         semua baris ditumpuk dalam llLogSteps. -->
+    <!-- REDESIGN (permintaan user: "cek hijau jadi titik hijau kayak titik
+         ungu, silang merah jadi titik merah juga"): ikon centang/silang
+         putih di atas lingkaran solid pekat (iconCheck/iconClose) DIHAPUS.
+         SEMUA status non-RUNNING sekarang pakai satu titik kecil polos yang
+         sama (dotStatus, gaya PERSIS seperti titik teal di chip "Profil
+         aktif" -- bg_dot_active_profile), cuma warnanya dimutasi per status
+         di Kotlin (hijau/merah/abu-abu) -- lihat
+         DashboardMainFragment.renderLogSteps(). Lingkaran badge di
+         belakangnya (dot) juga ikut disamakan jadi warna LEMBUT/pastel utk
+         semua status (bukan solid pekat lagi) supaya senada satu sama lain,
+         cuma titik kecil di tengah yang jadi penanda warna status
+         sebenarnya -- id lama "dotPending" diganti nama jadi "dotStatus"
+         karena sekarang dipakai utk SUCCESS & ERROR juga, bukan cuma
+         PENDING. -->
     <LinearLayout
         android:layout_width="30dp"
         android:layout_height="match_parent"
@@ -50,26 +58,8 @@
                 android:layout_height="match_parent"
                 android:background="@drawable/bg_step_circle" />
 
-            <ImageView
-                android:id="@+id/iconCheck"
-                android:layout_width="13dp"
-                android:layout_height="13dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_step_check"
-                android:visibility="gone"
-                android:contentDescription="@null" />
-
-            <ImageView
-                android:id="@+id/iconClose"
-                android:layout_width="12dp"
-                android:layout_height="12dp"
-                android:layout_gravity="center"
-                android:src="@drawable/ic_step_close"
-                android:visibility="gone"
-                android:contentDescription="@null" />
-
             <View
-                android:id="@+id/dotPending"
+                android:id="@+id/dotStatus"
                 android:layout_width="7dp"
                 android:layout_height="7dp"
                 android:layout_gravity="center"

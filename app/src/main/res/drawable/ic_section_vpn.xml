@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BARU: ikon untuk chip judul section "VPN Settings" (biru laut smooth)
+     - siluet perisai (shield) dengan lubang kunci kecil di tengah. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,2.2 L19.5,5 L19.5,11 C19.5,16 16,19.8 12,21.5 C8,19.8 4.5,16 4.5,11 L4.5,5 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M12,9.3 m-1.7,0 a1.7,1.7 0,1,0 3.4,0 a1.7,1.7 0,1,0 -3.4,0"
+        android:fillColor="@color/sea_blue_gradient_end" />
+    <path
+        android:pathData="M11.1,10.8 L12.9,10.8 L12.5,14.2 L11.5,14.2 Z"
+        android:fillColor="@color/sea_blue_gradient_end" />
+</vector>

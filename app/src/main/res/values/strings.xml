@@ -50,6 +50,7 @@
     <string name="ssh_engine_desc">Trilead: engine asli app ini, paling teruji. sshj: engine kedua, mendukung kompresi zlib nyata (lihat toggle Compression di bawah).</string>
     <string name="engine_trilead">Trilead (default)</string>
     <string name="engine_sshj">sshj (Beta)</string>
+    <string name="dns_label">DNS</string>
     <string name="dns_desc">Kalau diisi, DNS di sini menimpa DNS profil SSH/Xray. Kosongkan untuk pakai default (1.1.1.1).</string>
     <string name="dns1_hint">DNS 1 (mis. 1.1.1.1)</string>
     <string name="dns2_hint">DNS 2 (opsional)</string>

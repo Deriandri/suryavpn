@@ -247,9 +247,7 @@ class DashboardMainFragment : Fragment() {
             val lineTop = row.findViewById<View>(R.id.lineTop)
             val lineBottom = row.findViewById<View>(R.id.lineBottom)
             val dot = row.findViewById<View>(R.id.dot)
-            val iconCheck = row.findViewById<View>(R.id.iconCheck)
-            val iconClose = row.findViewById<View>(R.id.iconClose)
-            val dotPending = row.findViewById<View>(R.id.dotPending)
+            val dotStatus = row.findViewById<View>(R.id.dotStatus)
             val spinner = row.findViewById<ProgressBar>(R.id.spinner)
             val tvLabel = row.findViewById<TextView>(R.id.tvLabel)
             val tvDetail = row.findViewById<TextView>(R.id.tvDetail)
@@ -264,34 +262,41 @@ class DashboardMainFragment : Fragment() {
             lineBottom.visibility = if (index == steps.lastIndex) View.INVISIBLE else View.VISIBLE
 
             // Sembunyikan semua isi badge dulu, baru tampilkan yang relevan
-            // sesuai status -- badge sekarang punya 4 kemungkinan isi (dulu
-            // cuma dot polos/spinner): ikon centang (SUCCESS), ikon silang
-            // (ERROR), titik kecil (PENDING/SKIPPED), spinner (RUNNING).
-            iconCheck.visibility = View.GONE
-            iconClose.visibility = View.GONE
-            dotPending.visibility = View.GONE
+            // sesuai status -- badge sekarang cuma punya 2 kemungkinan isi:
+            // titik kecil (dotStatus, dipakai utk SUCCESS/ERROR/PENDING/
+            // SKIPPED, warnanya dimutasi per status di bawah) atau spinner
+            // (RUNNING). SUCCESS & ERROR TIDAK lagi pakai ikon centang/
+            // silang putih (permintaan user: disamakan gaya titik polos
+            // seperti titik teal di chip "Profil aktif").
+            dotStatus.visibility = View.GONE
             spinner.visibility = View.GONE
 
             val circleColorRes: Int
+            val dotColorRes: Int
             when (step.status) {
                 StepStatus.RUNNING -> {
                     spinner.visibility = View.VISIBLE
                     circleColorRes = R.color.status_running_bg
+                    dotColorRes = R.color.status_running
                 }
                 StepStatus.SUCCESS -> {
-                    iconCheck.visibility = View.VISIBLE
-                    circleColorRes = R.color.status_success
+                    dotStatus.visibility = View.VISIBLE
+                    circleColorRes = R.color.status_success_bg
+                    dotColorRes = R.color.status_success
                 }
                 StepStatus.ERROR -> {
-                    iconClose.visibility = View.VISIBLE
-                    circleColorRes = R.color.status_error
+                    dotStatus.visibility = View.VISIBLE
+                    circleColorRes = R.color.status_error_bg
+                    dotColorRes = R.color.status_error
                 }
                 else -> {
-                    dotPending.visibility = View.VISIBLE
+                    dotStatus.visibility = View.VISIBLE
                     circleColorRes = R.color.status_pending_bg
+                    dotColorRes = R.color.status_pending
                 }
             }
             (dot.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(ctx, circleColorRes))
+            (dotStatus.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(ctx, dotColorRes))
 
             if (step.status == StepStatus.ERROR && !step.detail.isNullOrEmpty()) {
                 tvDetail.visibility = View.VISIBLE

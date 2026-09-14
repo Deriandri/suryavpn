@@ -354,7 +354,7 @@ class ConfigActivity : AppCompatActivity() {
                 orientation = LinearLayout.VERTICAL
                 addView(dialogInputLayout(
                     urlInput,
-                    "URL cloud config (hasil \"Ekspor Semua\" atau kode SVPN1:...)"
+                    "URL cloud config (hasil \"Ekspor Semua\" atau kode SVPN2:...)"
                 ))
                 addView(autoSyncCheckbox)
                 addView(statusLabel)
@@ -735,34 +735,57 @@ class ConfigActivity : AppCompatActivity() {
      * [com.example.tunnelapp.model.buildShareCode]) untuk SATU akun di
      * dialog read-only, dengan tombol "Salin" (clipboard) & "Bagikan"
      * (Android share sheet biasa -- WhatsApp/Telegram/dst, sebagai teks
-     * biasa, bukan lampiran file). Jalur 1 dari [onShareRowClicked] --
-     * PERSIS perilaku lama sebelum ditambah pilihan format file di atas,
-     * cuma dipindah ke fungsi sendiri.
+     * biasa, bukan lampiran file). Jalur 1 dari [onShareRowClicked].
+     *
+     * PERBAIKAN (permintaan user, "kode teks satu akun disamakan sama
+     * ekspor semua yang clipboard-nya biner"): SEBELUMNYA di sini
+     * dipakai [buildShareCode] -- format lama "SVPN1:..." yang cuma
+     * mengenkripsi field yang dikunci SATU-SATU per akun (lihat
+     * [applyLockMode]/[ConfigCipher.encrypt]), BEDA formatnya dari file
+     * .spn/clipboard "Ekspor Semua" yang mengenkripsi SELURUH amplop JSON
+     * jadi satu blob biner ([encryptWholeFileBytes]). Dua format itu
+     * sama-sama valid & tetap bisa diimpor ([importConfigsFromText] baca
+     * dua-duanya), tapi user minta konsisten -- SEKARANG kode teks satu
+     * akun ini pakai jalur biner yang SAMA PERSIS dengan
+     * [onExportToClipboardClicked] ("Ekspor Semua" -> Salin ke
+     * Clipboard), cuma isinya [profile] tunggal (dibungkus list 1 item)
+     * alih-alih semua akun:
+     *   profilesToJson([profile], LOCK_ALL) -> encryptWholeFileBytes ->
+     *   Base64 -- SELALU LOCK_ALL, TIDAK ada lagi dialog pilihan mode
+     *   kunci (persis alasan yang sama dengan
+     *   [onExportToClipboardClicked]: teks ini gampang ke-paste ke mana
+     *   pun, jadi selalu disamarkan penuh apa pun mode kunci akun
+     *   aslinya). [showLockModePicker] jadi tidak lagi dipakai di jalur
+     *   ini -- tetap dipakai di jalur "Simpan sebagai File (.spn)"
+     *   ([onExportToFileClicked]) yang memang meniru "Ekspor Semua" versi
+     *   file, bukan versi clipboard.
+     *
+     * Hasilnya sudah otomatis kebaca balik lewat [importConfigsFromText]
+     * TANPA perubahan apa pun di sisi impor.
+     *
+     * PERBAIKAN LANJUTAN (permintaan user, "double enkripsi"): fungsi ini
+     * SEBELUMNYA membangun blob-nya sendiri secara manual di sini
+     * (profilesToJson + encryptWholeFileBytes + Base64, TANPA prefix
+     * apa pun) -- sekarang disatukan supaya manggil [buildShareCode]
+     * (satu-satunya sumber logika kode-bagikan double-enkripsi, lihat
+     * dokumentasi lengkapnya di model/ConfigIO.kt) dengan
+     * [ConfigLockMode.LOCK_ALL] dipaksa persis seperti sebelumnya, supaya:
+     *   - TIDAK ada lagi duplikasi logika enkripsi di dua tempat berbeda
+     *     (gampang kelewat kalau salah satu di-update tapi yang lain
+     *     tidak),
+     *   - hasilnya sekarang punya prefix jelas "SVPN2:" (sebelumnya
+     *     Base64 biner polos tanpa penanda), jadi kalau ada masalah impor
+     *     gampang dikenali formatnya cuma dengan lihat teksnya,
+     *   - perilaku enkripsi & lock mode TIDAK berubah sama sekali (tetap
+     *     dua lapis: field terkunci LOCK_ALL di lapis-1, seluruh JSON di
+     *     lapis-2).
      */
     private fun shareRowAsTextCode(profile: SavedProfile) {
-        // FITUR BARU (permintaan user, "kunci konfig saat ekspor"): akun
-        // yang BELUM terkunci ditanya dulu mau pakai mode kunci apa (lihat
-        // [showLockModePicker]). Akun yang SUDAH terkunci (hasil impor dari
-        // orang lain) langsung dibagikan ulang dengan mode kunci yang SAMA
-        // apa adanya -- penerima tidak berhak melonggarkan kunci akun yang
-        // bukan miliknya, lihat [buildShareCode].
-        if (profile.config.lockMode != ConfigLockMode.NONE) {
-            buildShareCodeAsync(profile.config) { showShareCodeDialog(it) }
-            return
-        }
-        // PERBAIKAN (permintaan user, "logika ekspor konfig X-ray langsung
-        // dibikin all lock aja"): akun Xray (modeIndex == 5) tidak lagi
-        // ditanya mau pakai mode kunci apa -- [buildShareCode] sudah
-        // memaksa LOCK_ALL untuk akun Xray lewat [effectiveExportLockMode]
-        // apa pun mode yang lewat di sini, jadi dialog pilihannya cuma
-        // membingungkan (user pilih "Tanpa Kunci" tapi hasilnya tetap
-        // terkunci) -- langsung saja tanpa tanya.
-        if (profile.config.modeIndex == 5) {
-            buildShareCodeAsync(profile.config, ConfigLockMode.LOCK_ALL) { showShareCodeDialog(it) }
-            return
-        }
-        showLockModePicker { chosenMode ->
-            buildShareCodeAsync(profile.config, chosenMode) { showShareCodeDialog(it) }
+        lifecycleScope.launch {
+            val code = withContext(Dispatchers.Default) {
+                buildShareCode(profile.config, ConfigLockMode.LOCK_ALL)
+            }
+            showShareCodeDialog(code)
         }
     }
 
@@ -866,7 +889,7 @@ class ConfigActivity : AppCompatActivity() {
         // Dibungkus ScrollView supaya tetap nyaman diketik/ditempel kalau
         // isinya panjang (JSON hasil ekspor banyak akun bisa lumayan panjang).
         val container = ScrollView(this).apply {
-            addView(dialogInputLayout(input, "Tempel kode akun (SVPN1:...) atau isi file JSON hasil ekspor di sini"))
+            addView(dialogInputLayout(input, "Tempel kode akun (SVPN2:...) atau isi file JSON hasil ekspor di sini"))
         }
 
         newDialogBuilder()

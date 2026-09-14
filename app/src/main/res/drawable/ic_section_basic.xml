@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BARU: ikon untuk chip judul section "Basic Settings" (biru laut
+     smooth) - tiga slider horizontal dengan knob, gaya "tune/equalizer". -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3.5,6 L20.5,6"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M3.5,12 L20.5,12"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M3.5,18 L20.5,18"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:fillColor="#00000000" />
+    <path
+        android:pathData="M15,6 m-2.1,0 a2.1,2.1 0,1,0 4.2,0 a2.1,2.1 0,1,0 -4.2,0"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M9,12 m-2.1,0 a2.1,2.1 0,1,0 4.2,0 a2.1,2.1 0,1,0 -4.2,0"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M17,18 m-2.1,0 a2.1,2.1 0,1,0 4.2,0 a2.1,2.1 0,1,0 -4.2,0"
+        android:fillColor="#FFFFFF" />
+</vector>

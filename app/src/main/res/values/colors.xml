@@ -56,6 +56,15 @@
     <color name="pill_brand_soft_bg_start">#EEF2FF</color>
     <color name="pill_brand_soft_bg_end">#E0E7FF</color>
 
+    <!-- BARU (permintaan user: label section di Settings dikasih logo +
+         background "biru laut smooth") — pasangan gradasi biru laut,
+         sengaja beda hue dari brand_primary (indigo) supaya chip judul
+         section langsung kebaca beda dari elemen brand lain, dipakai di
+         bg_section_title_seablue.xml. -->
+    <color name="sea_blue_gradient_start">#38BDF8</color>
+    <color name="sea_blue_gradient_mid">#0EA5E9</color>
+    <color name="sea_blue_gradient_end">#0369A1</color>
+
     <!-- Status -->
     <color name="status_success">#16A34A</color>
     <color name="status_success_bg">#DCFCE7</color>
