@@ -698,13 +698,48 @@ class ConfigActivity : AppCompatActivity() {
     // --- Bagikan satu akun (permintaan user) ----------------------------
 
     /**
+     * PERUBAHAN (permintaan user, "ekspor satu konfig ikutin ekspor semua
+     * yang filenya biner"): ikon share per-baris akun sekarang tanya format
+     * dulu -- SAMA persis strukturnya dengan [onExportAllClicked], cuma
+     * scope-nya satu akun:
+     *  0. "Simpan sebagai File (.spn)" -- pakai [onExportToFileClicked]
+     *     APA ADANYA (tidak ditulis ulang sama sekali), cukup dikasih
+     *     `listOf(profile)`. Fungsi itu memang sudah generik untuk daftar
+     *     akun, jadi hasilnya file .spn biner terenkripsi (AES-GCM, seluruh
+     *     envelope JSON disamarkan) yang ditulis ke Download/SuryaVPN/ --
+     *     persis proses & format yang sama dengan "Ekspor Semua", isinya
+     *     saja yang cuma satu akun. Bonus: [showExportFilenameDialog] sudah
+     *     otomatis prefill nama file dari accountName akun ini karena
+     *     listnya cuma berisi 1 item (lihat dokumentasi fungsi itu).
+     *  1. "Kode Teks (Salin/Bagikan)" -- perilaku LAMA persis (lihat
+     *     [shareRowAsTextCode]), dipindah ke fungsi terpisah tanpa
+     *     perubahan logika sama sekali supaya kompatibel dengan penerima
+     *     yang masih pakai tombol "Impor" kode "SVPN1:...".
+     */
+    private fun onShareRowClicked(profile: SavedProfile) {
+        val options = arrayOf("Simpan sebagai File (.spn)", "Kode Teks (Salin/Bagikan)")
+        newDialogBuilder()
+            .setTitle("Ekspor akun ini")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> onExportToFileClicked(listOf(profile))
+                    1 -> shareRowAsTextCode(profile)
+                }
+            }
+            .setNegativeButton("Batal", null)
+            .show()
+    }
+
+    /**
      * Tampilkan kode bagikan (format "SVPN1:...", lihat
      * [com.example.tunnelapp.model.buildShareCode]) untuk SATU akun di
      * dialog read-only, dengan tombol "Salin" (clipboard) & "Bagikan"
      * (Android share sheet biasa -- WhatsApp/Telegram/dst, sebagai teks
-     * biasa, bukan lampiran file).
+     * biasa, bukan lampiran file). Jalur 1 dari [onShareRowClicked] --
+     * PERSIS perilaku lama sebelum ditambah pilihan format file di atas,
+     * cuma dipindah ke fungsi sendiri.
      */
-    private fun onShareRowClicked(profile: SavedProfile) {
+    private fun shareRowAsTextCode(profile: SavedProfile) {
         // FITUR BARU (permintaan user, "kunci konfig saat ekspor"): akun
         // yang BELUM terkunci ditanya dulu mau pakai mode kunci apa (lihat
         // [showLockModePicker]). Akun yang SUDAH terkunci (hasil impor dari

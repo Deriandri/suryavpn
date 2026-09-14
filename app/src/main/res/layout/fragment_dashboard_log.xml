@@ -59,7 +59,7 @@
          tetap pas menumpuk di dalam kartu biru barunya, tidak nabrak sudut
          membulat.
          DIPERKECIL (permintaan user: "log kepepet ke atas, ruang kosong
-         kebanyakan") -- marginTop & paddingVertical tombol dikurangi supaya
+         kebanyakan") — marginTop & paddingVertical tombol dikurangi supaya
          tombol ikut naik, lalu paddingTop tvTerminal di atas ikut dikurangi
          proporsional (56dp -> 40dp) supaya baris log PALING ATAS tetap tidak
          ketimpa tombol yang sekarang lebih pendek & lebih naik. -->

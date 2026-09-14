@@ -38,16 +38,14 @@ object CloudSyncStore {
     private const val KEY_LAST_SYNC_SUMMARY = "last_sync_summary"
     private const val KEY_MANAGED_IDS = "managed_ids"
 
-    // FITUR BARU (permintaan user, "url dimasukin ke dalam file zip
-    // aplikasi tadi"): URL cloud config bawaan, di-hardcode di sini supaya
-    // app SUDAH otomatis tersambung ke config ini sejak pertama dibuka --
-    // user TIDAK perlu isi URL manual sama sekali di dialog "Cloud Config".
-    // Dipakai HANYA sebagai nilai default awal (lihat [load] di bawah): kalau
-    // user mengganti/mengosongkan URL-nya sendiri lewat dialog itu nanti,
-    // pilihan user itu yang dipakai seterusnya -- default ini tidak pernah
-    // memaksa masuk lagi menimpa pengaturan yang sudah pernah disimpan.
-    private const val DEFAULT_CLOUD_URL =
-        "https://raw.githubusercontent.com/Deriandri/suryaconfik/refs/heads/main/confik.json"
+    // DIHAPUS (permintaan user: "hilangkan URL default"): sebelumnya app
+    // otomatis tersambung ke satu URL cloud config bawaan sejak pertama
+    // dibuka tanpa user isi apa-apa. Sekarang field ini sengaja dikosongkan
+    // supaya dialog "Cloud Config" mulai KOSONG -- user yang menentukan
+    // sendiri mau sinkron ke URL mana (atau tidak pakai fitur ini sama
+    // sekali). Konstanta TETAP ada (bukan dihapus total) supaya kalau nanti
+    // dibutuhkan lagi tinggal isi ulang di satu tempat ini.
+    private const val DEFAULT_CLOUD_URL = ""
 
     fun load(context: Context): CloudSyncSettings {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -58,10 +56,12 @@ object CloudSyncStore {
             // mengosongkan jadi ""), nilai TERSIMPAN itu yang selalu dipakai,
             // bukan DEFAULT_CLOUD_URL lagi.
             cloudUrl = prefs.getString(KEY_CLOUD_URL, DEFAULT_CLOUD_URL).orEmpty(),
-            // Auto-sync juga default AKTIF supaya akun langsung tersinkron
-            // sendiri begitu user pertama buka layar Konfigurasi, tanpa
-            // perlu menyalakan toggle-nya manual dulu.
-            autoSyncEnabled = prefs.getBoolean(KEY_AUTO_SYNC_ENABLED, true),
+            // DIUBAH (permintaan user: "nonaktifkan default sinkron
+            // otomatis"): default sekarang MATI (false) -- pengguna baru
+            // yang belum pernah menyentuh toggle ini di dialog "Cloud
+            // Config" tidak lagi otomatis ke-sync sendiri, harus
+            // dinyalakan manual dulu kalau memang mau dipakai.
+            autoSyncEnabled = prefs.getBoolean(KEY_AUTO_SYNC_ENABLED, false),
             lastSyncTimeMillis = prefs.getLong(KEY_LAST_SYNC_TIME, 0L),
             lastSyncSummary = prefs.getString(KEY_LAST_SYNC_SUMMARY, "").orEmpty(),
             managedProfileIds = prefs.getString(KEY_MANAGED_IDS, "").orEmpty()
