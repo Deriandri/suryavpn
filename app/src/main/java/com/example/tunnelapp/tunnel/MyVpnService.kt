@@ -47,7 +47,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * VpnService lengkap: SSH/Xray + bridging TUN<->SOCKS5 lewat [TunEngine]
- * (hev-socks5-tunnel atau badvpn-tun2socks, dipilih [TunEngineRouter]).
+ * ([HevSocks5Engine] default, atau [Tun2socksEngine] kalau dipilih user --
+ * lihat [startTunEngine]).
  *
  * Alur penuh:
  *  1. Buat TUN interface
@@ -291,6 +292,11 @@ class MyVpnService : VpnService() {
     // MAX_RECONNECT_ATTEMPTS diset 0, supaya pesan status ke user juga beda:
     // "auto reconnect nonaktif" vs "reconnect otomatis gagal").
     private var currentAutoReconnect: Boolean = true
+    // Diambil dari VpnSettingsStore.tunEngine sekali di startVpn() (sama
+    // seperti currentMtu/currentAutoReconnect di atas) supaya konsisten
+    // selama satu sesi tunnel walau user ganti pilihan engine di Pengaturan
+    // sementara tunnel masih aktif -- lihat startTunEngine() di bawah.
+    private var currentTunEngine: String = com.example.tunnelapp.model.VpnSettings.ENGINE_HEV
     // CATATAN: dulu autoPingEnabled/pingIntervalSeconds di-cache ke sini
     // SEKALI di startVpn() -- akibatnya toggle Auto Ping atau ganti interval
     // di Pengaturan SAAT tunnel sudah aktif tidak ngefek sampai
@@ -492,9 +498,8 @@ class MyVpnService : VpnService() {
 
     // --- FIX ANR: scope KHUSUS untuk teardown (tunEngine.stop(), SSH/Xray
     // disconnect(), vpnInterface.close()) ---
-    // Semua panggilan itu BLOCKING: TunEngine.stop() (baik HevSocks5Engine
-    // nge-join thread native, maupun BadVpnEngine nge-join proses child)
-    // sampai 2 detik, SshTunnelManager.disconnect() nutup socket SSH
+    // Semua panggilan itu BLOCKING: HevSocks5Engine.stop() nge-join thread
+    // native sampai 2 detik, SshTunnelManager.disconnect() nutup socket SSH
     // (trilead-ssh2), XrayTunnelManager.disconnect() manggil JNI ke runtime Go
     // (libXray). stopVpn() dulu menjalankan semua itu LANGSUNG di badan
     // onStartCommand()/onDestroy() -- keduanya jalan di MAIN THREAD (sama
@@ -777,6 +782,7 @@ class MyVpnService : VpnService() {
 
         currentMtu = vpnSettings.mtu
         currentAutoReconnect = vpnSettings.autoReconnect
+        currentTunEngine = vpnSettings.tunEngine
         acquireWakeLockIfNeeded(vpnSettings.keepCpuAwake)
 
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
@@ -1994,22 +2000,28 @@ class MyVpnService : VpnService() {
     }
 
     /**
-     * Menjalankan [TunEngine] yang aktif lewat [TunEngineRouter] --
-     * pemilihan hev-socks5-tunnel vs badvpn-tun2socks dibaca dari
-     * `VpnSettingsStore.load(this).tunEngine` di dalam router itu sendiri,
-     * titik ini TIDAK PERLU tahu/berubah kalau nanti nambah engine ketiga.
+     * Menjalankan [TunEngine] yang dipilih user lewat toggle "Tunnel Engine
+     * (TUN)" di Pengaturan ([currentTunEngine], default
+     * [com.example.tunnelapp.model.VpnSettings.ENGINE_HEV]) -- [HevSocks5Engine]
+     * (native, hev-socks5-tunnel) atau [Tun2socksEngine] (xjasonlyu/tun2socks
+     * lewat libs/tun2socks.aar).
      */
     private fun startTunEngine(config: ServerConfig) {
         val fd = vpnInterface?.fd ?: throw IllegalStateException("TUN interface belum siap")
-        val engine = TunEngineRouter(this)
+        val engine: TunEngine = if (currentTunEngine == com.example.tunnelapp.model.VpnSettings.ENGINE_TUN2SOCKS) {
+            Tun2socksEngine()
+        } else {
+            HevSocks5Engine()
+        }
         tunEngine = engine
+        val engineName = if (engine is Tun2socksEngine) "tun2socks" else "hev-socks5-tunnel"
         engine.start(
             tunFd = fd,
             tunAddress = TUN_ADDRESS,
             mtu = currentMtu,
             socksHost = "127.0.0.1",
             socksPort = config.socksPort,
-            onUnexpectedStop = { handleTunnelDeath("Engine tunnel berhenti tak terduga") }
+            onUnexpectedStop = { handleTunnelDeath("Engine tunnel ($engineName) berhenti tak terduga") }
         )
     }
 

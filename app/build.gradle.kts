@@ -175,32 +175,15 @@ dependencies {
     //    sebenarnya di AAR yang kamu pakai -- lihat komentar panjang di kepala file itu.
     implementation(files("libs/xray.aar"))
 
+    // --- Engine TUN KEDUA (permintaan user): tun2socks (xjasonlyu/tun2socks) ---
+    // AAR hasil build gomobile dari https://github.com/xjasonlyu/tun2socks
+    // (package Java: com.xjasonlyu.tun2socks.mobile.Mobile -- lihat
+    // Tun2socksEngine untuk detail API startTun2Socks/stopTun2Socks/isRunning
+    // yang dibongkar langsung dari classes.jar AAR ini karena tidak ada
+    // dokumentasi header resmi ikut di dalamnya). Sama seperti xray.aar di
+    // atas, dependency file lokal biasa -- BUKAN dari Maven/JitPack.
+    implementation(files("libs/tun2socks.aar"))
+
     // Coroutines, untuk operasi jaringan di background thread
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-}
-
-// FIX (error runtime nyata di app: "Binary libbadvpn-tun2socks.so tidak
-// ditemukan di .../lib/arm64" -- padahal log build CMake sudah membuktikan
-// file itu BERHASIL disalin ke app/src/main/jniLibs/<ABI>/ saat
-// buildCMakeDebug/buildCMakeRelease jalan): `jniLibs` itu, di mata Gradle,
-// cuma folder SOURCE SET statis -- diasumsikan isinya sudah ada SEBELUM
-// build jalan, bukan sesuatu yang "dihasilkan" oleh task lain. Karena kita
-// menulis file ke folder itu sebagai efek samping dari custom command di
-// CMakeLists.txt (bukan lewat mekanisme externalNativeBuild resmi yang
-// AGP awasi), task Gradle yang mem-package jniLibs ke APK
-// (mergeDebugJniLibFolders / mergeReleaseJniLibFolders) TIDAK otomatis
-// tahu harus menunggu task CMake (externalNativeBuildDebug/Release) selesai
-// dulu -- tidak ada relasi dependsOn antara keduanya secara default. Kalau
-// task merge itu kebetulan dijadwalkan/dieksekusi Gradle LEBIH DULU (atau
-// paralel), APK jadi terbentuk TANPA file yang baru saja ditulis CMake --
-// walau file itu ada di disk runner CI, dan build tetap dianggap "sukses"
-// karena tidak ada task yang gagal.
-//
-// Paksa urutan yang benar secara eksplisit: task mana pun yang namanya
-// mengandung "JniLibFolders" (untuk SEMUA variant/build type) HARUS
-// menunggu semua task "externalNativeBuild*" selesai lebih dulu.
-afterEvaluate {
-    tasks.matching { it.name.contains("JniLibFolders") }.configureEach {
-        dependsOn(tasks.matching { t -> t.name.startsWith("externalNativeBuild") })
-    }
 }

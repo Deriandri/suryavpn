@@ -50,10 +50,10 @@
     <string name="ssh_engine_desc">Trilead: this app\'s original engine, most tested. sshj: second engine, supports real zlib compression (see the Compression toggle below).</string>
     <string name="engine_trilead">Trilead (default)</string>
     <string name="engine_sshj">sshj (Beta)</string>
-    <string name="tun_engine_label">Tunnel Engine</string>
-    <string name="tun_engine_desc">hev-socks5-tunnel: this app\'s original engine, most tested. badvpn-tun2socks: second engine, runs as a separate process.</string>
-    <string name="engine_hev">hev-socks5-tunnel (default)</string>
-    <string name="engine_badvpn">badvpn-tun2socks (Beta)</string>
+    <string name="tun_engine_label">Tunnel Engine (TUN)</string>
+    <string name="tun_engine_desc">hev-socks5: this app\'s original engine, most tested. tun2socks: new engine (xjasonlyu/tun2socks), an alternative if hev-socks5 has issues on some devices.</string>
+    <string name="tun_engine_hev">hev-socks5 (default)</string>
+    <string name="tun_engine_tun2socks">tun2socks (Beta)</string>
     <string name="dns_desc">If filled in, the DNS here overrides the SSH/Xray profile\'s DNS. Leave blank to use the default (1.1.1.1).</string>
     <string name="dns1_hint">DNS 1 (e.g. 1.1.1.1)</string>
     <string name="dns2_hint">DNS 2 (optional)</string>

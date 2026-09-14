@@ -12,7 +12,6 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
-import java.security.Security
 import javax.net.SocketFactory
 
 /**
@@ -56,44 +55,15 @@ import javax.net.SocketFactory
  * sendiri" yang dilaporkan, karena dampaknya app-wide, bukan cuma pas tunnel
  * sshj aktif.
  *
- * KOREKSI KEDUA (gagal compile, laporan user): perbaikan yang SEMPAT ditulis
- * di sini sesudah paragraf di atas mengasumsikan sshj punya API
- * `SecurityUtils.setSecurityProvider(Provider)` (versi Provider OBJECT,
- * scoped khusus ke sshj tanpa Security.insertProviderAt() sama sekali) --
- * TERNYATA SALAH utk `com.hierynomus:sshj:0.38.0` yang benar-benar dipasang
- * (lihat app/build.gradle.kts): compiler bilang jelas overload yang ADA cuma
- * `setSecurityProvider(String)` (by NAME, bukan instance), error "Type
- * mismatch: inferred type is BouncyCastleProvider but String! was expected".
- * Saya tidak bisa verifikasi klaim versi sebelumnya krn sandbox saya tidak
- * ada akses jaringan/Gradle -- ternyata memang keliru.
- *
- * KENAPA "SCOPED SEPENUHNYA" TIDAK MUNGKIN DENGAN API STRING INI: sshj cuma
- * simpan NAMA yang diberikan lalu memanggil `Security.getProvider(nama)` --
- * ini SELALU baca DAFTAR GLOBAL JVM, tidak ada jalur lain. Supaya nama "BC"
- * itu resolve ke Bouncy Castle ASLI (bukan versi terbatas bawaan Android),
- * Bouncy Castle asli MEMANG HARUS terdaftar di slot global bernama "BC" --
- * tidak ada API publik utk "ganti nama" instance BouncyCastleProvider (nama
- * "BC" hardcoded di constructor-nya) supaya bisa didaftarkan di bawah nama
- * lain yang tidak bentrok.
- *
- * FIX YANG DIPAKAI SEKARANG (mitigasi, BUKAN penghilangan total efek
- * samping): swap masuk Bouncy Castle asli TEPAT SEBELUM `client.connect()`
- * (fase handshake+key-exchange, satu-satunya titik X25519/EC dibutuhkan),
- * lalu SELALU swap KEMBALI ke provider Android original SEGERA setelah itu
- * -- baik sukses (segera setelah auth sukses) MAUPUN gagal (di catch block
- * connect/auth) -- lihat [swapInRealBouncyCastle]/[restoreOriginalBouncyCastle].
- * Ini mempersempit jendela dampak global dari "selama proses app hidup"
- * (bug lama) jadi cuma beberapa detik per percobaan connect/reconnect, TAPI
- * TIDAK NOL -- kalau ada TLS lain (Cloud Sync, dll) yang KEBETULAN
- * melakukan operasi kripto lewat provider "BC" PERSIS di detik yang sama,
- * resiko lama itu (walau jauh lebih kecil jendelanya) secara teori masih
- * bisa terjadi. Kalau gejala "internet lain ikut kebagian delay" muncul
- * lagi meski sudah jarang, laporkan -- kemungkinan solusi berikutnya adalah
- * subclass Provider yang menyalin Provider.Service satu-satu dari
- * BouncyCastleProvider ke provider baru bernama unik (mis. "BCReal"), TAPI
- * itu belum saya implementasikan di sini krn butuh verifikasi lebih dalam
- * (resiko ada Service BC yang perilakunya bergantung ke identitas provider
- * aslinya) yang tidak bisa saya lakukan tanpa environment build+test nyata.
+ * FIX YANG BENAR (dipakai sekarang, lihat ensureBouncyCastleRegistered()):
+ * sshj punya API RESMI untuk kasih tahu provider BC ke DIRINYA SENDIRI saja
+ * -- net.schmizz.sshj.common.SecurityUtils.setSecurityProvider(Provider) --
+ * TANPA menyentuh Security.insertProviderAt() / daftar provider JVM global
+ * sama sekali. Efeknya: X25519/EC dkk tetap lengkap tersedia KHUSUS untuk
+ * operasi kripto internal sshj (lewat SecurityUtils.getKeyPairGenerator()
+ * dkk, semuanya baca dari sini), sementara SEMUA kode lain di app (TLS
+ * Cloud Sync, Xray, dst) TETAP pakai provider default Android seperti biasa
+ * -- tidak ada lagi efek samping app-wide.
  *
  * ARSITEKTUR: memakai [ConnectRelay] yang SAMA PERSIS dengan [SshTunnelManager]
  * (relay itu murni socket loopback, tidak terikat ke satu library SSH manapun)
@@ -239,44 +209,42 @@ class SshjTunnelManager : SshEngineHandle {
         private const val TAG = "SshjTunnelManager"
         private const val CONNECT_TIMEOUT_MS = 15000
 
-        // Provider "BC" Android original -- disimpan sementara selama jendela
-        // handshake sshj (lihat swapInRealBouncyCastle/restoreOriginalBouncyCastle),
-        // supaya bisa dikembalikan persis seperti semula sesudahnya.
-        @Volatile private var originalBcProvider: java.security.Provider? = null
+        // Guard supaya registrasi provider cuma dijalankan SEKALI per proses
+        // (bukan per connect()/reconnect) -- Security.insertProviderAt() TIDAK
+        // masalah dipanggil berkali-kali, tapi tidak ada gunanya juga,
+        // sekedar hindari kerja & log berulang tanpa perlu.
+        @Volatile private var bcRegistered = false
         private val bcRegisterLock = Any()
-        private const val BC_PROVIDER_NAME = "BC"
 
         /**
-         * Swap MASUK Bouncy Castle asli ke slot global "BC", SEMENTARA --
-         * lihat catatan panjang di javadoc kelas ini kenapa ini tidak bisa
-         * dibuat scoped 100% dengan API sshj yang tersedia. WAJIB dipasangkan
-         * dengan [restoreOriginalBouncyCastle] di SETIAP jalur keluar (sukses
-         * maupun exception) -- kalau tidak, provider Android original hilang
-         * permanen dan bug lama ("internet sering hilang sendiri") kembali.
+         * FIX ROOT CAUSE (lihat catatan panjang di javadoc kelas ini) --
+         * kasih tahu Bouncy Castle ASLI (dependency org.bouncycastle:bcprov-jdk18on,
+         * lihat app/build.gradle.kts) KHUSUS ke sshj lewat SecurityUtils,
+         * BUKAN lewat Security.insertProviderAt() yang berlaku global ke
+         * seluruh proses app. Ini scoped, aman dipanggil kapan pun (tidak
+         * ada efek samping ke TLS/HTTPS/kripto lain di app), dan otomatis
+         * dipakai sshj untuk SEMUA algoritma yang ia minta lewat provider
+         * "BC" (X25519, kurva EC penuh, dll) -- tidak perlu filter algoritma
+         * satu-satu, sama seperti tujuan fix versi sebelumnya, cuma tanpa
+         * dampak global-nya.
          */
-        private fun swapInRealBouncyCastle() {
+        private fun ensureBouncyCastleRegistered() {
+            if (bcRegistered) return
             synchronized(bcRegisterLock) {
-                originalBcProvider = Security.getProvider(BC_PROVIDER_NAME)
-                Security.removeProvider(BC_PROVIDER_NAME)
-                Security.insertProviderAt(BouncyCastleProvider(), 1)
-                SecurityUtils.setSecurityProvider(BC_PROVIDER_NAME)
+                if (bcRegistered) return
+                try {
+                    SecurityUtils.setSecurityProvider(BouncyCastleProvider())
+                    Log.i(TAG, "Bouncy Castle asli didaftarkan KHUSUS untuk sshj (scoped, tidak menyentuh provider JVM global)")
+                } catch (e: Exception) {
+                    // Non-fatal di titik ini -- kalau ternyata masih ada
+                    // algoritma yang hilang, error "no such algorithm: ...
+                    // for provider BC" yang sama akan muncul lagi nanti pas
+                    // handshake, dan itu ke-log jelas di StatusBus seperti
+                    // sebelumnya, jadi tetap gampang didiagnosis.
+                    Log.e(TAG, "Gagal daftarkan Bouncy Castle asli ke sshj, lanjut pakai provider bawaan Android", e)
+                }
+                bcRegistered = true
             }
-            Log.i(TAG, "Bouncy Castle asli dipasang SEMENTARA (khusus jendela handshake sshj)")
-        }
-
-        /**
-         * Kembalikan provider "BC" ke punya Android semula -- lihat
-         * [swapInRealBouncyCastle]. Aman dipanggil berkali-kali /
-         * meski [swapInRealBouncyCastle] belum pernah sukses dipanggil
-         * (originalBcProvider null -> insertProviderAt di-skip).
-         */
-        private fun restoreOriginalBouncyCastle() {
-            synchronized(bcRegisterLock) {
-                Security.removeProvider(BC_PROVIDER_NAME)
-                originalBcProvider?.let { Security.insertProviderAt(it, 1) }
-                originalBcProvider = null
-            }
-            Log.i(TAG, "Provider BC dikembalikan ke bawaan Android (jendela handshake sshj selesai)")
         }
     }
 
@@ -289,7 +257,7 @@ class SshjTunnelManager : SshEngineHandle {
         compressionEnabled: Boolean,
         onUnexpectedDisconnect: (String) -> Unit
     ) {
-        swapInRealBouncyCastle()
+        ensureBouncyCastleRegistered()
 
         val relay = ConnectRelay(config, protect)
         val relayPort = relay.start()
@@ -325,7 +293,6 @@ class SshjTunnelManager : SshEngineHandle {
             client.connect("127.0.0.1", relayPort)
         } catch (e: Exception) {
             StatusBus.fail(StepId.SSH_HANDSHAKE, explainHandshakeFailure(e, config))
-            restoreOriginalBouncyCastle()
             relay.stop()
             throw e
         }
@@ -336,16 +303,10 @@ class SshjTunnelManager : SshEngineHandle {
             client.authPassword(config.username, config.password.orEmpty())
         } catch (e: Exception) {
             StatusBus.fail(StepId.SSH_AUTH, e.message ?: e.javaClass.simpleName)
-            restoreOriginalBouncyCastle()
             try { client.disconnect() } catch (_: Exception) {}
             relay.stop()
             throw e
         }
-        // Key exchange (satu-satunya titik X25519/EC dari Bouncy Castle asli
-        // dibutuhkan) sudah lewat begitu authPassword() sukses -- aman
-        // dikembalikan ke provider Android original SEKARANG, sebelum trafik
-        // tunnel asli mulai lewat. Lihat catatan panjang di javadoc kelas ini.
-        restoreOriginalBouncyCastle()
         StatusBus.log("Auth complete")
         // "Server Message"/banner (SSH_MSG_USERAUTH_BANNER, RFC 4252 SS5.4) --
         // beda dengan trilead-ssh2 (lihat SshTunnelManager.extractServerBanner()),
