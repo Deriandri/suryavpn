@@ -53,6 +53,9 @@
     <string name="debug_log_empty">Belum ada isi log debug.</string>
     <string name="toast_debug_log_cleared">Log debug dihapus</string>
     <string name="debug_log_dialog_title">Log Debug</string>
+    <string name="debug_log_warning_title">Aktifkan Log Debug?</string>
+    <string name="debug_log_warning_message">Setelah aktif, detail error &amp; peringatan tingkat tinggi (termasuk pesan stack trace) akan dicatat ke file di HP ini, DAN ikut ditampilkan langsung di kartu Log pada Dashboard. Isi log bisa memuat detail teknis koneksi. Nyalakan cuma saat sedang menelusuri masalah, lalu matikan lagi setelah selesai.</string>
+    <string name="debug_log_warning_confirm">Ya, Aktifkan</string>
     <string name="dialog_close">Tutup</string>
     <string name="dialog_copy">Salin</string>
     <string name="dialog_share">Bagikan</string>
@@ -65,9 +68,11 @@
     <string name="engine_trilead">Trilead (default)</string>
     <string name="engine_sshj">sshj (Beta)</string>
     <string name="dns_label">DNS</string>
-    <string name="dns_desc">Kalau diisi, DNS di sini menimpa DNS profil SSH/Xray. Kosongkan untuk pakai default (1.1.1.1).</string>
-    <string name="dns1_hint">DNS 1 (mis. 1.1.1.1)</string>
-    <string name="dns2_hint">DNS 2 (opsional)</string>
+    <string name="dns_desc">Kalau dinyalakan, DNS di bawah menimpa DNS profil SSH/Xray. Mati (default): DNS di sini diabaikan, tetap pakai DNS profil masing-masing.</string>
+    <string name="dns_override_title">Timpa DNS</string>
+    <string name="dns_override_desc">Aktifkan untuk memakai DNS 1/DNS 2 di bawah. Mati secara default.</string>
+    <string name="dns1_hint">DNS 1 (mis. 8.8.8.8)</string>
+    <string name="dns2_hint">DNS 2 (mis. 1.1.1.1)</string>
     <string name="mtu_hint">MTU (default 1500)</string>
     <string name="ports_desc">Kosongkan port di bawah untuk pakai default masing-masing profil. SOCKS5 Port menimpa port semua profil. HTTP Port menyalakan proxy HTTP lokal tambahan (chaining ke SOCKS5) untuk app yang cuma dukung proxy HTTP. UDPGW Port, kalau diisi, meneruskan UDP non-DNS (game, QUIC/HTTP3, VoIP) lewat proses badvpn-udpgw di server (server WAJIB sudah menjalankan badvpn-udpgw di port ini).</string>
     <string name="socks_port_hint">SOCKS5 Port (opsional)</string>

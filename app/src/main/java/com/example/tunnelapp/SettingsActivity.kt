@@ -175,14 +175,66 @@ class SettingsActivity : AppCompatActivity() {
      * atas -- tidak perlu tombol "Simpan" terpisah, karena ini murni
      * on/off, bukan form). [DebugLog.setEnabled] yang benar-benar
      * mengubah perilaku observer-nya secara live tanpa perlu restart app.
+     *
+     * FITUR BARU LAGI (permintaan user: "kasih peringatan sebelum
+     * mengaktifkan"): MENYALAKAN switch sekarang lewat
+     * [handleDebugLogSwitchChanged] -- MENAMPILKAN dialog peringatan dulu
+     * sebelum benar-benar aktif (lihat komentar di sana). MEMATIKAN switch
+     * tetap langsung tanpa konfirmasi apa pun, karena tidak menambah
+     * risiko baru.
      */
     private fun loadDebugLogIntoForm() {
         binding.switchDebugLog.isChecked = DebugLogStore.isEnabled(this)
         binding.switchDebugLog.setOnCheckedChangeListener { _, isChecked ->
-            DebugLog.setEnabled(this, isChecked)
+            handleDebugLogSwitchChanged(isChecked)
         }
         binding.btnViewDebugLog.setOnClickListener { showDebugLogDialog() }
         binding.btnClearDebugLog.setOnClickListener { confirmClearDebugLog() }
+    }
+
+    /**
+     * Ganti isChecked switchDebugLog TANPA memicu listener-nya sendiri lagi
+     * (hindari rekursi tak berujung) -- dipakai untuk mengembalikan posisi
+     * switch ke OFF sambil menunggu konfirmasi dialog, dan untuk benar-benar
+     * menyalakannya begitu user menekan tombol konfirmasi.
+     */
+    private fun setDebugLogSwitchSilently(checked: Boolean) {
+        binding.switchDebugLog.setOnCheckedChangeListener(null)
+        binding.switchDebugLog.isChecked = checked
+        binding.switchDebugLog.setOnCheckedChangeListener { _, isChecked ->
+            handleDebugLogSwitchChanged(isChecked)
+        }
+    }
+
+    /**
+     * MEMATIKAN switch: langsung diterapkan, tidak ada risiko baru yang
+     * perlu dikonfirmasi.
+     *
+     * MENYALAKAN switch: switch dikembalikan ke OFF secara visual dulu
+     * (tanpa memicu listener lagi), lalu tampil dialog peringatan --
+     * sekarang Log Debug JUGA menyalin error/warning ke kartu "Log" di
+     * Dashboard secara live (bukan cuma ke file), jadi user perlu tahu
+     * dulu sebelum menyalakannya. Switch baru BENERAN nyala (dan
+     * [DebugLog.setEnabled] baru dipanggil) kalau user menekan tombol
+     * konfirmasi; ditutup/dibatalkan berarti tetap OFF.
+     */
+    private fun handleDebugLogSwitchChanged(isChecked: Boolean) {
+        if (!isChecked) {
+            DebugLog.setEnabled(this, false)
+            return
+        }
+
+        setDebugLogSwitchSilently(false)
+
+        MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog)
+            .setTitle(R.string.debug_log_warning_title)
+            .setMessage(R.string.debug_log_warning_message)
+            .setNegativeButton(R.string.dialog_close, null)
+            .setPositiveButton(R.string.debug_log_warning_confirm) { _, _ ->
+                setDebugLogSwitchSilently(true)
+                DebugLog.setEnabled(this, true)
+            }
+            .show()
     }
 
     /**
@@ -432,10 +484,28 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Nyala/matikan field DNS1/DNS2 mengikuti switchDnsOverride -- murni
+     * indikasi visual (disabled = abu-abu) supaya user paham isian DNS
+     * di bawah TIDAK dipakai selama switch-nya mati. Penegakan sebenarnya
+     * (DNS diabaikan total kalau mati) ada di
+     * MyVpnService.applyDnsServers/VpnSettings.dnsOverrideEnabled, BUKAN
+     * di sini -- jadi walau ada bug UI, perilaku tunnel tetap benar.
+     */
+    private fun applyDnsFieldsAvailability(overrideEnabled: Boolean) {
+        binding.etVpnDns1.isEnabled = overrideEnabled
+        binding.etVpnDns2.isEnabled = overrideEnabled
+    }
+
     private fun loadVpnSettingsIntoForm() {
         val settings = VpnSettingsStore.load(this)
         binding.etVpnDns1.setText(settings.dns1)
         binding.etVpnDns2.setText(settings.dns2)
+        binding.switchDnsOverride.isChecked = settings.dnsOverrideEnabled
+        applyDnsFieldsAvailability(settings.dnsOverrideEnabled)
+        binding.switchDnsOverride.setOnCheckedChangeListener { _, isChecked ->
+            applyDnsFieldsAvailability(isChecked)
+        }
         binding.etVpnMtu.setText(settings.mtu.toString())
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
         binding.switchAutoReconnect.isChecked = settings.autoReconnect
@@ -498,15 +568,22 @@ class SettingsActivity : AppCompatActivity() {
     private fun saveVpnSettingsFromForm() {
         val dns1 = binding.etVpnDns1.text.toString().trim()
         val dns2 = binding.etVpnDns2.text.toString().trim()
+        val dnsOverrideEnabled = binding.switchDnsOverride.isChecked
         val mtuText = binding.etVpnMtu.text.toString().trim()
 
-        if (dns1.isNotEmpty() && !Patterns.IP_ADDRESS.matcher(dns1).matches()) {
-            binding.etVpnDns1.error = getString(R.string.error_dns1)
-            return
-        }
-        if (dns2.isNotEmpty() && !Patterns.IP_ADDRESS.matcher(dns2).matches()) {
-            binding.etVpnDns2.error = getString(R.string.error_dns2)
-            return
+        // Validasi format IP DNS1/DNS2 CUMA dipaksa kalau switch override
+        // nyala -- kalau mati, isian field ini toh diabaikan total oleh
+        // MyVpnService (lihat VpnSettings.dnsOverrideEnabled), jadi tidak
+        // perlu menghalangi Simpan gara-gara isinya belum valid.
+        if (dnsOverrideEnabled) {
+            if (dns1.isNotEmpty() && !Patterns.IP_ADDRESS.matcher(dns1).matches()) {
+                binding.etVpnDns1.error = getString(R.string.error_dns1)
+                return
+            }
+            if (dns2.isNotEmpty() && !Patterns.IP_ADDRESS.matcher(dns2).matches()) {
+                binding.etVpnDns2.error = getString(R.string.error_dns2)
+                return
+            }
         }
 
         val mtu = mtuText.toIntOrNull()
@@ -530,6 +607,7 @@ class SettingsActivity : AppCompatActivity() {
             VpnSettings(
                 dns1 = dns1,
                 dns2 = dns2,
+                dnsOverrideEnabled = dnsOverrideEnabled,
                 mtu = mtu,
                 keepCpuAwake = binding.switchKeepAwake.isChecked,
                 autoReconnect = binding.switchAutoReconnect.isChecked,

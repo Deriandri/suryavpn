@@ -29,6 +29,18 @@ import java.util.Locale
  *    dilihat/dibagikan lewat UI (lihat SettingsActivity), berguna kalau
  *    error terjadi saat user TIDAK sedang disambungkan ke `adb`.
  *
+ * FITUR BARU LAGI (permintaan user: "semua log sistem ditampilkan juga di
+ * log Dashboard supaya errornya kelihatan"): SELAIN ditulis ke file, [e]/
+ * [w] (dan crash fatal) SEKARANG JUGA disalin live ke [StatusBus.liveLog]
+ * -- ini persis sumber yang dibaca kartu "Log" di Dashboard
+ * ([com.example.tunnelapp.DashboardLogFragment]) -- TAPI HANYA kalau
+ * [enabled] true, SAMA PERSIS gerbang yang sudah dipakai penulisan file di
+ * atas (bukan jalur baru), supaya user yang tidak menyalakan togglenya
+ * tidak melihat perubahan apa pun di Dashboard (baris [d]/DEBUG level
+ * SENGAJA tidak ikut disalin ke sana -- terlalu berisik untuk log
+ * real-time yang sama dengan tahapan koneksi; baris ini tetap lengkap di
+ * file/[readLogText] kalau mau dilihat detail).
+ *
  * File ditulis ke [Context.filesDir] (private ke app ini, tidak butuh izin
  * storage apa pun), dibatasi [MAX_FILE_BYTES] -- begitu lebih besar, separuh
  * AWAL file (baris tertua) dibuang supaya file tidak tumbuh tanpa batas
@@ -74,20 +86,27 @@ object DebugLog {
         enabled = isEnabled
         if (isEnabled) {
             writeEntry("INFO", TAG, null, "Log Debug diaktifkan dari Pengaturan")
+            StatusBus.log("[DEBUG/INFO] $TAG: Log Debug diaktifkan -- error/warning sistem akan ikut tampil di sini")
         }
     }
 
     fun isEnabled(): Boolean = enabled
 
-    /** Error tingkat tinggi -- SELALU ke Logcat, PLUS ke file (dengan stack trace lengkap) kalau [enabled]. */
+    /** Error tingkat tinggi -- SELALU ke Logcat, PLUS ke file (dengan stack trace lengkap) & Dashboard kalau [enabled]. */
     fun e(tag: String, message: String, throwable: Throwable? = null) {
         Log.e(tag, message, throwable)
-        if (enabled) writeEntry("ERROR", tag, throwable, message)
+        if (enabled) {
+            writeEntry("ERROR", tag, throwable, message)
+            mirrorToDashboard("ERROR", tag, message, throwable)
+        }
     }
 
     fun w(tag: String, message: String, throwable: Throwable? = null) {
         Log.w(tag, message, throwable)
-        if (enabled) writeEntry("WARN", tag, throwable, message)
+        if (enabled) {
+            writeEntry("WARN", tag, throwable, message)
+            mirrorToDashboard("WARN", tag, message, throwable)
+        }
     }
 
     fun d(tag: String, message: String) {
@@ -109,12 +128,28 @@ object DebugLog {
             try {
                 if (enabled) {
                     writeEntry("FATAL", "UncaughtException", throwable, "Thread: ${thread.name}")
+                    mirrorToDashboard("FATAL", "UncaughtException", "Thread: ${thread.name}", throwable)
                 }
             } catch (_: Throwable) {
                 // Jangan sampai logger sendiri yang bikin crash-handler-nya gagal jalan.
             }
             previousUncaughtHandler?.uncaughtException(thread, throwable)
         }
+    }
+
+    /**
+     * Salin ringkas satu entri [e]/[w]/FATAL ke [StatusBus.liveLog] --
+     * sumber yang sama dipakai kartu "Log" di Dashboard -- supaya error
+     * kelihatan LANGSUNG di sana, bukan cuma nunggu dibuka manual lewat
+     * "Lihat / Bagikan Log" di Pengaturan. Cuma baris pertama pesan exception
+     * (kalau ada) yang ikut disalin, BUKAN seluruh stack trace -- stack
+     * trace lengkap tetap di file (lihat [readLogText]), supaya log
+     * Dashboard yang sama dipakai tampilan tahapan koneksi tidak banjir
+     * puluhan baris sekaligus.
+     */
+    private fun mirrorToDashboard(level: String, tag: String, message: String, throwable: Throwable?) {
+        val suffix = throwable?.let { " (${it.javaClass.simpleName}: ${it.message ?: "-"})" } ?: ""
+        StatusBus.log("[DEBUG/$level] $tag: $message$suffix")
     }
 
     private fun writeEntry(level: String, tag: String, throwable: Throwable?, message: String) {

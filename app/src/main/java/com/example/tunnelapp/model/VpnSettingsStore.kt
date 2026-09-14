@@ -11,8 +11,14 @@ import android.content.Context
  * dipisah ke SharedPreferences sendiri ([PREFS_NAME]) supaya tidak campur
  * dengan data akun.
  *
- * dns1/dns2 di sini, kalau diisi (bukan string kosong), MENIMPA DNS
- * per-server ([ServerConfig.dns1]/[ServerConfig.dns2]) -- lihat
+ * dnsOverrideEnabled MENGONTROL apakah dns1/dns2 di sini benar-benar
+ * dipakai. Default FALSE (mati) -- dns1/dns2 tetap terisi nilai contoh
+ * (8.8.8.8 / 1.1.1.1) di field-nya supaya user tinggal nyalakan switch-nya
+ * kalau mau, tapi SELAMA switch mati, isian dns1/dns2 di sini DIABAIKAN
+ * total (lihat MyVpnService.applyDnsServers) -- app jalan seperti belum
+ * ada override DNS sama sekali, pakai DNS per-server/default seperti biasa.
+ * Kalau dinyalakan, dns1/dns2 (bukan string kosong) MENIMPA DNS per-server
+ * ([ServerConfig.dns1]/[ServerConfig.dns2]) -- lihat
  * MyVpnService.applyDnsServers. mtu menggantikan konstanta TUN_MTU yang
  * dulu hardcoded 1500 di MyVpnService. keepCpuAwake mengontrol apakah
  * MyVpnService memegang PowerManager.PARTIAL_WAKE_LOCK selama tunnel aktif.
@@ -81,8 +87,16 @@ import android.content.Context
  * menyesatkan user seolah aktif padahal enginenya tidak mendukung.
  */
 data class VpnSettings(
-    val dns1: String = "",
-    val dns2: String = "",
+    // Default diisi contoh publik yang umum dipakai (Google & Cloudflare)
+    // supaya user tinggal nyalakan switch [dnsOverrideEnabled] kalau mau,
+    // tanpa perlu isi manual dulu. TIDAK berefek sama sekali selama
+    // dnsOverrideEnabled masih false -- lihat catatan di atas.
+    val dns1: String = "8.8.8.8",
+    val dns2: String = "1.1.1.1",
+    // Default FALSE (mati): override DNS1/DNS2 di atas baru benar-benar
+    // dipakai kalau user menyalakan sendiri lewat switch ini. Lihat
+    // MyVpnService.applyDnsServers.
+    val dnsOverrideEnabled: Boolean = false,
     val mtu: Int = DEFAULT_MTU,
     // Default true: WakeLock aktif dari awal supaya tunnel tidak putus-putus
     // di background tanpa user harus menyalakannya manual.
@@ -140,6 +154,7 @@ object VpnSettingsStore {
     private const val PREFS_NAME = "tunnelapp_vpn_settings"
     private const val KEY_DNS1 = "vpn_dns1"
     private const val KEY_DNS2 = "vpn_dns2"
+    private const val KEY_DNS_OVERRIDE_ENABLED = "vpn_dns_override_enabled"
     private const val KEY_MTU = "vpn_mtu"
     private const val KEY_KEEP_CPU_AWAKE = "vpn_keep_cpu_awake"
     private const val KEY_AUTO_RECONNECT = "vpn_auto_reconnect"
@@ -153,8 +168,13 @@ object VpnSettingsStore {
     fun load(context: Context): VpnSettings {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return VpnSettings(
-            dns1 = prefs.getString(KEY_DNS1, "").orEmpty(),
-            dns2 = prefs.getString(KEY_DNS2, "").orEmpty(),
+            // Default fallback "8.8.8.8"/"1.1.1.1" (bukan string kosong)
+            // supaya user baru langsung lihat contoh terisi di field-nya --
+            // TETAP aman karena dnsOverrideEnabled default-nya false di
+            // bawah (lihat KEY_DNS_OVERRIDE_ENABLED).
+            dns1 = prefs.getString(KEY_DNS1, VpnSettings().dns1).orEmpty(),
+            dns2 = prefs.getString(KEY_DNS2, VpnSettings().dns2).orEmpty(),
+            dnsOverrideEnabled = prefs.getBoolean(KEY_DNS_OVERRIDE_ENABLED, false),
             mtu = prefs.getInt(KEY_MTU, VpnSettings.DEFAULT_MTU),
             keepCpuAwake = prefs.getBoolean(KEY_KEEP_CPU_AWAKE, true),
             autoReconnect = prefs.getBoolean(KEY_AUTO_RECONNECT, true),
@@ -176,6 +196,7 @@ object VpnSettingsStore {
             .edit()
             .putString(KEY_DNS1, settings.dns1)
             .putString(KEY_DNS2, settings.dns2)
+            .putBoolean(KEY_DNS_OVERRIDE_ENABLED, settings.dnsOverrideEnabled)
             .putInt(KEY_MTU, settings.mtu)
             .putBoolean(KEY_KEEP_CPU_AWAKE, settings.keepCpuAwake)
             .putBoolean(KEY_AUTO_RECONNECT, settings.autoReconnect)

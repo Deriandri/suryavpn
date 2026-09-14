@@ -53,6 +53,9 @@
     <string name="debug_log_empty">No debug log content yet.</string>
     <string name="toast_debug_log_cleared">Debug log cleared</string>
     <string name="debug_log_dialog_title">Debug Log</string>
+    <string name="debug_log_warning_title">Enable Debug Log?</string>
+    <string name="debug_log_warning_message">Once enabled, high-detail errors &amp; warnings (including stack trace messages) will be recorded to a file on this device, AND shown live in the Log card on the Dashboard. The log may contain technical connection details. Only turn it on while troubleshooting, then turn it back off when done.</string>
+    <string name="debug_log_warning_confirm">Yes, Enable</string>
     <string name="dialog_close">Close</string>
     <string name="dialog_copy">Copy</string>
     <string name="dialog_share">Share</string>
@@ -65,9 +68,11 @@
     <string name="engine_trilead">Trilead (default)</string>
     <string name="engine_sshj">sshj (Beta)</string>
     <string name="dns_label">DNS</string>
-    <string name="dns_desc">If filled in, the DNS here overrides the SSH/Xray profile\'s DNS. Leave blank to use the default (1.1.1.1).</string>
-    <string name="dns1_hint">DNS 1 (e.g. 1.1.1.1)</string>
-    <string name="dns2_hint">DNS 2 (optional)</string>
+    <string name="dns_desc">When enabled, the DNS below overrides the SSH/Xray profile\'s DNS. Off (default): the DNS here is ignored, each profile keeps using its own DNS.</string>
+    <string name="dns_override_title">Override DNS</string>
+    <string name="dns_override_desc">Turn on to use DNS 1/DNS 2 below. Off by default.</string>
+    <string name="dns1_hint">DNS 1 (e.g. 8.8.8.8)</string>
+    <string name="dns2_hint">DNS 2 (e.g. 1.1.1.1)</string>
     <string name="mtu_hint">MTU (default 1500)</string>
     <string name="ports_desc">Leave the ports below blank to use each profile\'s default. SOCKS5 Port overrides the port for every profile. HTTP Port turns on an additional local HTTP proxy (chained to SOCKS5) for apps that only support an HTTP proxy. UDPGW Port, if filled in, forwards non-DNS UDP (games, QUIC/HTTP3, VoIP) through a badvpn-udpgw process on the server (the server MUST already be running badvpn-udpgw on this port).</string>
     <string name="socks_port_hint">SOCKS5 Port (optional)</string>

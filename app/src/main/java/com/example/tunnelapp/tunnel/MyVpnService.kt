@@ -864,7 +864,10 @@ class MyVpnService : VpnService() {
      * Prioritas sumber DNS: DNS1/DNS2 di kartu "VPN Setting"
      * ([VpnSettingsStore], global) MENIMPA DNS per-server
      * ([ServerConfig.dns1]/[ServerConfig.dns2], dari Konfigurasi SSH) kalau
-     * salah satunya diisi.
+     * switch [VpnSettings.dnsOverrideEnabled] NYALA dan salah satu dari
+     * dns1/dns2 diisi. Kalau switch-nya MATI (default), dns1/dns2 di sini
+     * diabaikan TOTAL walau field-nya terisi -- langsung jatuh ke DNS
+     * per-server seperti sebelum fitur override ini ada.
      *
      * PERCOBAAN (atas permintaan user, SUDAH DIPERINGATKAN risikonya):
      * fallback ke [DEFAULT_DNS] DIHAPUS -- kalau DNS1/DNS2 kosong semua,
@@ -877,7 +880,8 @@ class MyVpnService : VpnService() {
      * di bawah (kodenya dipertahankan dlm komentar, bukan dihapus total).
      */
     private fun applyDnsServers(builder: Builder, config: ServerConfig, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
-        val useGlobalOverride = vpnSettings.dns1.isNotBlank() || vpnSettings.dns2.isNotBlank()
+        val useGlobalOverride = vpnSettings.dnsOverrideEnabled &&
+            (vpnSettings.dns1.isNotBlank() || vpnSettings.dns2.isNotBlank())
         val dnsCandidates = if (useGlobalOverride) {
             listOf("DNS1 (VPN Setting)" to vpnSettings.dns1, "DNS2 (VPN Setting)" to vpnSettings.dns2)
         } else {
