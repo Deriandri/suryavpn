@@ -113,8 +113,11 @@ target_link_libraries(tunneljni
 # pakai CMake sebagai build system upstream-nya, BUKAN autotools/Makefile
 # polos), TAPI belum pernah dijalankan sungguhan (lingkungan penyusunan
 # kode ini tidak punya NDK/CMake/network access untuk clone+compile+link
-# beneran). Kemungkinan hal yang perlu disesuaikan setelah build pertama
-# GAGAL/berhasil sebagian:
+# beneran) -- SATU putaran CI user sudah menemukan & fix dua bug nyata
+# dari sini (lihat CMAKE_POLICY_DEFAULT_CMP0057 di bawah), jadi anggap
+# blok ini "pernah dites sekali, tapi belum tentu sampai APK jalan utuh".
+# Kemungkinan hal LAIN yang masih perlu disesuaikan kalau CI berikutnya
+# gagal lagi:
 #   - Nama target CMake hasil compile tun2socks (di sini diasumsikan
 #     "tun2socks", cek CMakeLists.txt badvpn sendiri kalau beda).
 #   - Opsi CMAKE_ARGS yang badvpn butuhkan (BUILD_NOTHING_BY_DEFAULT=1
@@ -153,6 +156,26 @@ ExternalProject_Add(
         -DANDROID_ABI=${ANDROID_ABI}
         -DANDROID_PLATFORM=${ANDROID_PLATFORM}
         -DCMAKE_BUILD_TYPE=Release
+        # FIX build error nyata (CI log user, 2025): badvpn punya
+        # `cmake_minimum_required` SANGAT LAMA (peringatan build:
+        # "Compatibility with CMake < 2.8.12 will be removed") -- karena itu,
+        # policy CMP0057 ("if() supports IN_LIST") IKUT default ke OLD/unset
+        # untuk seluruh proses configure badvpn ini (policy versi rendah
+        # merambat ke SEMUA include berikutnya, termasuk toolchain file NDK
+        # yang di-include lewat CMAKE_TOOLCHAIN_FILE di atas). android.toolchain
+        # .cmake NDK modern (r27 di sini) MEMAKAI `if(... IN_LIST ...)` sendiri
+        # (mis. cek ANDROID_SANITIZE) -- tanpa CMP0057=NEW, if() itu gagal
+        # parse dengan persis error yang muncul di CI: "CMake Error ... if
+        # given arguments: \"hwaddress\" \"IN_LIST\" \"ANDROID_SANITIZE\" ...
+        # Unknown arguments specified". Baris ini MEMAKSA CMP0057=NEW lewat
+        # variable CMAKE_POLICY_DEFAULT_* (cuma berlaku untuk policy yang
+        # TIDAK di-set eksplisit oleh cmake_minimum_required badvpn sendiri --
+        # CMP0057 diperkenalkan CMake 3.3, jauh di atas versi minimum badvpn,
+        # jadi policy ini otomatis "unset" dan variable ini yang menentukan
+        # default-nya). TIDAK memengaruhi hev-socks5-tunnel di atas sama
+        # sekali (ExternalProject terpisah, CMAKE_ARGS ini cuma dikirim ke
+        # configure step badvpn_tun2socks_external).
+        -DCMAKE_POLICY_DEFAULT_CMP0057=NEW
         # Opsi upstream badvpn: matikan semua target default (udpgw, dst
         # -- app ini sudah punya UdpgwClient Kotlin sendiri, lihat
         # VpnSettingsStore.udpgwPort), nyalakan HANYA tun2socks.
