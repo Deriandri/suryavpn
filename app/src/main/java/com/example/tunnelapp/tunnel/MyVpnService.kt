@@ -925,8 +925,22 @@ class MyVpnService : VpnService() {
             }
         }
         if (!addedAny) {
-            // builder.addDnsServer(DEFAULT_DNS)  // DIMATIKAN sesuai permintaan user
-            StatusBus.log("[DNS] DNS1/DNS2 kosong -- TIDAK ada DNS default dipasang ke TUN (fallback $DEFAULT_DNS dimatikan)")
+            // FIX: fallback DEFAULT_DNS DIHIDUPKAN LAGI -- sebelumnya kalau
+            // DNS1/DNS2 kosong, TIDAK ADA addDnsServer() dipanggil sama
+            // sekali, padahal addRoute("0.0.0.0", 0) tetap menangkap semua
+            // trafik ke TUN termasuk DNS bawaan operator/wifi (sering IP
+            // privat, tidak bisa dicapai server tunnel) -- efeknya resolusi
+            // domain gagal total ("connect tapi internet tidak jalan").
+            // Balikin ke DEFAULT_DNS ($DEFAULT_DNS) supaya user yang tidak
+            // isi DNS1/DNS2 manual tetap punya DNS yang valid & bisa
+            // dijangkau lewat tunnel.
+            try {
+                builder.addDnsServer(DEFAULT_DNS)
+                StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $DEFAULT_DNS")
+            } catch (e: IllegalArgumentException) {
+                DebugLog.w(TAG, "DEFAULT_DNS \"$DEFAULT_DNS\" gagal dipasang ke TUN", e)
+                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $DEFAULT_DNS gagal dipasang -- TIDAK ada DNS di TUN")
+            }
         }
 
         // addedAny == true berarti user MEMANG mengisi DNS1/DNS2 sendiri
