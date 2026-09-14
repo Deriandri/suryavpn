@@ -67,6 +67,14 @@ class SshTunnelManager : SshEngineHandle {
         private const val TAG = "SshTunnelManager"
         private const val CONNECT_TIMEOUT_MS = 15000
 
+        // FIX (deteksi tunnel "mati diam-diam" -- lihat catatan lengkap di
+        // titik pemasangannya di connect()): trilead-ssh2 TIDAK pernah kirim
+        // apa pun sendiri selama tunnel idle, beda dengan sshj yang sudah
+        // punya keepAliveInterval bawaan (lihat SshjTunnelManager). Interval
+        // dibuat SAMA (30 detik) dengan punya sshj supaya perilaku kedua
+        // engine konsisten dari sudut pandang user.
+        private const val KEEPALIVE_INTERVAL_MS = 30000L
+
         // FITUR BARU (maksimalkan kecepatan): daftar cipher yang punya
         // percepatan hardware di hampir semua HP modern (AES-NI/ARMv8 Crypto
         // Extensions) -- nama-nama standar RFC/OpenSSH, sengaja HANYA
@@ -125,6 +133,14 @@ class SshTunnelManager : SshEngineHandle {
     // channel/instance lama.
     private var udpgwClient: UdpgwClient? = null
     private var udpgwClientPort: Int = 0
+
+    // Thread pengirim keepalive aktif (lihat KEEPALIVE_INTERVAL_MS & titik
+    // pemasangannya di connect()) -- disimpan di field yang sama persis
+    // pola [disconnectWatchThread] di SshjTunnelManager, supaya di-interrupt()
+    // & di-null-kan di disconnectForReconnect()/disconnect() (bukan
+    // dibiarkan hidup nyasar mengirim keepalive ke Connection yang sudah
+    // ditutup/diganti).
+    private var keepAliveThread: Thread? = null
 
     // Semua operasi teardown (disconnectForReconnect/disconnect) dikunci di
     // sini supaya tidak ada dua thread yang membongkar connection/relay yang
@@ -370,6 +386,57 @@ class SshTunnelManager : SshEngineHandle {
             relay.stop()
             throw IOException(msg)
         }
+
+        // FIX (root cause "tunnel mati diam-diam, status tetap Terhubung
+        // tapi internet hilang" -- lihat gejala aslinya: channel SOCKS5
+        // baru macet CHANNEL_OPEN_TIMEOUT_MS lalu ditutup paksa berulang-
+        // ulang, PADAHAL ConnectionMonitor tidak pernah memanggil
+        // connectionLost()): trilead-ssh2 TIDAK punya keepalive level
+        // protokol bawaan -- selama tunnel idle (tidak ada trafik data
+        // sungguhan), library ini TIDAK PERNAH kirim apa pun ke server
+        // sendiri. Kalau socket TCP bawahannya mati diam-diam di tengah
+        // idle itu (NAT operator seluler drop mapping TCP idle, pindah
+        // WiFi<->data seluler, Doze, dst -- tanpa RST yang benar-benar
+        // sampai ke sisi kita), trilead TIDAK PUNYA cara mengetahuinya
+        // sampai ADA percobaan baca/tulis nyata yang gagal. Channel SOCKS5
+        // baru (openDirectTcpip) itulah percobaan pertama yang menyentuh
+        // socket zombie ini -- makanya macet 10 detik lalu timeout,
+        // BUKAN langsung ke-reconnect seperti seharusnya.
+        //
+        // Thread di bawah kirim SSH_MSG_IGNORE kecil (sendIgnorePacket(),
+        // API resmi trilead-ssh2 -- payload kosong, tidak berdampak apa pun
+        // ke sisi server selain dibalas/diabaikan) tiap KEEPALIVE_INTERVAL_MS
+        // SELAMA tunnel idle. Dua manfaat sekaligus:
+        //  1) Menjaga NAT (operator seluler/router) tetap menganggap
+        //     koneksi ini "aktif", banyak NAT drop TCP idle jauh lebih
+        //     cepat dari itu -- ini yang sebenarnya MENCEGAH kematian
+        //     diam-diam terjadi di banyak kasus.
+        //  2) Kalau socket ternyata SUDAH mati (keepalive ini sendiri yang
+        //     jadi percobaan pertama yang mendeteksinya), sendIgnorePacket()
+        //     melempar IOException -- exception itu kita tangkap lalu paksa
+        //     conn.close(), yang otomatis memicu ConnectionMonitor di atas
+        //     -> onUnexpectedDisconnect() -> MyVpnService reconnect
+        //     otomatis, TANPA perlu menunggu user buka sesuatu dulu.
+        //
+        // Sama persis alasan & interval-nya dengan
+        // SshjTunnelManager.keepAliveInterval, cuma cara kirimnya beda
+        // karena trilead tidak expose keepalive bawaan seperti sshj.
+        keepAliveThread = Thread({
+            try {
+                while (!Thread.currentThread().isInterrupted) {
+                    Thread.sleep(KEEPALIVE_INTERVAL_MS)
+                    try {
+                        conn.sendIgnorePacket()
+                    } catch (e: IOException) {
+                        Log.w(TAG, "Keepalive trilead gagal terkirim, tunnel kemungkinan sudah mati -- memaksa close() supaya reconnect otomatis jalan", e)
+                        try { conn.close() } catch (_: Exception) {}
+                        break
+                    }
+                }
+            } catch (_: InterruptedException) {
+            }
+        }, "trilead-keepalive").apply { isDaemon = true; start() }
+
         // FIX (log Terminal menyesatkan): dulu baris ini cuma "Connected" --
         // kedengarannya seperti seluruh proses sudah kelar, padahal di titik
         // ini baru SSH handshake + SOCKS5 lokal yang siap. TUN engine belum
@@ -504,6 +571,8 @@ class SshTunnelManager : SshEngineHandle {
         synchronized(teardownLock) {
             socks5Server?.detachConnection()
             udpgwClient?.detachConnection()
+            keepAliveThread?.interrupt()
+            keepAliveThread = null
             try {
                 connection?.close()
             } catch (e: Exception) {
@@ -539,6 +608,8 @@ class SshTunnelManager : SshEngineHandle {
             } catch (e: Exception) {
                 DebugLog.e(TAG, "Error stop udpgw client", e)
             }
+            keepAliveThread?.interrupt()
+            keepAliveThread = null
             try {
                 connection?.close()
             } catch (e: Exception) {
