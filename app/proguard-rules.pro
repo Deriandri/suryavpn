@@ -56,6 +56,20 @@
 -keep class com.trilead.ssh2.** { *; }
 -dontwarn com.trilead.ssh2.**
 
+# --- Dependency trilead-ssh2-custom-1.0.0.jar (libs/): jbcrypt & eddsa ---
+# jbcrypt (org.mindrot) dipakai trilead-ssh2 secara internal.
+-keep class org.mindrot.jbcrypt.** { *; }
+-dontwarn org.mindrot.jbcrypt.**
+# net.i2p.crypto.eddsa dipakai trilead-ssh2 utk ED25519KeyAlgorithm --
+# terdaftar sbg JCA Security Provider (EdDSASecurityProvider) & di-lookup
+# oleh JCA lewat reflection/nama algoritma ("EdDSA"), BUKAN pemanggilan
+# langsung -- pola yang sama persis dengan kenapa Tink & BouncyCastle di
+# atas juga butuh -keep penuh. Tanpa ini, R8 release build bisa diam-diam
+# menghapus/mengganti nama kelasnya karena dari sudut pandang R8 kelas ini
+# terlihat "tidak dipanggil" via referensi langsung.
+-keep class net.i2p.crypto.eddsa.** { *; }
+-dontwarn net.i2p.crypto.eddsa.**
+
 # --- Bouncy Castle (org.bouncycastle) -- PALING KRITIS: JCA/JCE (java.security.Security)
 # mencari implementasi algoritma lewat Class.forName() memakai STRING NAMA
 # KELAS PERSIS dari provider yang terdaftar (lihat SshjTunnelManager.

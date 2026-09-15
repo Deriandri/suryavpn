@@ -125,20 +125,35 @@ dependencies {
     implementation("androidx.fragment:fragment-ktx:1.8.2")
 
     // --- Modul SSH (tahap 2) ---
-    // Engine SSH: trilead-ssh2. PENTING: pakai fork "jenkinsci/trilead-ssh2"
-    // (dipelihara aktif, dipakai Jenkins sendiri untuk SSH ke ribuan server
-    // produksi), BUKAN "com.trilead:trilead-ssh2:1.0.0-build222" yang merupakan
-    // build lama ±2015 dan TIDAK mendukung algoritma modern (ed25519, ECDSA,
-    // curve25519-sha256, rsa-sha2-256/512, cipher CTR, MAC -etm@openssh.com).
-    // Server SSH modern yang sudah mematikan algoritma lama akan gagal total
-    // di tahap key-exchange dengan pesan generik "There was a problem while
-    // connecting to ..." -- persis error yang tadinya muncul.
-    // Ambil dari repo Maven resmi Jenkins (org.jenkins-ci), BUKAN dari JitPack
-    // (com.github.jenkinsci) -- JitPack sempat dicoba tapi gagal di GitHub
-    // Actions karena JitPack baru compile versi ini saat diminta pertama kali
-    // (builds on-demand), gampang timeout/gagal di CI. Paket Java-nya tetap
-    // sama (com.trilead.ssh2.*), jadi tidak perlu ubah kode Kotlin manapun.
-    implementation("org.jenkins-ci:trilead-ssh2:build-217-jenkins-293.v56de4d4d3515")
+    // Engine SSH: trilead-ssh2, versi "custom" dari libs/trilead-ssh2-custom-1.0.0.jar
+    // (bukan lagi dependency Maven org.jenkins-ci) -- GANTI ATAS PERMINTAAN USER,
+    // memakai file jar yang dilampirkan langsung. Paket Java-nya tetap
+    // com.trilead.ssh2.* (identik dengan versi Maven sebelumnya), jadi TIDAK ADA
+    // kode Kotlin yang perlu diubah (SshTunnelManager.kt, dst. tetap sama persis).
+    //
+    // PENTING -- jar yang dilampirkan aslinya adalah "fat jar" ~9.3MB yang men-
+    // shade beberapa library lain di dalamnya selain com.trilead.ssh2.* & jbcrypt
+    // (org.mindrot) & net.i2p.crypto.eddsa (dipakai utk ED25519KeyAlgorithm --
+    // ini TETAP disertakan karena tidak tersedia dari dependency lain manapun di
+    // proyek ini): com.google.gson, com.google.protobuf, dan com.google.crypto.tink
+    // (dipakai HANYA oleh satu kelas, Curve25519Exchange, utk curve25519-sha256
+    // key exchange via com.google.crypto.tink.subtle.X25519). Tiga paket google.*
+    // itu SUDAH DIBUANG dari jar sebelum ditaruh di libs/ (lihat ukuran jadi
+    // ~430KB) supaya TIDAK bentrok "Duplicate class com.google.crypto.tink.*"
+    // dengan tink-android 1.8.0 yang sudah dibawa androidx.security:security-crypto
+    // (persis masalah yang sudah pernah muncul & di-exclude utk xray.aar di bawah).
+    // gson & protobuf dibuang karena tidak dipakai sama sekali oleh kode
+    // trilead/jbcrypt/eddsa itu sendiri (cuma ikut ke-bundle dari build shade-nya).
+    //
+    // KONSEKUENSI: Curve25519Exchange (key exchange curve25519-sha256) jadi
+    // BERGANTUNG pada tink-android dari security-crypto di atas untuk menyediakan
+    // com.google.crypto.tink.subtle.X25519 saat runtime. Kalau suatu saat
+    // dependency security-crypto itu dihapus/diganti, key exchange curve25519-sha256
+    // akan gagal dengan NoClassDefFoundError (algoritma SSH lain tidak terpengaruh).
+    // Proguard sudah aman: proguard-rules.pro baris ~72 sudah -keep seluruh
+    // com.google.crypto.tink.** (awalnya ditulis utk security-crypto, otomatis
+    // ikut melindungi pemakaian dari Curve25519Exchange ini juga).
+    implementation(files("libs/trilead-ssh2-custom-1.0.0.jar"))
 
     // --- Engine SSH KEDUA (permintaan user): sshj ---
     // Dipilih dibanding Apache MINA SSHD (paling lengkap tapi berbasis NIO

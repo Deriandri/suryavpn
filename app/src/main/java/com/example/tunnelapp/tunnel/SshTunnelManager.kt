@@ -70,22 +70,10 @@ class SshTunnelManager : SshEngineHandle {
         // FIX (deteksi tunnel "mati diam-diam" -- lihat catatan lengkap di
         // titik pemasangannya di connect()): trilead-ssh2 TIDAK pernah kirim
         // apa pun sendiri selama tunnel idle, beda dengan sshj yang sudah
-        // punya keepAliveInterval bawaan (lihat SshjTunnelManager).
-        //
-        // DIPERKECIL dari 30000ms ke 8000ms (laporan & log nyata user: tunnel
-        // trilead mati di jaringan seluler yang sibuk/jitter, tapi baru
-        // ketahuan lewat CHANNEL_OPEN_TIMEOUT_MS di Socks5Server -- 10 detik
-        // per percobaan channel yang gagal -- karena keepalive 30 detik belum
-        // sempat jalan sekalipun tunnel sudah mati dalam <15 detik sejak
-        // connect). Dengan 8 detik, kematian zombie ke-detect (lewat
-        // IOException di sendIgnorePacket() di bawah -> conn.close() ->
-        // ConnectionMonitor -> reconnect otomatis) jauh lebih cepat daripada
-        // menunggu user/app coba buka channel SOCKS5 baru dulu yang macet 10
-        // detik. Trade-off: sedikit lebih banyak paket kecil terkirim selama
-        // idle (dianggap sepadan, trilead tetap bukan default lagi -- lihat
-        // VpnSettings.sshEngine -- jadi ini murni memperbaiki pengalaman bagi
-        // user yang MEMILIH SENDIRI trilead).
-        private const val KEEPALIVE_INTERVAL_MS = 8000L
+        // punya keepAliveInterval bawaan (lihat SshjTunnelManager). Interval
+        // dibuat SAMA (30 detik) dengan punya sshj supaya perilaku kedua
+        // engine konsisten dari sudut pandang user.
+        private const val KEEPALIVE_INTERVAL_MS = 30000L
 
         // FITUR BARU (maksimalkan kecepatan): daftar cipher yang punya
         // percepatan hardware di hampir semua HP modern (AES-NI/ARMv8 Crypto

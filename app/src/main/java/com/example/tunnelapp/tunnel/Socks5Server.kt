@@ -61,26 +61,6 @@ class Socks5Server {
         // menggantung tanpa batas kalau server/jaringan macet, dan channel
         // SSH biasa (bukan Socket asli) tidak bisa dipasangi setSoTimeout().
         private const val CHANNEL_OPEN_TIMEOUT_MS = 10000L
-        // FIX (akar masalah "trilead macet total di jaringan seluler yang
-        // jitter" -- lihat diskusi panjangnya di SshTunnelManager: satu
-        // channel yang MACET SETELAH berhasil dibuka bisa menahan thread
-        // demux internal trilead yang dipakai BERSAMA oleh semua channel di
-        // Connection yang sama, bikin channel BARU pun ikut tidak pernah
-        // dibalas). CHANNEL_OPEN_TIMEOUT_MS di atas cuma menjaga FASE BUKA
-        // channel -- begitu forwarder berhasil terbuka, sebelumnya TIDAK ADA
-        // pengawasan lagi sama sekali selama channel itu hidup, jadi kalau ia
-        // macet total (server berhenti kirim data & client device juga
-        // berhenti kirim, tapi socket tidak benar-benar RST), channel itu
-        // bisa nyangkut TANPA BATAS WAKTU dan menyeret channel lain.
-        //
-        // STALL_CHECK_INTERVAL_MS di bawah menjaga channel yang SUDAH
-        // terbuka: dicek berkala, kalau tidak ada byte apa pun yang lewat
-        // (baik arah upstream maupun downstream) selama STALL_TIMEOUT_MS
-        // berturut-turut, channel itu dianggap macet & ditutup paksa --
-        // membebaskan thread pembaca yang mungkin ikut tersendat karenanya,
-        // tanpa perlu menunggu seluruh koneksi SSH mati dulu.
-        private const val STALL_TIMEOUT_MS = 15000L
-        private const val STALL_CHECK_INTERVAL_MS = 3000L
         // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan): buffer
         // relay TUN<->channel SSH dinaikkan dari 8KB -> 32KB. Ini MURNI
         // loopback lokal (127.0.0.1, bukan jaringan asli), jadi aman
@@ -357,16 +337,6 @@ class Socks5Server {
             val forwarderIn = forwarder.inputStream
             val forwarderOut = forwarder.outputStream
 
-            // Lihat catatan STALL_TIMEOUT_MS di companion object. Ditulis
-            // dari kedua arah (upstream & downstream) tiap kali ADA data
-            // yang benar-benar lewat -- dibaca berkala oleh stallWatchdog
-            // di bawah. AtomicLong (bukan `@Volatile var` biasa -- anotasi
-            // itu tidak berlaku utk variabel lokal di Kotlin/JVM, cuma utk
-            // property kelas) supaya visibilitas antar thread tetap terjamin
-            // benar tanpa lock (cuma get/set timestamp tunggal, tidak ada
-            // read-modify-write yang perlu atomicity lebih dari itu).
-            val lastActivityMs = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
-
             val upstreamThread = Thread({
                 try {
                     val buf = ByteArray(RELAY_BUFFER_SIZE_BYTES)
@@ -375,36 +345,10 @@ class Socks5Server {
                         if (n == -1) break
                         forwarderOut.write(buf, 0, n)
                         forwarderOut.flush()
-                        lastActivityMs.set(System.currentTimeMillis())
                     }
                 } catch (_: Exception) {
                 }
             }, "socks5-upstream").apply { isDaemon = true; start() }
-
-            // Watchdog stall: channel yang SUDAH terbuka tapi tidak ada byte
-            // apa pun lewat (dua arah) selama STALL_TIMEOUT_MS berturut-turut
-            // dianggap macet & ditutup paksa -- membebaskan thread demux SSH
-            // yang mungkin ikut tersendat karenanya (lihat catatan
-            // STALL_TIMEOUT_MS). Dicek berkala, bukan sekali timer tunggal,
-            // supaya channel yang aktif normal (byte terus mengalir, walau
-            // pelan) TIDAK PERNAH kena tutup paksa -- cuma yang benar-benar
-            // berhenti total yang kena.
-            val stallWatchdog = Thread({
-                try {
-                    while (!Thread.currentThread().isInterrupted) {
-                        Thread.sleep(STALL_CHECK_INTERVAL_MS)
-                        val idleMs = System.currentTimeMillis() - lastActivityMs.get()
-                        if (idleMs >= STALL_TIMEOUT_MS) {
-                            Log.w(TAG, "Channel ke $targetHost:$targetPort macet (tidak ada trafik ${idleMs}ms) -- menutup paksa")
-                            StatusBus.log("[SOCKS5] Channel ke $targetHost:$targetPort macet, ditutup paksa (idle ${idleMs}ms)")
-                            try { forwarder?.close() } catch (_: Exception) {}
-                            try { client.close() } catch (_: Exception) {}
-                            break
-                        }
-                    }
-                } catch (_: InterruptedException) {
-                }
-            }, "socks5-channel-stall-watchdog").apply { isDaemon = true; start() }
 
             try {
                 val buf = ByteArray(RELAY_BUFFER_SIZE_BYTES)
@@ -413,11 +357,9 @@ class Socks5Server {
                     if (n == -1) break
                     output.write(buf, 0, n)
                     output.flush()
-                    lastActivityMs.set(System.currentTimeMillis())
                 }
             } catch (_: Exception) {
             } finally {
-                stallWatchdog.interrupt()
                 upstreamThread.interrupt()
                 try { client.close() } catch (_: Exception) {}
             }

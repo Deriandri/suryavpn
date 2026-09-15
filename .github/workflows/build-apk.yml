@@ -21,6 +21,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
 
       - name: Terima lisensi SDK & install NDK + CMake
         run: |
