@@ -110,8 +110,8 @@
          warna tetap (tidak ikut values-night) karena kartu "kaca" ini
          memang dirancang selalu punya tampilan gradasi sendiri, sama
          seperti import_glass_* yang juga dikunci. -->
-    <color name="export_glass_bg_start">#EEF0FC</color>
-    <color name="export_glass_bg_end">#DEE1F7</color>
+    <color name="export_glass_bg_start">#E2DFFC</color>
+    <color name="export_glass_bg_end">#CFF0EA</color>
     <color name="export_glass_title_text">#15152E</color>
     <color name="export_glass_body_text">#5B5E82</color>
     <color name="export_glass_input_bg">#40FFFFFF</color>

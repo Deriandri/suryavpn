@@ -1081,9 +1081,21 @@ class ConfigActivity : AppCompatActivity() {
             setHintTextColor(ContextCompat.getColor(context, R.color.export_glass_placeholder))
         }
 
+        // RAPIKAN LAYOUT (permintaan user, "lebih profesional dan modern"):
+        // sebelumnya kedua TextInputLayout ditumpuk langsung tanpa jarak
+        // eksplisit di sini -- LinearLayout.addView(view) TANPA LayoutParams
+        // memang mengikuti style Field.Underline.Export (layout_marginTop
+        // 18dp), tapi itu cuma berlaku kalau View di-inflate dari XML;
+        // dibangun murni lewat kode begini, atribut layout_marginTop di
+        // style TIDAK pernah kebaca oleh LinearLayout induknya, jadi field
+        // "Catatan" nempel langsung di bawah field "Nama" tanpa jeda.
+        // Sekarang jarak antar-field DIPASANG MANUAL lewat LayoutParams
+        // supaya konsisten profesional apa pun cara View-nya dibuat.
+        val fieldSpacingPx = 20
         val container = ScrollView(this).apply {
             addView(LinearLayout(this@ConfigActivity).apply {
                 orientation = LinearLayout.VERTICAL
+                setPadding(0, 8, 0, 4)
                 addView(
                     dialogInputLayout(
                         nameInput,
@@ -1094,9 +1106,14 @@ class ConfigActivity : AppCompatActivity() {
                 addView(
                     dialogInputLayout(
                         noteInput,
-                        placeholderText = "Catatan, mendukung HTML (opsional)...",
+                        hintText = "Catatan (opsional)",
+                        placeholderText = "Mendukung format HTML...",
                         styleOverlay = R.style.ThemeOverlay_TunnelApp_UnderlineField_Export
-                    )
+                    ),
+                    LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply { topMargin = fieldSpacingPx }
                 )
             })
         }

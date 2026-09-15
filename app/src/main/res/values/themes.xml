@@ -359,12 +359,13 @@
         <item name="rippleColor">#1F4F46E5</item>
     </style>
 
-    <!-- Kotak input di dialog Detail Ekspor: gaya "filled + garis bawah"
-         (sudut membulat cuma di ATAS, rata di bawah, garis highlight di
-         bawah), BEDA dari Field.Outlined (bulat semua sisi) maupun
-         Field.Pill.Import (bulat semua sisi + tanpa label mengambang) —
-         label "Nama ekspor (opsional)"/"Catatan..." tetap dipasang lewat
-         hintText mengambang seperti contoh gambar. Garis bawah pakai
+    <!-- Kotak input di dialog Detail Ekspor: gaya "filled" modern, sudut
+         membulat di SEMUA sisi (rapikan tampilan, permintaan user) —
+         BEDA dari Field.Outlined (outline tipis tanpa isi) maupun
+         Field.Pill.Import (bulat penuh + tanpa label mengambang) cuma di
+         warna isi kotaknya (translucent kaca) & posisi label. Label
+         "Nama ekspor (opsional)"/"Catatan (opsional)" tetap dipasang lewat
+         hintText mengambang. Garis tepi pakai
          color state list [export_field_stroke_selector] supaya berubah
          teal HANYA saat field itu sedang difokus (persis field "Nama
          ekspor" yang tampil menyala di contoh gambar, sedangkan "Catatan"
@@ -374,8 +375,8 @@
         <item name="boxBackgroundColor">@color/export_glass_input_bg</item>
         <item name="boxCornerRadiusTopStart">14dp</item>
         <item name="boxCornerRadiusTopEnd">14dp</item>
-        <item name="boxCornerRadiusBottomStart">0dp</item>
-        <item name="boxCornerRadiusBottomEnd">0dp</item>
+        <item name="boxCornerRadiusBottomStart">14dp</item>
+        <item name="boxCornerRadiusBottomEnd">14dp</item>
         <item name="boxStrokeWidth">1dp</item>
         <item name="boxStrokeWidthFocused">2dp</item>
         <item name="boxStrokeColor">@color/export_field_stroke_selector</item>
