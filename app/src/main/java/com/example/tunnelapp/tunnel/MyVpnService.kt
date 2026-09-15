@@ -28,6 +28,7 @@ import com.example.tunnelapp.model.VpnSettingsStore
 // diakses lewat nama lengkap (fully-qualified), harus di-import eksplisit.
 import com.example.tunnelapp.model.toServerConfigOrNull
 import com.example.tunnelapp.model.ProfileStore
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -315,8 +316,32 @@ class MyVpnService : VpnService() {
     // dengan parent job yang sudah cancelled itu diam-diam gagal jalan.
     // Makanya sekarang `var`, dan startVpn() mengecek+membuat ulang
     // keduanya kalau job lama sudah tidak aktif lagi.
-    private var serviceJob = Job()
-    private var serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    // FIX (crash "app tiba-tiba close" -- root cause KEDUA yang berbeda dari
+    // race udpgw-reader di UdpgwClient: ini soal serviceScope itu sendiri).
+    // Sebelumnya serviceJob = Job() biasa TANPA CoroutineExceptionHandler.
+    // Semua coroutine di scheduleNetworkLossCheck()/scheduleReconnectOrGiveUp()/
+    // watchdogJob/pingJob/startVpn() jalan lewat serviceScope ini -- baris
+    // mana pun di dalamnya yang TIDAK dibungkus runBlockingWithTimeout() (yang
+    // sudah py try/catch internal sendiri) dan melempar exception tak terduga
+    // akan naik sampai ke root job tanpa tertangkap -> karena tidak ada
+    // CoroutineExceptionHandler, exception itu diteruskan ke
+    // Thread.defaultUncaughtExceptionHandler -> menjatuhkan SELURUH proses
+    // app, bukan cuma satu coroutine itu. Belum pernah terbukti jadi PEMICU
+    // crash yang sudah dikonfirmasi (itu race udpgw-reader), tapi kelemahan
+    // strukturalnya tetap laten -- fix ini pencegahan (defense-in-depth).
+    //
+    // Dua perubahan:
+    // 1) CoroutineExceptionHandler: exception tak terduga dari coroutine
+    //    manapun di scope ini SEKARANG cuma dicatat (DebugLog.e), TIDAK ikut
+    //    menjatuhkan proses.
+    // 2) Job() -> SupervisorJob(): supaya satu child coroutine gagal (mis.
+    //    networkLossJob) tidak otomatis ikut membatalkan child lain yang
+    //    masih berjalan (watchdogJob, pingJob, dst) lewat serviceJob yang sama.
+    private val serviceExceptionHandler = CoroutineExceptionHandler { context, throwable ->
+        DebugLog.e(TAG, "Exception tak tertangkap di serviceScope (thread=${Thread.currentThread().name})", throwable)
+    }
+    private var serviceJob: Job = SupervisorJob()
+    private var serviceScope = CoroutineScope(Dispatchers.IO + serviceJob + serviceExceptionHandler)
     // FITUR BARU (permintaan user: "tambah library SSH kedua, bisa pilih di
     // Pengaturan"): SshEngineRouter memilih trilead-ssh2 ATAU sshj berdasarkan
     // VpnSettingsStore.sshEngine -- lihat javadoc lengkap di SshEngineRouter.kt.
@@ -770,8 +795,8 @@ class MyVpnService : VpnService() {
         // di bawah maupun di establishTunnel()/scheduleReconnectOrGiveUp()
         // benar-benar jalan, bukan diam-diam ter-drop.
         if (!serviceJob.isActive) {
-            serviceJob = Job()
-            serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+            serviceJob = SupervisorJob()
+            serviceScope = CoroutineScope(Dispatchers.IO + serviceJob + serviceExceptionHandler)
         }
 
         currentMtu = vpnSettings.mtu
@@ -806,7 +831,6 @@ class MyVpnService : VpnService() {
             val builder = Builder()
                 .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
-                .addRoute("0.0.0.0", 0)
                 // REVERT (laporan user: server SSH yang dipakai TIDAK punya rute
                 // IPv6 sama sekali -- SEMUA percobaan CONNECT SOCKS5 ke tujuan
                 // IPv6 selalu gagal "Could not open channel (state:4)", terus
@@ -831,6 +855,11 @@ class MyVpnService : VpnService() {
                 // TERNYATA punya rute IPv6, addRoute("::", 0) bisa diaktifkan
                 // lagi khusus untuk server itu.
                 .setMtu(currentMtu)
+            // FITUR BARU (kartu "Connection" -- lihat VpnSettingsStore &
+            // MyVpnService.applyRoutes): addRoute("0.0.0.0", 0) yang dulu
+            // hardcoded di sini sekarang lewat applyRoutes(), yang MENJAGA
+            // perilaku lama persis (useDefaultRoute default true).
+            applyRoutes(builder, vpnSettings)
             applyDnsServers(builder, config, vpnSettings)
 
             vpnInterface = try {
@@ -900,8 +929,16 @@ class MyVpnService : VpnService() {
             }
         }
         if (!addedAny) {
-            // builder.addDnsServer(DEFAULT_DNS)  // DIMATIKAN sesuai permintaan user
-            StatusBus.log("[DNS] DNS1/DNS2 kosong -- TIDAK ada DNS default dipasang ke TUN (fallback $DEFAULT_DNS dimatikan)")
+            // DIHILANGKAN (permintaan user, 2x sudah diperingatkan risikonya):
+            // fallback DEFAULT_DNS ($DEFAULT_DNS) tidak dipanggil lagi.
+            // Kalau DNS1/DNS2 kosong semua, TIDAK ADA addDnsServer() yang
+            // dipanggil -- TUN interface jalan tanpa DNS server terdaftar.
+            // addRoute("0.0.0.0", 0) tetap menangkap SEMUA trafik termasuk
+            // DNS bawaan operator/wifi (sering IP privat, tidak bisa
+            // dicapai lewat tunnel) -- efek yang paling mungkin: resolusi
+            // domain gagal total untuk user yang tidak isi DNS1/DNS2
+            // manual ("connect tapi internet tidak jalan").
+            StatusBus.log("[DNS] DNS1/DNS2 kosong -- TIDAK ada DNS dipasang ke TUN (fallback default dihilangkan)")
         }
 
         // addedAny == true berarti user MEMANG mengisi DNS1/DNS2 sendiri
@@ -909,6 +946,120 @@ class MyVpnService : VpnService() {
         // diisi manual di Pengaturan" yang dipakai establishTunnel() utk
         // menyalakan/mematikan device-side DNS bypass di Socks5Server.
         customDnsConfigured = addedAny
+    }
+
+    /**
+     * Pasang rute ke [builder] sesuai [VpnSettings.useDefaultRoute]/
+     * [VpnSettings.customRoutes]/[VpnSettings.excludedRoutes] (kartu
+     * "Connection" -- lihat catatan lengkap di VpnSettingsStore).
+     *
+     * - useDefaultRoute TRUE (default): satu addRoute("0.0.0.0", 0), SAMA
+     *   PERSIS seperti sebelum fitur ini ada -- customRoutes tidak dipakai.
+     * - useDefaultRoute FALSE: tiap entri CIDR di customRoutes di-addRoute()
+     *   satu-satu. customRoutes kosong/semua entrinya tidak valid -> fallback
+     *   ke "0.0.0.0/0" (TUN TIDAK PERNAH dibiarkan tanpa rute sama sekali).
+     * - excludedRoutes: diterapkan lewat [Builder.excludeRoute] SETELAH rute
+     *   di atas terpasang -- HANYA berefek di API 33+ (Android 13+), lihat
+     *   catatan SDK di bawah.
+     */
+    private fun applyRoutes(builder: Builder, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
+        val routeEntries = if (vpnSettings.useDefaultRoute) {
+            listOf("0.0.0.0/0")
+        } else {
+            parseCidrEntries(vpnSettings.customRoutes).ifEmpty {
+                StatusBus.log("[Route] Custom Routes kosong/tidak valid -- fallback ke 0.0.0.0/0")
+                listOf("0.0.0.0/0")
+            }
+        }
+
+        var addedAnyRoute = false
+        for (cidr in routeEntries) {
+            val parsed = parseCidr(cidr)
+            if (parsed == null) {
+                StatusBus.log("[Route] \"$cidr\" bukan CIDR valid -- diabaikan")
+                continue
+            }
+            val (address, prefix) = parsed
+            try {
+                builder.addRoute(address, prefix)
+                addedAnyRoute = true
+            } catch (e: IllegalArgumentException) {
+                DebugLog.w(TAG, "Route \"$cidr\" gagal dipasang ke TUN", e)
+                StatusBus.log("[Route] \"$cidr\" gagal dipasang -- diabaikan")
+            }
+        }
+        // Sama seperti fallback DEFAULT_DNS dulu: kalau SEMUA entri gagal
+        // (bukan cuma kosong, tapi format-nya tidak valid semua), TUN tanpa
+        // rute sama sekali bikin device kehilangan internet total -- jaga
+        // dengan satu fallback terakhir ke default route.
+        if (!addedAnyRoute) {
+            try {
+                builder.addRoute("0.0.0.0", 0)
+                StatusBus.log("[Route] Semua Custom Routes gagal dipasang -- fallback ke 0.0.0.0/0")
+            } catch (e: IllegalArgumentException) {
+                DebugLog.w(TAG, "Fallback 0.0.0.0/0 juga gagal dipasang ke TUN", e)
+            }
+        }
+
+        val excludedEntries = parseCidrEntries(vpnSettings.excludedRoutes)
+        if (excludedEntries.isEmpty()) return
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            // android.net.IpPrefix + Builder.excludeRoute() baru ada sejak
+            // API 33 -- TIDAK ADA API pengganti yang setara untuk versi
+            // Android di bawah itu, jadi Excluded Routes cuma diam (dicatat
+            // ke log, BUKAN gagal diam-diam) di device lama.
+            StatusBus.log(
+                "[Route] Excluded Routes butuh Android 13+ (API 33) -- " +
+                    "diabaikan di device ini (API ${Build.VERSION.SDK_INT})"
+            )
+            return
+        }
+        for (cidr in excludedEntries) {
+            val parsed = parseCidr(cidr)
+            if (parsed == null) {
+                StatusBus.log("[Route] Excluded \"$cidr\" bukan CIDR valid -- diabaikan")
+                continue
+            }
+            val (address, prefix) = parsed
+            try {
+                val ipPrefix = android.net.IpPrefix(java.net.InetAddress.getByName(address), prefix)
+                builder.excludeRoute(ipPrefix)
+            } catch (e: Exception) {
+                DebugLog.w(TAG, "Excluded route \"$cidr\" gagal diterapkan", e)
+                StatusBus.log("[Route] Excluded \"$cidr\" gagal diterapkan -- diabaikan")
+            }
+        }
+    }
+
+    /**
+     * Pecah string CIDR dipisah ";" (juga toleransi "," dan baris baru,
+     * biar user yang paste dari sumber lain tidak perlu edit manual dulu)
+     * jadi list, buang entri kosong. TIDAK memvalidasi format di sini --
+     * validasi per-entri dilakukan di [parseCidr] saat dipakai.
+     */
+    private fun parseCidrEntries(raw: String): List<String> =
+        raw.split(';', ',', '\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+    /**
+     * Parse satu entri "ip/prefix" (mis. "10.0.0.0/8") jadi pasangan
+     * (alamat, prefix). Null kalau formatnya bukan CIDR IPv4 yang valid
+     * (bukan 2 bagian dipisah "/", alamat bukan literal IP, atau prefix di
+     * luar rentang 0-32) -- addRoute()/IpPrefix() sendiri juga akan
+     * menolak alamat yang tidak literal, tapi validasi di sini supaya
+     * pesan errornya lebih jelas ("bukan CIDR valid") sebelum sampai ke
+     * exception generik dari API Android.
+     */
+    private fun parseCidr(entry: String): Pair<String, Int>? {
+        val parts = entry.split('/')
+        if (parts.size != 2) return null
+        val address = parts[0].trim()
+        val prefix = parts[1].trim().toIntOrNull() ?: return null
+        if (prefix < 0 || prefix > 32) return null
+        if (!android.util.Patterns.IP_ADDRESS.matcher(address).matches()) return null
+        return address to prefix
     }
 
     /**
@@ -1414,8 +1565,8 @@ class MyVpnService : VpnService() {
             val builder = Builder()
                 .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
-                .addRoute("0.0.0.0", 0)
                 .setMtu(currentMtu)
+            applyRoutes(builder, vpnSettings)
             applyDnsServers(builder, config, vpnSettings)
 
             vpnInterface = try {

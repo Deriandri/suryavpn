@@ -306,7 +306,28 @@ class UdpgwClient(private val remotePort: Int) {
                 val newOut = DataOutputStream(fwd.outputStream)
                 dataOut = newOut
                 openFailedUntilMs = 0 // reset cooldown -- percobaan berikutnya (kalau channel ini putus lagi nanti) mulai dari nol
-                readerThread = Thread({ readLoop(fwd.inputStream) }, "udpgw-reader").apply {
+                // FIX (crash "app tiba-tiba close" saat jaringan mati saat tunnel
+                // aktif): `fwd.inputStream` adalah getter lazy (SshjConnectionHandle:
+                // `get() = local.getInputStream()`) yang baru dievaluasi SAAT thread
+                // ini benar-benar jalan, BUKAN saat Thread(...) dibuat -- dan karena
+                // ini dievaluasi sebagai ARGUMEN ke readLoop(...), evaluasinya terjadi
+                // SEBELUM masuk ke try/catch yang ada di dalam readLoop() sendiri.
+                // Kalau `local` socket sudah ditutup duluan oleh
+                // sshTunnelManager.disconnectForReconnect() (dipicu handleTunnelDeath()
+                // saat network loss) SEBELUM thread ini sempat jalan, getter ini
+                // melempar SocketException TELANJANG di luar try/catch mana pun --
+                // exception itu naik ke Thread.defaultUncaughtExceptionHandler dan
+                // menjatuhkan SELURUH proses app, bukan cuma channel udpgw ini.
+                // Sekarang dibungkus try/catch sendiri supaya race ini cuma gagal
+                // membuka channel udpgw (channel akan dicoba dibuka ulang di paket
+                // UDP berikutnya via cooldown openFailedUntilMs), bukan crash app.
+                readerThread = Thread({
+                    try {
+                        readLoop(fwd.inputStream)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Reader udpgw gagal mulai (channel keburu ditutup?)", e)
+                    }
+                }, "udpgw-reader").apply {
                     isDaemon = true
                     start()
                 }

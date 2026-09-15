@@ -497,6 +497,19 @@ class SettingsActivity : AppCompatActivity() {
         binding.etVpnDns2.isEnabled = overrideEnabled
     }
 
+    /**
+     * FITUR BARU (kartu "Connection" -- lihat VpnSettingsStore.useDefaultRoute):
+     * kalau ON, field Custom Routes tidak dipakai sama sekali (selalu
+     * 0.0.0.0/0) -- dikunci disabled biar tidak menyesatkan user seolah
+     * isiannya berefek. Excluded Routes TIDAK ikut dikunci di sini karena
+     * tetap berlaku baik useDefaultRoute ON maupun OFF (lihat
+     * MyVpnService.applyRoutes -- exclude diterapkan setelah rute utama,
+     * bukan bagian dari pemilihan customRoutes/default route).
+     */
+    private fun applyCustomRoutesFieldAvailability(useDefaultRoute: Boolean) {
+        binding.etCustomRoutes.isEnabled = !useDefaultRoute
+    }
+
     private fun loadVpnSettingsIntoForm() {
         val settings = VpnSettingsStore.load(this)
         binding.etVpnDns1.setText(settings.dns1)
@@ -539,6 +552,44 @@ class SettingsActivity : AppCompatActivity() {
         binding.etVpnSocksPort.setText(if (settings.socksPort > 0) settings.socksPort.toString() else "")
         binding.etVpnHttpPort.setText(if (settings.httpPort > 0) settings.httpPort.toString() else "")
         binding.etVpnUdpgwPort.setText(if (settings.udpgwPort > 0) settings.udpgwPort.toString() else "")
+
+        // Kartu "Connection" (routing) -- lihat VpnSettingsStore.
+        binding.switchUseDefaultRoute.isChecked = settings.useDefaultRoute
+        binding.etCustomRoutes.setText(settings.customRoutes)
+        applyCustomRoutesFieldAvailability(settings.useDefaultRoute)
+        binding.switchUseDefaultRoute.setOnCheckedChangeListener { _, isChecked ->
+            applyCustomRoutesFieldAvailability(isChecked)
+        }
+        binding.etExcludedRoutes.setText(settings.excludedRoutes)
+    }
+
+    /**
+     * Validasi satu field berisi daftar CIDR dipisah ";" (juga toleransi ","
+     * dan baris baru -- sama seperti parseCidrEntries di MyVpnService).
+     * Field BOLEH kosong (berarti "tidak ada" -- lihat MyVpnService.applyRoutes,
+     * customRoutes kosong fallback ke 0.0.0.0/0, excludedRoutes kosong berarti
+     * tidak ada exclusion sama sekali). Mengembalikan null kalau ADA entri
+     * terisi yang bukan CIDR IPv4 valid (dan menandai [field] dengan pesan
+     * error), string kosong/trimmed apa adanya kalau valid.
+     */
+    private fun validateCidrListField(
+        field: com.google.android.material.textfield.TextInputEditText,
+        errorRes: Int
+    ): String? {
+        val raw = field.text.toString().trim()
+        if (raw.isEmpty()) return raw
+        val entries = raw.split(';', ',', '\n').map { it.trim() }.filter { it.isNotEmpty() }
+        val allValid = entries.isNotEmpty() && entries.all { entry ->
+            val parts = entry.split('/')
+            parts.size == 2 &&
+                Patterns.IP_ADDRESS.matcher(parts[0].trim()).matches() &&
+                (parts[1].trim().toIntOrNull()?.let { it in 0..32 } ?: false)
+        }
+        if (!allValid) {
+            field.error = getString(errorRes)
+            return null
+        }
+        return raw
     }
 
     /**
@@ -596,6 +647,18 @@ class SettingsActivity : AppCompatActivity() {
         val httpPort = parseOptionalPort(binding.etVpnHttpPort, getString(R.string.port_http_label)) ?: return
         val udpgwPort = parseOptionalPort(binding.etVpnUdpgwPort, getString(R.string.port_udpgw_label)) ?: return
 
+        // Kartu "Connection": Custom Routes cuma divalidasi kalau
+        // useDefaultRoute OFF -- sama alasannya dengan validasi DNS di atas,
+        // kalau ON isian field ini toh diabaikan total oleh MyVpnService
+        // (lihat applyRoutes), jadi tidak perlu menghalangi Simpan.
+        val useDefaultRoute = binding.switchUseDefaultRoute.isChecked
+        val customRoutes = if (useDefaultRoute) {
+            binding.etCustomRoutes.text.toString().trim()
+        } else {
+            validateCidrListField(binding.etCustomRoutes, R.string.error_custom_routes) ?: return
+        }
+        val excludedRoutes = validateCidrListField(binding.etExcludedRoutes, R.string.error_excluded_routes) ?: return
+
         val sshEngine = if (binding.toggleSshEngine.checkedButtonId == R.id.btnEngineSshj) {
             VpnSettings.ENGINE_SSHJ
         } else {
@@ -622,7 +685,10 @@ class SettingsActivity : AppCompatActivity() {
                 // false -- jangan pernah simpan compressionEnabled=true
                 // berpasangan dengan sshEngine=TRILEAD.
                 compressionEnabled = binding.switchCompression.isChecked && sshEngine == VpnSettings.ENGINE_SSHJ,
-                sshEngine = sshEngine
+                sshEngine = sshEngine,
+                useDefaultRoute = useDefaultRoute,
+                customRoutes = customRoutes,
+                excludedRoutes = excludedRoutes
             )
         )
         Toast.makeText(this, getString(R.string.toast_vpn_saved), Toast.LENGTH_SHORT).show()

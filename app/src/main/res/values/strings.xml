@@ -97,6 +97,15 @@
     <string name="btn_battery_setup">Atur</string>
     <string name="battery_dialog_unavailable">Dialog izin baterai tidak tersedia di device ini -- cari menu baterai manual di halaman ini, atau di app Keamanan/Security bawaan HP</string>
     <string name="battery_settings_open_failed">Tidak bisa membuka pengaturan baterai di device ini</string>
+    <string name="connection_label">Connection</string>
+    <string name="connection_desc">Atur rute mana saja yang masuk tunnel. Use default route ON (default): semua trafik IPv4 masuk tunnel, Custom Routes diabaikan. OFF: Custom Routes dipakai sebagai daftar CIDR pengganti (pisahkan dengan \";\"). Excluded Routes (pisahkan \";\") dikeluarkan dari tunnel -- lewat jalur asli device, bukan dibuang.</string>
+    <string name="use_default_route_title">Use default route</string>
+    <string name="use_default_route_desc">ON: selalu 0.0.0.0/0 (semua trafik). OFF: pakai daftar Custom Routes di bawah.</string>
+    <string name="custom_routes_hint">Custom Routes, mis. 0.0.0.0/0</string>
+    <string name="excluded_routes_hint">Excluded Routes, mis. 10.0.0.0/8;192.168.0.0/16</string>
+    <string name="excluded_routes_sdk_hint">Excluded Routes cuma berfungsi di Android 13 ke atas (API 33+). Di versi lebih lama, field ini diabaikan.</string>
+    <string name="error_custom_routes">Custom Routes harus format CIDR valid (mis. 10.0.0.0/8), dipisah \";\"</string>
+    <string name="error_excluded_routes">Excluded Routes harus format CIDR valid (mis. 192.168.0.0/16), dipisah \";\"</string>
     <string name="btn_save_vpn">Simpan VPN Setting</string>
     <string name="toast_vpn_saved">VPN Setting disimpan</string>
     <string name="error_dns1">Harus alamat IP (mis. 1.1.1.1), bukan domain</string>
