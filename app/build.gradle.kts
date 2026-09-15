@@ -133,26 +133,34 @@ dependencies {
     //
     // PENTING -- jar yang dilampirkan aslinya adalah "fat jar" ~9.3MB yang men-
     // shade beberapa library lain di dalamnya selain com.trilead.ssh2.* & jbcrypt
-    // (org.mindrot) & net.i2p.crypto.eddsa (dipakai utk ED25519KeyAlgorithm --
-    // ini TETAP disertakan karena tidak tersedia dari dependency lain manapun di
-    // proyek ini): com.google.gson, com.google.protobuf, dan com.google.crypto.tink
+    // (org.mindrot): com.google.gson, com.google.protobuf, com.google.crypto.tink
     // (dipakai HANYA oleh satu kelas, Curve25519Exchange, utk curve25519-sha256
-    // key exchange via com.google.crypto.tink.subtle.X25519). Tiga paket google.*
-    // itu SUDAH DIBUANG dari jar sebelum ditaruh di libs/ (lihat ukuran jadi
-    // ~430KB) supaya TIDAK bentrok "Duplicate class com.google.crypto.tink.*"
-    // dengan tink-android 1.8.0 yang sudah dibawa androidx.security:security-crypto
-    // (persis masalah yang sudah pernah muncul & di-exclude utk xray.aar di bawah).
-    // gson & protobuf dibuang karena tidak dipakai sama sekali oleh kode
-    // trilead/jbcrypt/eddsa itu sendiri (cuma ikut ke-bundle dari build shade-nya).
+    // key exchange via com.google.crypto.tink.subtle.X25519), DAN net.i2p.crypto.eddsa
+    // (dipakai ED25519KeyAlgorithm). SEMUA itu SUDAH DIBUANG dari jar sebelum
+    // ditaruh di libs/ (lihat ukuran jadi ~375KB, dari ~9.3MB) karena masing-
+    // masing SUDAH tersedia dari dependency lain di proyek ini & kalau tetap
+    // dibawa jadi "Duplicate class" (checkDebugDuplicateClasses FAILED):
+    //   - com.google.crypto.tink.**  -> sudah dibawa tink-android 1.8.0 lewat
+    //     androidx.security:security-crypto di atas (masalah yang sama persis
+    //     dengan yang sudah di-exclude utk xray.aar di bawah).
+    //   - net.i2p.crypto.eddsa.**    -> sudah dibawa TRANSITIF oleh
+    //     com.hierynomus:sshj (net.i2p.crypto:eddsa:0.3.0) di bawah -- ini
+    //     yang sempat kelewatan di percobaan pertama & baru ketahuan dari
+    //     error checkDebugDuplicateClasses (eddsa-0.3.0.jar vs trilead-ssh2-
+    //     custom-1.0.0.jar, class-per-class identik).
+    // gson & protobuf dibuang total (tidak dipakai kode trilead/jbcrypt/eddsa
+    // itu sendiri, cuma ikut ke-bundle dari build shade jar aslinya).
     //
-    // KONSEKUENSI: Curve25519Exchange (key exchange curve25519-sha256) jadi
-    // BERGANTUNG pada tink-android dari security-crypto di atas untuk menyediakan
-    // com.google.crypto.tink.subtle.X25519 saat runtime. Kalau suatu saat
-    // dependency security-crypto itu dihapus/diganti, key exchange curve25519-sha256
-    // akan gagal dengan NoClassDefFoundError (algoritma SSH lain tidak terpengaruh).
-    // Proguard sudah aman: proguard-rules.pro baris ~72 sudah -keep seluruh
-    // com.google.crypto.tink.** (awalnya ditulis utk security-crypto, otomatis
-    // ikut melindungi pemakaian dari Curve25519Exchange ini juga).
+    // KONSEKUENSI: com.trilead.ssh2.crypto.dh.Curve25519Exchange (key exchange
+    // curve25519-sha256) BERGANTUNG pada tink-android dari security-crypto,
+    // dan com.trilead.ssh2.signature.ED25519KeyAlgorithm BERGANTUNG pada
+    // net.i2p.crypto:eddsa dari sshj, keduanya HANYA saat runtime. Kalau salah
+    // satu dependency itu (security-crypto ATAU sshj) suatu saat dihapus dari
+    // proyek ini, algoritma SSH yang bersangkutan saja yang gagal dgn
+    // NoClassDefFoundError -- algoritma SSH trilead lainnya tidak terpengaruh.
+    // Proguard sudah aman utk keduanya: lihat proguard-rules.pro (-keep
+    // com.google.crypto.tink.** sudah ada utk security-crypto, dan -keep
+    // net.i2p.crypto.eddsa.** ditambahkan bersamaan dgn perubahan ini).
     implementation(files("libs/trilead-ssh2-custom-1.0.0.jar"))
 
     // --- Engine SSH KEDUA (permintaan user): sshj ---
