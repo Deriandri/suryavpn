@@ -19,14 +19,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Terima lisensi SDK & install NDK + CMake + platform
-        env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Terima lisensi SDK & install NDK + CMake
         run: |
-          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
           yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-34" "ndk;27.0.12077973" "cmake;3.22.1"
+          sdkmanager "ndk;27.0.12077973" "cmake;3.22.1"
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -36,9 +35,7 @@ jobs:
       - name: Build APK Debug
         run: gradle assembleDebug --stacktrace
         env:
-          ANDROID_HOME: /usr/local/lib/android/sdk
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/27.0.12077973
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/27.0.12077973
 
       - name: Upload APK sebagai artifact
         uses: actions/upload-artifact@v4
