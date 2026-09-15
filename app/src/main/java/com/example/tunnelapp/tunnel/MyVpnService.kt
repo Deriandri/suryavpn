@@ -28,7 +28,6 @@ import com.example.tunnelapp.model.VpnSettingsStore
 // diakses lewat nama lengkap (fully-qualified), harus di-import eksplisit.
 import com.example.tunnelapp.model.toServerConfigOrNull
 import com.example.tunnelapp.model.ProfileStore
-import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -316,32 +315,8 @@ class MyVpnService : VpnService() {
     // dengan parent job yang sudah cancelled itu diam-diam gagal jalan.
     // Makanya sekarang `var`, dan startVpn() mengecek+membuat ulang
     // keduanya kalau job lama sudah tidak aktif lagi.
-    // FIX (crash "app tiba-tiba close" -- root cause KEDUA yang berbeda dari
-    // race udpgw-reader di UdpgwClient: ini soal serviceScope itu sendiri).
-    // Sebelumnya serviceJob = Job() biasa TANPA CoroutineExceptionHandler.
-    // Semua coroutine di scheduleNetworkLossCheck()/scheduleReconnectOrGiveUp()/
-    // watchdogJob/pingJob/startVpn() jalan lewat serviceScope ini -- baris
-    // mana pun di dalamnya yang TIDAK dibungkus runBlockingWithTimeout() (yang
-    // sudah py try/catch internal sendiri) dan melempar exception tak terduga
-    // akan naik sampai ke root job tanpa tertangkap -> karena tidak ada
-    // CoroutineExceptionHandler, exception itu diteruskan ke
-    // Thread.defaultUncaughtExceptionHandler -> menjatuhkan SELURUH proses
-    // app, bukan cuma satu coroutine itu. Belum pernah terbukti jadi PEMICU
-    // crash yang sudah dikonfirmasi (itu race udpgw-reader), tapi kelemahan
-    // strukturalnya tetap laten -- fix ini pencegahan (defense-in-depth).
-    //
-    // Dua perubahan:
-    // 1) CoroutineExceptionHandler: exception tak terduga dari coroutine
-    //    manapun di scope ini SEKARANG cuma dicatat (DebugLog.e), TIDAK ikut
-    //    menjatuhkan proses.
-    // 2) Job() -> SupervisorJob(): supaya satu child coroutine gagal (mis.
-    //    networkLossJob) tidak otomatis ikut membatalkan child lain yang
-    //    masih berjalan (watchdogJob, pingJob, dst) lewat serviceJob yang sama.
-    private val serviceExceptionHandler = CoroutineExceptionHandler { context, throwable ->
-        DebugLog.e(TAG, "Exception tak tertangkap di serviceScope (thread=${Thread.currentThread().name})", throwable)
-    }
-    private var serviceJob: Job = SupervisorJob()
-    private var serviceScope = CoroutineScope(Dispatchers.IO + serviceJob + serviceExceptionHandler)
+    private var serviceJob = Job()
+    private var serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     // FITUR BARU (permintaan user: "tambah library SSH kedua, bisa pilih di
     // Pengaturan"): SshEngineRouter memilih trilead-ssh2 ATAU sshj berdasarkan
     // VpnSettingsStore.sshEngine -- lihat javadoc lengkap di SshEngineRouter.kt.
@@ -795,8 +770,8 @@ class MyVpnService : VpnService() {
         // di bawah maupun di establishTunnel()/scheduleReconnectOrGiveUp()
         // benar-benar jalan, bukan diam-diam ter-drop.
         if (!serviceJob.isActive) {
-            serviceJob = SupervisorJob()
-            serviceScope = CoroutineScope(Dispatchers.IO + serviceJob + serviceExceptionHandler)
+            serviceJob = Job()
+            serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
         }
 
         currentMtu = vpnSettings.mtu
@@ -925,22 +900,8 @@ class MyVpnService : VpnService() {
             }
         }
         if (!addedAny) {
-            // FIX: fallback DEFAULT_DNS DIHIDUPKAN LAGI -- sebelumnya kalau
-            // DNS1/DNS2 kosong, TIDAK ADA addDnsServer() dipanggil sama
-            // sekali, padahal addRoute("0.0.0.0", 0) tetap menangkap semua
-            // trafik ke TUN termasuk DNS bawaan operator/wifi (sering IP
-            // privat, tidak bisa dicapai server tunnel) -- efeknya resolusi
-            // domain gagal total ("connect tapi internet tidak jalan").
-            // Balikin ke DEFAULT_DNS ($DEFAULT_DNS) supaya user yang tidak
-            // isi DNS1/DNS2 manual tetap punya DNS yang valid & bisa
-            // dijangkau lewat tunnel.
-            try {
-                builder.addDnsServer(DEFAULT_DNS)
-                StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $DEFAULT_DNS")
-            } catch (e: IllegalArgumentException) {
-                DebugLog.w(TAG, "DEFAULT_DNS \"$DEFAULT_DNS\" gagal dipasang ke TUN", e)
-                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $DEFAULT_DNS gagal dipasang -- TIDAK ada DNS di TUN")
-            }
+            // builder.addDnsServer(DEFAULT_DNS)  // DIMATIKAN sesuai permintaan user
+            StatusBus.log("[DNS] DNS1/DNS2 kosong -- TIDAK ada DNS default dipasang ke TUN (fallback $DEFAULT_DNS dimatikan)")
         }
 
         // addedAny == true berarti user MEMANG mengisi DNS1/DNS2 sendiri
