@@ -1058,6 +1058,25 @@ class ConfigActivity : AppCompatActivity() {
         // gelap & terbaca di atas kartu kaca yang TERANG, terlepas dari
         // mode gelap/terang sistem (kartu ini, sama seperti kartu Impor,
         // sengaja dikunci tidak ikut values-night).
+        //
+        // PERBAIKAN BUG (label "Nama ekspor (opsional)" TUMPANG TINDIH
+        // dengan teks yang sudah terisi, mis. "attrsaa" -- terlihat di
+        // screenshot laporan user): [TextInputLayout] hanya menghitung
+        // ulang status "hint mengambang" (expanded vs collapsed) pada
+        // SAAT [EditText] dipasang sebagai child-nya (lewat addView di
+        // [dialogInputLayout]) DAN saat isi teksnya berubah SETELAHNYA.
+        // SEBELUMNYA [setText(...)] dipanggil DI SINI, sebelum
+        // [nameInput] sempat dipasang ke TextInputLayout-nya sama sekali
+        // -- akibatnya saat addView benar-benar terjadi, TextInputLayout
+        // sempat salah membaca field ini sebagai "kosong" lalu hint-nya
+        // macet di posisi mengambang besar (bukan naik jadi label kecil
+        // di atas), jadi tertumpuk pas-pasan dengan teks isi yang baru
+        // "muncul tiba-tiba" setelahnya tanpa animasi collapse yang benar.
+        // Sekarang [nameInput] dibuat KOSONG dulu di sini; isinya baru
+        // diisi belakangan di bawah, SETELAH benar-benar terpasang ke
+        // TextInputLayout-nya, dengan animasi hint dimatikan sesaat
+        // supaya label langsung "lompat" ke posisi kecil-di-atas yang
+        // benar tanpa sempat tergambar tumpang tindih dulu.
         val nameInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT
             isSingleLine = true
@@ -1067,8 +1086,6 @@ class ConfigActivity : AppCompatActivity() {
             setPadding(40, 28, 40, 20)
             setTextColor(ContextCompat.getColor(context, R.color.export_glass_title_text))
             setHintTextColor(ContextCompat.getColor(context, R.color.export_glass_placeholder))
-            setText(sanitizeExportName(defaultName))
-            setSelection(0)
         }
         val noteInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -1092,17 +1109,16 @@ class ConfigActivity : AppCompatActivity() {
         // Sekarang jarak antar-field DIPASANG MANUAL lewat LayoutParams
         // supaya konsisten profesional apa pun cara View-nya dibuat.
         val fieldSpacingPx = 20
+        val nameFieldLayout = dialogInputLayout(
+            nameInput,
+            "Nama ekspor (opsional)",
+            styleOverlay = R.style.ThemeOverlay_TunnelApp_UnderlineField_Export
+        )
         val container = ScrollView(this).apply {
             addView(LinearLayout(this@ConfigActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, 8, 0, 4)
-                addView(
-                    dialogInputLayout(
-                        nameInput,
-                        "Nama ekspor (opsional)",
-                        styleOverlay = R.style.ThemeOverlay_TunnelApp_UnderlineField_Export
-                    )
-                )
+                addView(nameFieldLayout)
                 addView(
                     dialogInputLayout(
                         noteInput,
@@ -1116,6 +1132,19 @@ class ConfigActivity : AppCompatActivity() {
                     ).apply { topMargin = fieldSpacingPx }
                 )
             })
+        }
+        // Baru sekarang -- SETELAH [nameInput] benar-benar jadi child dari
+        // [nameFieldLayout] -- isi default-nya dipasang. [isHintAnimationEnabled]
+        // dimatikan sesaat supaya lompatan hint dari "mengambang besar" ke
+        // "label kecil di atas" terjadi LANGSUNG (tanpa frame transisi yang
+        // sempat menumpuk keduanya), lalu dinyalakan lagi untuk interaksi
+        // normal berikutnya (fokus/ketik manual oleh user).
+        val sanitizedDefaultName = sanitizeExportName(defaultName)
+        if (sanitizedDefaultName.isNotEmpty()) {
+            nameFieldLayout.isHintAnimationEnabled = false
+            nameInput.setText(sanitizedDefaultName)
+            nameInput.setSelection(0)
+            nameFieldLayout.isHintAnimationEnabled = true
         }
 
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog_Export)
@@ -1276,25 +1305,157 @@ class ConfigActivity : AppCompatActivity() {
 
     // --- Kunci konfig saat ekspor (permintaan user, mirip HTTP Custom) --
 
+    /** Ikon & deskripsi singkat tiap [ConfigLockMode], dipakai di [buildLockModeRow]. */
+    private fun lockModeIconFor(mode: ConfigLockMode): Int = when (mode) {
+        ConfigLockMode.NONE -> R.drawable.ic_lock_open
+        ConfigLockMode.LOCK_ALL -> R.drawable.ic_lock_closed
+        ConfigLockMode.LOCK_PAYLOAD_PROXY -> R.drawable.ic_lock_closed
+    }
+
+    private fun lockModeDescriptionFor(mode: ConfigLockMode): String = when (mode) {
+        ConfigLockMode.NONE -> "Semua data konfigurasi tetap bisa dibaca apa adanya."
+        ConfigLockMode.LOCK_ALL -> "Seluruh data sensitif (host, akun, payload, dst) disamarkan penuh."
+        ConfigLockMode.LOCK_PAYLOAD_PROXY -> "Hanya payload & remote proxy yang disamarkan, sisanya tetap terbaca."
+    }
+
     /**
-     * Dialog pilihan mode kunci (lihat [ConfigLockMode]), dipakai SEBELUM
-     * membangun kode bagikan satu akun ([onShareRowClicked]) atau file
-     * ekspor semua akun ([onExportAllClicked]) -- cuma ditawarkan untuk
-     * akun yang BELUM terkunci sama sekali. [onChosen] dipanggil dengan
-     * mode yang dipilih user; dialog dibatalkan begitu saja kalau user
-     * menekan "Batal" (tidak memanggil [onChosen] sama sekali).
+     * Satu baris pilihan mode kunci di dialog "Kunci konfigurasi?" -- gaya
+     * radio kartu kaca (ikon gembok + judul + deskripsi singkat + lingkaran
+     * ceklis di ujung kanan), dibangun persis pola [buildExportAccountRow]/
+     * [buildExportOptionRow] supaya konsisten dengan dialog "glass"
+     * lain di layar ini (Impor/Detail Ekspor/Pilih Akun). Seluruh baris bisa
+     * ditap (bukan cuma ikon ceklisnya), & baris yang sedang terpilih
+     * ditandai lingkaran hijau + garis tepi teal menyala, sisanya outline
+     * transparan tipis -- meniru gaya radio-button Material3 tapi
+     * disesuaikan dengan warna brand kartu kaca ungu-teal.
+     */
+    private fun buildLockModeRow(
+        mode: ConfigLockMode,
+        selected: Boolean,
+        onClick: () -> Unit
+    ): LinearLayout {
+        val icon = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(64, 64).apply { marginEnd = 28 }
+            setImageResource(lockModeIconFor(mode))
+            setColorFilter(
+                ContextCompat.getColor(
+                    context,
+                    if (selected) R.color.brand_primary else R.color.export_glass_body_text
+                )
+            )
+        }
+        val title = TextView(this).apply {
+            text = mode.label
+            setTextColor(ContextCompat.getColor(context, R.color.export_glass_title_text))
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        val subtitle = TextView(this).apply {
+            text = lockModeDescriptionFor(mode)
+            setTextColor(ContextCompat.getColor(context, R.color.export_glass_body_text))
+            textSize = 13f
+            setLineSpacing(2f, 1f)
+        }
+        val textColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { marginEnd = 20 }
+            addView(title)
+            addView(subtitle)
+        }
+        val check = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(44, 44)
+            setImageResource(
+                if (selected) R.drawable.ic_export_row_checked else R.drawable.ic_export_row_unchecked
+            )
+        }
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(32, 32, 32, 32)
+            background = ContextCompat.getDrawable(
+                context,
+                if (selected) R.drawable.bg_export_option_row_selected else R.drawable.bg_export_option_row
+            )
+            isClickable = true
+            isFocusable = true
+            val ripple = TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+            foreground = ContextCompat.getDrawable(context, ripple.resourceId)
+            addView(icon)
+            addView(textColumn)
+            addView(check)
+            setOnClickListener { onClick() }
+        }
+    }
+
+    /**
+     * REDESIGN (permintaan user: tampilan "Kunci konfigurasi?" dibikin
+     * profesional & modern) -- SEBELUMNYA dialog ini pakai
+     * `newDialogBuilder().setSingleChoiceItems(...)`, yakni daftar radio
+     * BAWAAN Android polos (lihat screenshot laporan user: kotak putih
+     * kotak-kotak tajam, radio button generik biru sistem, jauh beda gaya
+     * dari kartu kaca ungu-teal yang dipakai dialog Impor/Ekspor lain di
+     * layar yang sama). Sekarang dibangun manual mengikuti pola PERSIS yang
+     * sama dengan [showExportTypeDialog]/[showExportDetailsDialog]: kartu
+     * kaca [R.drawable.bg_dialog_export_glass] dipasang ke window SETELAH
+     * create(), tiap mode kunci jadi baris [buildLockModeRow] (ikon gembok +
+     * judul + deskripsi singkat + ceklis, BUKAN cuma teks label mentah dari
+     * [ConfigLockMode.label]), & tombol "Lanjut"/"Batal" pill sama seperti
+     * dialog Detail Ekspor -- supaya seluruh alur ekspor di layar ini
+     * terasa satu keluarga desain yang konsisten.
+     *
+     * Dipakai SEBELUM membangun kode bagikan satu akun ([onShareRowClicked])
+     * atau file ekspor semua akun ([onExportAllClicked]) -- cuma ditawarkan
+     * untuk akun yang BELUM terkunci sama sekali. [onChosen] dipanggil
+     * dengan mode yang dipilih user; dialog dibatalkan begitu saja kalau
+     * user menekan "Batal" (tidak memanggil [onChosen] sama sekali).
      */
     private fun showLockModePicker(onChosen: (ConfigLockMode) -> Unit) {
         val modes = ConfigLockMode.entries.toTypedArray()
-        val labels = modes.map { it.label }.toTypedArray()
         var selected = 0
+        lateinit var dialog: AlertDialog
+        lateinit var rowsContainer: LinearLayout
 
-        newDialogBuilder()
+        fun rebuildRows() {
+            rowsContainer.removeAllViews()
+            modes.forEachIndexed { index, mode ->
+                val row = buildLockModeRow(mode, selected = index == selected) {
+                    if (selected != index) {
+                        selected = index
+                        rebuildRows()
+                    }
+                }
+                rowsContainer.addView(
+                    row,
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        .apply { bottomMargin = 20 }
+                )
+            }
+        }
+
+        rowsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 16, 0, 4)
+        }
+        rebuildRows()
+
+        dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog_Export)
             .setTitle("Kunci konfigurasi?")
-            .setSingleChoiceItems(labels, selected) { _, which -> selected = which }
+            .setMessage("Pilih bagaimana data konfigurasi ini disamarkan saat diekspor atau dibagikan.")
+            .setView(rowsContainer)
             .setNegativeButton("Batal", null)
             .setPositiveButton("Lanjut") { _, _ -> onChosen(modes[selected]) }
-            .show()
+            .create()
+        // PENTING: sama seperti dialog "glass" lain di file ini,
+        // MaterialAlertDialogBuilder.create() selalu menimpa background
+        // window dengan MaterialShapeDrawable solid -- drawable gradasi
+        // "kaca" harus dipasang lagi di sini, SETELAH create(), SEBELUM
+        // show().
+        dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_export_glass)
+        dialog.show()
     }
 
     // --- Impor & Ekspor Semua (permintaan user) -------------------------
