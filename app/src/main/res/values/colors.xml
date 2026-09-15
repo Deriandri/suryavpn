@@ -125,11 +125,11 @@
     <color name="export_outline_button_stroke">#8B90D9</color>
 
     <!-- REDESIGN dialog "Pilih Akun untuk Diekspor" (permintaan user: gaya
-         ceklis lingkaran hijau + tombol custom sesuai contoh gambar) --
+         ceklis lingkaran hijau + tombol custom sesuai contoh gambar) —
          dipakai KHUSUS oleh baris akun & garis pemisah di
          [ConfigActivity.showExportAccountPicker]/[buildExportAccountRow].
          Sengaja warna tetap (tidak ikut values-night), sama alasannya
-         dengan export_glass_* di atas -- kartu "kaca" dialog ini memang
+         dengan export_glass_* di atas — kartu "kaca" dialog ini memang
          dirancang selalu punya tampilan sendiri, terlepas dari mode
          gelap/terang sistem. -->
     <color name="export_check_gradient_start">#4ADE80</color>

@@ -242,18 +242,18 @@
              biru smooth kehitaman"): sebelumnya MaterialCardView polos
              gaya Card.Section (putih/terang, sama seperti kartu "Kontrol
              Koneksi" di atas). Diganti LinearLayout biasa + android:background
-             gradasi ([R.drawable.bg_card_notes_smooth]) -- pola sama
+             gradasi ([R.drawable.bg_card_notes_smooth]) — pola sama
              dengan kartu "hero" bergradasi ungu paling atas, KARENA
              cardBackgroundColor MaterialCardView cuma bisa satu warna
              solid, tidak bisa gradasi. Sudut & elevasi diset manual di sini
              (18dp/2dp) supaya tetap sama persis dengan Card.Section, cuma
              warnanya yang beda. Judul & isi catatan (tvNotes) ikut diberi
-             warna teks TERANG (text_on_notes_card/_secondary) -- warna
+             warna teks TERANG (text_on_notes_card/_secondary) — warna
              default (text_primary/text_secondary) didesain untuk latar
              terang, nyaris tidak kebaca di atas gradasi gelap ini. Baris
              status berwarna (hijau/merah/oranye, lihat
              DashboardMainFragment.renderConnectionLogAsNotes) TIDAK
-             berubah -- warna-warna itu sudah punya kontras cukup di atas
+             berubah — warna-warna itu sudah punya kontras cukup di atas
              latar gelap apa pun. -->
         <LinearLayout
             android:layout_width="match_parent"

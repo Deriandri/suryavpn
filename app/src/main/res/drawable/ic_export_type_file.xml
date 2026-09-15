@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- REDESIGN dialog "Ekspor akun ini"/"Ekspor Akun Terpilih" (permintaan
-     user: gaya baris ikon + label sesuai contoh gambar) -- ikon dokumen
+     user: gaya baris ikon + label sesuai contoh gambar) — ikon dokumen
      untuk opsi "Simpan sebagai File (.spn)", lihat
      [ConfigActivity.buildExportOptionRow]. Warna diatur lewat
      setColorFilter() di kode (bukan android:tint statis di sini) supaya

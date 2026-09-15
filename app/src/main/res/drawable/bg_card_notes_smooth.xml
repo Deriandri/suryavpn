@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Latar kartu "Catatan" di halaman Main Dashboard (permintaan user:
-     "biru smooth kehitaman") -- pola sama persis dengan bg_hero_gradient
+     "biru smooth kehitaman") — pola sama persis dengan bg_hero_gradient
      di atas: dipakai sebagai android:background LinearLayout biasa
      (BUKAN cardBackgroundColor MaterialCardView, yang cuma bisa terima
      satu warna solid, tidak bisa gradasi). Sudut 18dp disamakan dengan

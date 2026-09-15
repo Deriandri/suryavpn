@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- REDESIGN dialog "Detail Ekspor": tombol "Lanjut" (positive) tampil
      sebagai pill gradasi teal->indigo, meniru tombol highlight di contoh
-     gambar -- dipasang lewat android:background di
+     gambar — dipasang lewat android:background di
      TunnelApp.Dialog.Button.Positive.Export (themes.xml), BUKAN
      backgroundTint biasa, karena backgroundTint cuma bisa satu warna
      solid, sedangkan tombol di contoh gambar jelas gradasi dua warna. -->

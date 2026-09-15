@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- REDESIGN dialog "Detail Ekspor": tombol "Batal" (negative) tampil
      sebagai pill outline tipis (garis ungu-abu, isi transparan), meniru
-     tombol "Batal" di contoh gambar -- lihat
+     tombol "Batal" di contoh gambar — lihat
      TunnelApp.Dialog.Button.Negative.Export di themes.xml. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <corners android:radius="100dp" />

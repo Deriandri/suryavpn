@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- REDESIGN dialog "Pilih Akun untuk Diekspor": baris akun yang TIDAK
-     dicentang (tidak ikut diekspor) -- lingkaran outline tipis, isi
+     dicentang (tidak ikut diekspor) — lingkaran outline tipis, isi
      kosong/transparan, kebalikan dari ic_export_row_checked.xml (lihat
      [ConfigActivity.buildExportAccountRow]). Contoh gambar kebetulan
      semua akun tercentang, tapi tetap butuh state ini supaya baris bisa

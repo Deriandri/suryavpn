@@ -4,7 +4,7 @@
      (mis. "Nama ekspor" di contoh) tampil dengan garis teal terang
      [export_glass_input_stroke_focused], sedangkan kotak yang tidak
      fokus (mis. "Catatan" di contoh) tetap garis putih transparan tipis
-     [export_glass_input_stroke_idle] -- dipakai sebagai boxStrokeColor
+     [export_glass_input_stroke_idle] — dipakai sebagai boxStrokeColor
      di Field.Underline.Export (themes.xml), Material3 TextInputLayout
      otomatis pilih item sesuai state_focused saat ini. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- REDESIGN dialog "Ekspor akun ini"/"Ekspor Akun Terpilih" (permintaan
-     user: baris opsi jadi kotak "kaca" bulat sesuai contoh gambar) --
+     user: baris opsi jadi kotak "kaca" bulat sesuai contoh gambar) —
      dipakai sebagai background di [ConfigActivity.buildExportOptionRow].
      Putih transparan tipis + garis tepi putih transparan supaya tetap
      kebaca sebagai kotak terpisah di atas kartu dialog yang juga

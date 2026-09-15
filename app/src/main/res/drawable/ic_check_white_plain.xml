@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Dipakai sebagai layer atas di ic_export_row_checked.xml (dialog
-     "Pilih Akun untuk Diekspor") -- cuma path checkmark polos, TANPA
+     "Pilih Akun untuk Diekspor") — cuma path checkmark polos, TANPA
      lingkaran (lingkarannya sudah digambar terpisah sebagai layer oval
      gradasi hijau di bawahnya), warna putih supaya kontras di atas
      lingkaran hijau itu. -->

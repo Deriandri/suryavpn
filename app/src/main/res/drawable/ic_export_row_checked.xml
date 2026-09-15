@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- REDESIGN dialog "Pilih Akun untuk Diekspor" (permintaan user: gaya
-     ceklis lingkaran hijau sesuai contoh gambar) -- dipakai
+     ceklis lingkaran hijau sesuai contoh gambar) — dipakai
      [ConfigActivity.buildExportAccountRow] untuk baris akun yang SEDANG
      tercentang (mau diikutkan ekspor). Layer 1: lingkaran gradasi hijau.
      Layer 2: checkmark putih ([ic_check_white_plain]) di tengah, diberi

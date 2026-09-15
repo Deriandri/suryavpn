@@ -330,7 +330,7 @@
     </style>
 
     <!-- Tombol "Lanjut" (positive): pill gradasi teal->indigo penuh, lihat
-         bg_button_export_primary.xml -- pakai android:background (BUKAN
+         bg_button_export_primary.xml — pakai android:background (BUKAN
          backgroundTint) supaya gradasi 2 warnanya benar-benar kepakai,
          insetTop/Bottom=0dp supaya Widget.Material3.Button tidak menambah
          padding vertikal bawaan yang bikin drawable custom ke-crop. -->
@@ -362,7 +362,7 @@
     <!-- Kotak input di dialog Detail Ekspor: gaya "filled + garis bawah"
          (sudut membulat cuma di ATAS, rata di bawah, garis highlight di
          bawah), BEDA dari Field.Outlined (bulat semua sisi) maupun
-         Field.Pill.Import (bulat semua sisi + tanpa label mengambang) --
+         Field.Pill.Import (bulat semua sisi + tanpa label mengambang) —
          label "Nama ekspor (opsional)"/"Catatan..." tetap dipasang lewat
          hintText mengambang seperti contoh gambar. Garis bawah pakai
          color state list [export_field_stroke_selector] supaya berubah
