@@ -65,18 +65,28 @@ import android.content.Context
  * dengan trade-off latensi sedikit lebih tinggi per paket.
  *
  * [sshEngine] pilih IMPLEMENTASI SSH yang dipakai [com.example.tunnelapp.tunnel.SshEngineRouter]:
- *  - [ENGINE_TRILEAD] (default): fork jenkinsci/trilead-ssh2, engine ASLI app
- *    ini sejak awal, sudah paling teruji. TIDAK mendukung kompresi zlib sama
- *    sekali (lihat catatan [compressionEnabled] di bawah).
- *  - [ENGINE_SSHJ]: engine kedua (com.hierynomus:sshj) yang BENERAN mendukung
- *    kompresi zlib/zlib@openssh.com (lihat SshjTunnelManager.useCompression()).
- *    Dipilih sebagai engine kedua (bukan Apache MINA SSHD) karena API-nya
- *    blocking/socket biasa yang cocok dengan arsitektur relay+SOCKS5 app ini,
- *    dan riwayat kompatibilitas Android yang lebih baik dibanding MINA SSHD.
+ *  - [ENGINE_SSHJ] (default SEKARANG): engine kedua (com.hierynomus:sshj),
+ *    BENERAN mendukung kompresi zlib/zlib@openssh.com (lihat
+ *    SshjTunnelManager.useCompression()). Dijadikan default karena terbukti
+ *    JAUH lebih tahan terhadap jaringan seluler yang jitter/sibuk (jam
+ *    siang/sore) dibanding trilead -- lihat catatan panjang soal ini di
+ *    ENGINE_TRILEAD di bawah & di SshTunnelManager.KEEPALIVE_INTERVAL_MS.
  *    Fitur non-esensial trilead (reorder cipher cepat, ekstraksi server
  *    banner lewat reflection) BELUM diportasi ke engine ini -- fungsi inti
  *    (auth password, semua [ConnectionMode] lewat ConnectRelay yang sama,
  *    SOCKS5 lokal, forwarding UDPGW) tetap jalan penuh.
+ *  - [ENGINE_TRILEAD]: fork jenkinsci/trilead-ssh2, engine ASLI app ini sejak
+ *    awal. TIDAK mendukung kompresi zlib sama sekali (lihat catatan
+ *    [compressionEnabled] di bawah). BUKAN default lagi (sebelumnya default)
+ *    -- laporan & log nyata menunjukkan library ini rawan macet TOTAL
+ *    (semua channel SOCKS5 baru timeout beruntun) begitu koneksi seluler
+ *    kena jitter/drop singkat sekalipun, karena desain single-dispatcher-nya
+ *    (satu thread pembaca dipakai bareng utk semua channel -- kalau satu
+ *    channel nyangkut, channel BARU pun ikut tidak pernah dibalas sampai
+ *    timeout). Gejalanya paling kentara pas jam sibuk & "hilang" di malam
+ *    hari yang jaringannya lengang -- itu cuma pemicunya jarang muncul,
+ *    bukan bug-nya sembuh. Tetap tersedia sebagai pilihan manual di kartu
+ *    "VPN Setting" bagi yang mau/perlu.
  *
  * [compressionEnabled] -- JUJUR: trilead-ssh2 (ENGINE_TRILEAD) TIDAK
  * mengimplementasikan algoritma kompresi "zlib"/"zlib@openssh.com" di key
@@ -118,10 +128,20 @@ data class VpnSettings(
     // Default false -- lihat catatan JUJUR di atas: cuma berefek nyata kalau
     // sshEngine = ENGINE_SSHJ, dikunci disabled di UI selama masih ENGINE_TRILEAD.
     val compressionEnabled: Boolean = false,
-    // Default ENGINE_TRILEAD -- engine asli app ini, paling teruji. User
-    // pindah ke ENGINE_SSHJ secara sadar lewat kartu "VPN Setting" kalau mau
-    // kompresi beneran aktif atau mau coba engine alternatif.
-    val sshEngine: String = ENGINE_TRILEAD
+    // GANTI DEFAULT ke ENGINE_SSHJ (sebelumnya ENGINE_TRILEAD): laporan user
+    // nyata di lapangan -- trilead-ssh2 sering macet total (SEMUA channel
+    // SOCKS5 baru timeout beruntun, lihat catatan panjang di
+    // SshTunnelManager.KEEPALIVE_INTERVAL_MS) begitu jaringan seluler kena
+    // jitter/drop kecil sekalipun (paling kentara pas jam sibuk siang/sore;
+    // malam hari jaringan lengang jadi kelihatan "stabil" -- BUKAN berarti
+    // bug-nya hilang, cuma pemicunya jarang muncul). sshj terbukti jauh
+    // lebih tahan terhadap gangguan jaringan yang sama karena deteksi
+    // putus & penanganan channel-nya lebih halus (lihat SshjTunnelManager,
+    // client.connection.keepAlive + disconnectWatchThread yang polling tiap
+    // 2 detik). trilead TETAP tersedia sebagai opsi manual di "VPN Setting"
+    // buat yang mau/perlu (mis. server yang entah kenapa lebih cocok
+    // dengannya), cuma bukan default lagi.
+    val sshEngine: String = ENGINE_SSHJ
 ) {
     companion object {
         const val DEFAULT_MTU = 1500
@@ -183,11 +203,17 @@ object VpnSettingsStore {
             udpgwPort = prefs.getInt(KEY_UDPGW_PORT, VpnSettings.DEFAULT_UDPGW_PORT),
             performanceMode = prefs.getBoolean(KEY_PERFORMANCE_MODE, true),
             compressionEnabled = prefs.getBoolean(KEY_COMPRESSION_ENABLED, false),
-            // Data lama (sebelum fitur multi-engine ini ada) tidak punya key
-            // ini sama sekali -- default ke ENGINE_TRILEAD supaya perilaku
-            // user lama TIDAK BERUBAH sama sekali.
-            sshEngine = prefs.getString(KEY_SSH_ENGINE, VpnSettings.ENGINE_TRILEAD)
-                ?: VpnSettings.ENGINE_TRILEAD
+            // Data lama (sebelum fitur multi-engine ini ada, atau user yang
+            // belum pernah menyentuh switch "SSH Engine") tidak punya key ini
+            // sama sekali -- fallback-nya SEKARANG ikut default baru
+            // (ENGINE_SSHJ, lihat catatan panjang di VpnSettings.sshEngine)
+            // karena trilead terbukti gampang macet total di jaringan
+            // seluler yang jitter/sibuk. User yang PERNAH sengaja memilih
+            // trilead secara eksplisit tetap aman -- KEY_SSH_ENGINE mereka
+            // sudah tersimpan "TRILEAD", jadi tidak kena fallback ini sama
+            // sekali dan pilihannya tetap dihormati.
+            sshEngine = prefs.getString(KEY_SSH_ENGINE, VpnSettings.ENGINE_SSHJ)
+                ?: VpnSettings.ENGINE_SSHJ
         )
     }
 

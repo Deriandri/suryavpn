@@ -510,7 +510,8 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
         binding.switchAutoReconnect.isChecked = settings.autoReconnect
         binding.switchPerformanceMode.isChecked = settings.performanceMode
-        // Pilih tombol SSH Engine sesuai setting tersimpan (default TRILEAD).
+        // Pilih tombol SSH Engine sesuai setting tersimpan (default SSHJ --
+        // lihat VpnSettings.sshEngine).
         binding.toggleSshEngine.check(
             if (settings.sshEngine == VpnSettings.ENGINE_SSHJ) R.id.btnEngineSshj else R.id.btnEngineTrilead
         )
