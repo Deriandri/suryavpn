@@ -99,6 +99,7 @@ class DashboardActivity : AppCompatActivity() {
                 R.id.nav_dashboard -> true
                 R.id.nav_config -> {
                     startActivity(Intent(this, ConfigActivity::class.java))
+                    applyNavFadeTransition()
                     // FIX BUG (laporan user): dulu `true` di sini bikin
                     // BottomNavigationView menganggap "Konfigurasi" itu
                     // beneran jadi tab yang lagi aktif DI LAYAR INI --
@@ -119,10 +120,12 @@ class DashboardActivity : AppCompatActivity() {
                 }
                 R.id.nav_settings -> {
                     startActivity(Intent(this, SettingsActivity::class.java))
+                    applyNavFadeTransition()
                     false
                 }
                 R.id.nav_tools -> {
                     startActivity(Intent(this, ToolsActivity::class.java))
+                    applyNavFadeTransition()
                     false
                 }
                 else -> false

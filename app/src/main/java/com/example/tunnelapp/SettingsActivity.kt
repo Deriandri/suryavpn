@@ -562,16 +562,19 @@ class SettingsActivity : AppCompatActivity() {
                 R.id.nav_settings -> true
                 R.id.nav_dashboard -> {
                     finish()
+                    applyNavFadeTransition()
                     true
                 }
                 R.id.nav_config -> {
                     startActivity(Intent(this, ConfigActivity::class.java))
                     finish()
+                    applyNavFadeTransition()
                     true
                 }
                 R.id.nav_tools -> {
                     startActivity(Intent(this, ToolsActivity::class.java))
                     finish()
+                    applyNavFadeTransition()
                     true
                 }
                 else -> false

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pasangan [nav_fade_in.xml] -- animasi KELUAR activity asal. Durasi
+     dibikin lebih pendek (150ms) & TANPA scale, kurva fastOutLinearIn:
+     activity lama cukup lenyap cepat sambil yang baru sudah mulai
+     fade-in+scale di atasnya, supaya tidak ada jeda "layar kosong" di
+     antara keduanya (khas pola fade-through Material, bukan crossfade
+     simetris biasa). -->
+<set xmlns:android="http://schemas.android.com/apk/res/android">
+    <alpha
+        android:duration="150"
+        android:fromAlpha="1.0"
+        android:interpolator="@android:interpolator/fast_out_linear_in"
+        android:toAlpha="0.0" />
+</set>

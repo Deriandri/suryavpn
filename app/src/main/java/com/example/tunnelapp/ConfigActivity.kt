@@ -1147,7 +1147,7 @@ class ConfigActivity : AppCompatActivity() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = ContextCompat.getDrawable(context, R.drawable.bg_field_export_static)
-            isAddStatesFromChildrenEnabled = true
+            setAddStatesFromChildren(true)
             addView(
                 editText,
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1667,15 +1667,29 @@ class ConfigActivity : AppCompatActivity() {
             setBackgroundColor(ContextCompat.getColor(context, R.color.export_glass_divider))
         }
 
+        // REDESIGN (permintaan user, "bikin lebih profesional dan modern"):
+        // sebelumnya "Lanjut" & "Batal" berdempetan HORIZONTAL rata kiri
+        // (wrap_content keduanya) -- terkesan sempit/asal-taruh karena CTA
+        // utama tidak menonjol dan ruang kosong di kanan tidak terpakai.
+        // Sekarang: "Lanjut" jadi pill gradasi FULL-WIDTH (pola tombol
+        // primer umum di app modern -- gampang di-tap & jelas jadi fokus
+        // utama), "Batal" dipindah ke BAWAHNYA sebagai teks polos yang
+        // di-center (bukan lagi nempel di sebelah kiri Lanjut) supaya
+        // hierarki aksi (utama vs batal) kebaca jelas & tidak berebut
+        // perhatian dengan CTA gradasi di atasnya.
         val lanjutButton = Button(this).apply {
             text = "Lanjut"
             isAllCaps = false
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setTextColor(ContextCompat.getColor(context, R.color.export_button_text))
             background = ContextCompat.getDrawable(context, R.drawable.bg_button_export_primary)
-            setPadding(72, 28, 72, 28)
+            setPadding(72, 32, 72, 32)
             stateListAnimator = null
             elevation = 0f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
         val batalButton = Button(this).apply {
             text = "Batal"
@@ -1685,17 +1699,20 @@ class ConfigActivity : AppCompatActivity() {
             background = null
             minWidth = 0
             minimumWidth = 0
-            setPadding(32, 28, 32, 28)
+            setPadding(32, 24, 32, 24)
             stateListAnimator = null
             elevation = 0f
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = 16 }
+            ).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = 8
+            }
         }
         val buttonRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
             addView(lanjutButton)
             addView(batalButton)
         }
@@ -2000,16 +2017,19 @@ class ConfigActivity : AppCompatActivity() {
                 R.id.nav_config -> true
                 R.id.nav_dashboard -> {
                     finish()
+                    applyNavFadeTransition()
                     true
                 }
                 R.id.nav_settings -> {
                     startActivity(Intent(this, SettingsActivity::class.java))
                     finish()
+                    applyNavFadeTransition()
                     true
                 }
                 R.id.nav_tools -> {
                     startActivity(Intent(this, ToolsActivity::class.java))
                     finish()
+                    applyNavFadeTransition()
                     true
                 }
                 else -> false
