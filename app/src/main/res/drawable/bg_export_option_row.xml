@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- REDESIGN dialog "Ekspor akun ini"/"Ekspor Akun Terpilih" (permintaan
+     user: baris opsi jadi kotak "kaca" bulat sesuai contoh gambar) --
+     dipakai sebagai background di [ConfigActivity.buildExportOptionRow].
+     Putih transparan tipis + garis tepi putih transparan supaya tetap
+     kebaca sebagai kotak terpisah di atas kartu dialog yang juga
+     berwarna pucat (bg_dialog_export_glass), tanpa terlihat terlalu
+     kontras/solid. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <corners android:radius="20dp" />
+    <solid android:color="#40FFFFFF" />
+    <stroke android:width="1dp" android:color="#40FFFFFF" />
+</shape>

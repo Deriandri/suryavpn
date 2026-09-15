@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- REDESIGN dialog "Detail Ekspor" (permintaan user: gaya "glass"
+     ungu-teal sesuai contoh gambar) — dipasang MANUAL lewat
+     dialog.window?.setBackgroundDrawableResource(...) di
+     ConfigActivity.showExportDetailsDialog(), sama seperti pola
+     bg_dialog_import_glass.xml (lihat komentar lengkap di file itu untuk
+     alasan kenapa tidak cukup lewat android:windowBackground di tema
+     saja). Bedanya dari kartu Impor: di sini kartunya jauh lebih TERANG/
+     pucat (lavender pucat, bukan ungu-biru pekat) supaya senada dengan
+     contoh gambar "Detail Ekspor" (judul & isi teks gelap di atas kartu
+     terang, bukan teks terang di atas kartu gelap seperti dialog Impor).
+     Layer 1: gradasi dasar lavender pucat. Layer 2: sapuan highlight
+     putih transparan diagonal (kesan "kaca") dari kanan-atas. Layer 3:
+     garis tepi tipis putih transparan supaya kartu terasa punya batas
+     kaca yang jelas. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="28dp" />
+            <gradient
+                android:type="linear"
+                android:angle="135"
+                android:startColor="@color/export_glass_bg_start"
+                android:endColor="@color/export_glass_bg_end" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="28dp" />
+            <gradient
+                android:type="linear"
+                android:angle="115"
+                android:startColor="#59FFFFFF"
+                android:centerColor="#00FFFFFF"
+                android:endColor="#00FFFFFF" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="28dp" />
+            <stroke android:width="1dp" android:color="#66FFFFFF" />
+        </shape>
+    </item>
+</layer-list>

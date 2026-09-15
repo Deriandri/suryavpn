@@ -300,5 +300,94 @@
     <style name="ThemeOverlay.TunnelApp.PillField.Import" parent="">
         <item name="textInputStyle">@style/Field.Pill.Import</item>
     </style>
+
+    <!-- REDESIGN dialog "Detail Ekspor" (permintaan user: gaya "glass"
+         ungu-teal sesuai contoh gambar) — pola sama dengan
+         ThemeOverlay.TunnelApp.Dialog.Import di atas, dipakai HANYA oleh
+         dialog itu (lihat ConfigActivity.showExportDetailsDialog()).
+         Bedanya: kartu di sini lebih TERANG (lavender pucat, lihat
+         bg_dialog_export_glass), jadi judul & body pakai warna teks
+         GELAP (export_glass_title_text/body_text), bukan teks terang
+         seperti dialog Impor yang kartunya lebih pekat. -->
+    <style name="ThemeOverlay.TunnelApp.Dialog.Export" parent="ThemeOverlay.TunnelApp.Dialog">
+        <item name="colorSurface">@color/export_glass_bg_start</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/TunnelApp.Dialog.Title.Export</item>
+        <item name="materialAlertDialogBodyTextStyle">@style/TunnelApp.Dialog.Body.Export</item>
+        <item name="buttonBarPositiveButtonStyle">@style/TunnelApp.Dialog.Button.Positive.Export</item>
+        <item name="buttonBarNegativeButtonStyle">@style/TunnelApp.Dialog.Button.Negative.Export</item>
+        <item name="android:backgroundDimAmount">0.55</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Title.Export" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:textColor">@color/export_glass_title_text</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">24sp</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Body.Export" parent="MaterialAlertDialog.Material3.Body.Text">
+        <item name="android:textColor">@color/export_glass_body_text</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+    </style>
+
+    <!-- Tombol "Lanjut" (positive): pill gradasi teal->indigo penuh, lihat
+         bg_button_export_primary.xml -- pakai android:background (BUKAN
+         backgroundTint) supaya gradasi 2 warnanya benar-benar kepakai,
+         insetTop/Bottom=0dp supaya Widget.Material3.Button tidak menambah
+         padding vertikal bawaan yang bikin drawable custom ke-crop. -->
+    <style name="TunnelApp.Dialog.Button.Positive.Export" parent="Widget.Material3.Button">
+        <item name="android:background">@drawable/bg_button_export_primary</item>
+        <item name="android:textColor">@color/export_button_text</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:paddingStart">32dp</item>
+        <item name="android:paddingEnd">32dp</item>
+        <item name="insetTop">0dp</item>
+        <item name="insetBottom">0dp</item>
+        <item name="elevation">0dp</item>
+        <item name="rippleColor">#33FFFFFF</item>
+    </style>
+
+    <!-- Tombol "Batal" (negative): pill outline tipis transparan, lihat
+         bg_button_export_outline.xml. -->
+    <style name="TunnelApp.Dialog.Button.Negative.Export" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:background">@drawable/bg_button_export_outline</item>
+        <item name="android:textColor">@color/export_outline_button_text</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
+        <item name="rippleColor">#1F4F46E5</item>
+    </style>
+
+    <!-- Kotak input di dialog Detail Ekspor: gaya "filled + garis bawah"
+         (sudut membulat cuma di ATAS, rata di bawah, garis highlight di
+         bawah), BEDA dari Field.Outlined (bulat semua sisi) maupun
+         Field.Pill.Import (bulat semua sisi + tanpa label mengambang) --
+         label "Nama ekspor (opsional)"/"Catatan..." tetap dipasang lewat
+         hintText mengambang seperti contoh gambar. Garis bawah pakai
+         color state list [export_field_stroke_selector] supaya berubah
+         teal HANYA saat field itu sedang difokus (persis field "Nama
+         ekspor" yang tampil menyala di contoh gambar, sedangkan "Catatan"
+         yang belum difokus tetap garis putih transparan tipis). -->
+    <style name="Field.Underline.Export" parent="Widget.Material3.TextInputLayout.FilledBox">
+        <item name="boxBackgroundMode">filled</item>
+        <item name="boxBackgroundColor">@color/export_glass_input_bg</item>
+        <item name="boxCornerRadiusTopStart">14dp</item>
+        <item name="boxCornerRadiusTopEnd">14dp</item>
+        <item name="boxCornerRadiusBottomStart">0dp</item>
+        <item name="boxCornerRadiusBottomEnd">0dp</item>
+        <item name="boxStrokeWidth">1dp</item>
+        <item name="boxStrokeWidthFocused">2dp</item>
+        <item name="boxStrokeColor">@color/export_field_stroke_selector</item>
+        <item name="hintTextColor">@color/export_glass_body_text</item>
+        <item name="android:textColorHint">@color/export_glass_placeholder</item>
+        <item name="placeholderTextColor">@color/export_glass_placeholder</item>
+        <item name="android:layout_marginTop">18dp</item>
+    </style>
+
+    <!-- Sama polanya dengan ThemeOverlay.TunnelApp.OutlinedField/PillField.Import. -->
+    <style name="ThemeOverlay.TunnelApp.UnderlineField.Export" parent="">
+        <item name="textInputStyle">@style/Field.Underline.Export</item>
+    </style>
 </resources>
 

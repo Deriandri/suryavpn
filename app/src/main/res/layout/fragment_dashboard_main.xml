@@ -236,37 +236,53 @@
              DashboardMainFragment.renderNotes()) supaya ke depannya bisa
              menampilkan teks berformat HTML apa pun (bold/warna/link/dst),
              bukan cuma daftar status kaku. textIsSelectable supaya isi
-             catatan bisa disalin user seperti halnya di tab Log. -->
-        <com.google.android.material.card.MaterialCardView
-            style="@style/Card.Section"
+             catatan bisa disalin user seperti halnya di tab Log.
+
+             REDESIGN (permintaan user: "ganti background catatan jadi
+             biru smooth kehitaman"): sebelumnya MaterialCardView polos
+             gaya Card.Section (putih/terang, sama seperti kartu "Kontrol
+             Koneksi" di atas). Diganti LinearLayout biasa + android:background
+             gradasi ([R.drawable.bg_card_notes_smooth]) -- pola sama
+             dengan kartu "hero" bergradasi ungu paling atas, KARENA
+             cardBackgroundColor MaterialCardView cuma bisa satu warna
+             solid, tidak bisa gradasi. Sudut & elevasi diset manual di sini
+             (18dp/2dp) supaya tetap sama persis dengan Card.Section, cuma
+             warnanya yang beda. Judul & isi catatan (tvNotes) ikut diberi
+             warna teks TERANG (text_on_notes_card/_secondary) -- warna
+             default (text_primary/text_secondary) didesain untuk latar
+             terang, nyaris tidak kebaca di atas gradasi gelap ini. Baris
+             status berwarna (hijau/merah/oranye, lihat
+             DashboardMainFragment.renderConnectionLogAsNotes) TIDAK
+             berubah -- warna-warna itu sudah punya kontras cukup di atas
+             latar gelap apa pun. -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card_notes_smooth"
+            android:elevation="2dp"
+            android:padding="16dp"
             android:layout_marginBottom="16dp">
 
-            <LinearLayout
+            <TextView
+                style="@style/SectionTitleText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/text_on_notes_card"
+                android:text="Catatan" />
+
+            <TextView
+                android:id="@+id/tvNotes"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    style="@style/SectionTitleText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Catatan" />
-
-                <TextView
-                    android:id="@+id/tvNotes"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:lineSpacingExtra="2dp"
-                    android:textIsSelectable="true"
-                    android:autoLink="web"
-                    android:text="Belum ada catatan. Tekan Connect di tab Main untuk memulai."
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+                android:layout_marginTop="12dp"
+                android:lineSpacingExtra="2dp"
+                android:textIsSelectable="true"
+                android:autoLink="web"
+                android:text="Belum ada catatan. Tekan Connect di tab Main untuk memulai."
+                android:textColor="@color/text_on_notes_card_secondary"
+                android:textSize="13sp" />
+        </LinearLayout>
 
         <!-- Card "Menu" (Konfigurasi SSH/Xray + Log Koneksi) SUDAH DIHAPUS
              dari halaman Main — semua navigasinya sudah tersedia lewat jalur

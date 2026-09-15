@@ -101,6 +101,60 @@
     <color name="import_pill_solid">#79E3DC</color>
     <color name="import_pill_text">#0A3B40</color>
 
+    <!-- REDESIGN dialog "Detail Ekspor" (permintaan user: gaya "glass"
+         ungu-teal sesuai contoh gambar, mirip pola import_glass_* di atas
+         tapi kartu lebih terang/pucat & tombol utama gradasi teal->indigo,
+         bukan pill solid teal seperti dialog Impor) — dipakai KHUSUS oleh
+         ThemeOverlay.TunnelApp.Dialog.Export & Field.Underline.Export di
+         themes.xml, lihat ConfigActivity.showExportDetailsDialog(). Sengaja
+         warna tetap (tidak ikut values-night) karena kartu "kaca" ini
+         memang dirancang selalu punya tampilan gradasi sendiri, sama
+         seperti import_glass_* yang juga dikunci. -->
+    <color name="export_glass_bg_start">#EEF0FC</color>
+    <color name="export_glass_bg_end">#DEE1F7</color>
+    <color name="export_glass_title_text">#15152E</color>
+    <color name="export_glass_body_text">#5B5E82</color>
+    <color name="export_glass_input_bg">#40FFFFFF</color>
+    <color name="export_glass_input_stroke_idle">#3DFFFFFF</color>
+    <color name="export_glass_input_stroke_focused">#2DD4BF</color>
+    <color name="export_glass_placeholder">#7C7FA0</color>
+    <color name="export_button_gradient_start">#2DD4BF</color>
+    <color name="export_button_gradient_end">#6366F1</color>
+    <color name="export_button_text">#FFFFFF</color>
+    <color name="export_outline_button_text">#4F46E5</color>
+    <color name="export_outline_button_stroke">#8B90D9</color>
+
+    <!-- REDESIGN dialog "Pilih Akun untuk Diekspor" (permintaan user: gaya
+         ceklis lingkaran hijau + tombol custom sesuai contoh gambar) --
+         dipakai KHUSUS oleh baris akun & garis pemisah di
+         [ConfigActivity.showExportAccountPicker]/[buildExportAccountRow].
+         Sengaja warna tetap (tidak ikut values-night), sama alasannya
+         dengan export_glass_* di atas -- kartu "kaca" dialog ini memang
+         dirancang selalu punya tampilan sendiri, terlepas dari mode
+         gelap/terang sistem. -->
+    <color name="export_check_gradient_start">#4ADE80</color>
+    <color name="export_check_gradient_end">#16A34A</color>
+    <color name="export_check_unchecked_stroke">#8B90D9</color>
+    <color name="export_glass_divider">#26130F3D</color>
+
+    <!-- REDESIGN kartu "Catatan" di Dashboard (permintaan user: latar
+         biru smooth kehitaman) — dipakai KHUSUS oleh
+         bg_card_notes_smooth.xml/fragment_dashboard_main.xml, pola sama
+         dengan hero_gradient_start/end di atas (LinearLayout polos +
+         android:background gradasi, BUKAN cardBackgroundColor
+         MaterialCardView yang cuma bisa satu warna solid). Sengaja warna
+         tetap (tidak ikut values-night) — kartu ini memang dirancang
+         selalu gelap terlepas dari mode gelap/terang sistem, sama seperti
+         terminal_background/hero_gradient_* yang juga dikunci. Teks di
+         dalamnya ikut dikasih warna terang tersendiri (lihat
+         text_on_notes_card di bawah) karena warna teks default
+         (text_secondary/text_primary) didesain untuk kartu TERANG dan
+         nyaris tidak kebaca di atas gradasi gelap ini. -->
+    <color name="notes_card_gradient_start">#1B2A4A</color>
+    <color name="notes_card_gradient_end">#05070D</color>
+    <color name="text_on_notes_card">#F1F5F9</color>
+    <color name="text_on_notes_card_secondary">#CBD5E1</color>
+
     <!-- Status -->
     <color name="status_success">#16A34A</color>
     <color name="status_success_bg">#DCFCE7</color>

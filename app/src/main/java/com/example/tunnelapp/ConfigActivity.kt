@@ -17,12 +17,16 @@ import android.text.TextUtils
 import android.text.TextWatcher
 import android.text.format.DateFormat
 import android.util.Base64
+import android.util.TypedValue
 import android.view.ContextThemeWrapper
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -870,6 +874,102 @@ class ConfigActivity : AppCompatActivity() {
      *     perubahan logika sama sekali supaya kompatibel dengan penerima
      *     yang masih pakai tombol "Impor" kode "SVPN1:...".
      */
+    /**
+     * Satu baris opsi format di dialog "Ekspor akun ini"/"Ekspor Akun
+     * Terpilih" -- kotak "kaca" bulat ([R.drawable.bg_export_option_row])
+     * berisi ikon + label, seluruh baris bisa ditap (bukan cuma teksnya).
+     */
+    private fun buildExportOptionRow(iconRes: Int, labelText: String, onClick: () -> Unit): LinearLayout {
+        val icon = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(56, 56).apply { marginEnd = 28 }
+            setImageResource(iconRes)
+            setColorFilter(ContextCompat.getColor(context, R.color.export_glass_body_text))
+        }
+        val label = TextView(this).apply {
+            text = labelText
+            setTextColor(ContextCompat.getColor(context, R.color.export_glass_body_text))
+            textSize = 17f
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(32, 36, 32, 36)
+            background = ContextCompat.getDrawable(context, R.drawable.bg_export_option_row)
+            isClickable = true
+            isFocusable = true
+            val ripple = TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+            foreground = ContextCompat.getDrawable(context, ripple.resourceId)
+            addView(icon)
+            addView(label)
+            setOnClickListener { onClick() }
+        }
+    }
+
+    /**
+     * REDESIGN (permintaan user: gaya "glass" ungu-teal + baris opsi kotak
+     * bulat sesuai contoh gambar) -- menggantikan pola
+     * `newDialogBuilder().setItems(options)` (daftar teks polos sistem)
+     * yang sebelumnya dipakai baik di [onShareRowClicked] ("Ekspor akun
+     * ini") maupun [onExportAllClicked] ("Ekspor Akun Terpilih"). Dibangun
+     * manual persis pola [showExportDetailsDialog]/[showExportAccountPicker]:
+     * kartu kaca lewat [R.drawable.bg_dialog_export_glass] dipasang ke
+     * window SETELAH create(), tiap opsi lewat [buildExportOptionRow],
+     * "Batal" tampil sebagai teks polos di bawah (BUKAN tombol
+     * setNegativeButton bawaan) persis contoh gambar. Menekan salah satu
+     * opsi otomatis menutup dialog dulu (dialog.dismiss()) sebelum
+     * menjalankan [action]-nya, supaya tidak ada dua dialog bertumpuk.
+     */
+    private fun showExportTypeDialog(title: String, options: List<Triple<Int, String, () -> Unit>>) {
+        lateinit var dialog: AlertDialog
+
+        val rows = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        options.forEach { (iconRes, label, action) ->
+            val row = buildExportOptionRow(iconRes, label) {
+                dialog.dismiss()
+                action()
+            }
+            rows.addView(
+                row,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { bottomMargin = 24 }
+            )
+        }
+
+        val batal = TextView(this).apply {
+            text = "Batal"
+            setTextColor(ContextCompat.getColor(context, R.color.export_outline_button_text))
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            textSize = 17f
+            gravity = Gravity.CENTER
+            setPadding(0, 28, 0, 8)
+            isClickable = true
+            isFocusable = true
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 16, 0, 8)
+            addView(rows)
+            addView(batal)
+        }
+
+        dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog_Export)
+            .setTitle(title)
+            .setView(container)
+            .create()
+        // PENTING: sama seperti dialog "glass" lain di file ini,
+        // MaterialAlertDialogBuilder.create() selalu menimpa background
+        // window dengan MaterialShapeDrawable solid -- drawable gradasi
+        // "kaca" harus dipasang lagi di sini, SETELAH create(), SEBELUM
+        // show().
+        dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_export_glass)
+        batal.setOnClickListener { dialog.dismiss() }
+        dialog.show()
+    }
+
     private fun onShareRowClicked(profile: SavedProfile) {
         // FITUR BARU (permintaan user, "sebelum pemilihan jenis konfig
         // dikasih form nama & catatan"): dialog pilihan format (file/.spn
@@ -900,17 +1000,17 @@ class ConfigActivity : AppCompatActivity() {
                 profile
             }
 
-            val options = arrayOf("Simpan sebagai File (.spn)", "Kode Teks (Salin/Bagikan)")
-            newDialogBuilder()
-                .setTitle("Ekspor akun ini")
-                .setItems(options) { _, which ->
-                    when (which) {
-                        0 -> onExportToFileClicked(listOf(effectiveProfile), trimmedName, note)
-                        1 -> shareRowAsTextCode(effectiveProfile, trimmedName, note)
+            showExportTypeDialog(
+                title = "Ekspor akun ini",
+                options = listOf(
+                    Triple(R.drawable.ic_export_type_file, "Simpan sebagai File (.spn)") {
+                        onExportToFileClicked(listOf(effectiveProfile), trimmedName, note)
+                    },
+                    Triple(R.drawable.ic_export_type_code, "Kode Teks (Salin/Bagikan)") {
+                        shareRowAsTextCode(effectiveProfile, trimmedName, note)
                     }
-                }
-                .setNegativeButton("Batal", null)
-                .show()
+                )
+            )
         }
     }
 
@@ -952,13 +1052,21 @@ class ConfigActivity : AppCompatActivity() {
         defaultName: String,
         onConfirmed: (name: String, note: String) -> Unit
     ) {
+        // REDESIGN (permintaan user: tampilan dialog "Detail Ekspor" jadi
+        // gaya "glass" ungu-teal sesuai contoh gambar) -- input teks
+        // dipasang warna eksplisit (bukan ikut default tema) supaya tetap
+        // gelap & terbaca di atas kartu kaca yang TERANG, terlepas dari
+        // mode gelap/terang sistem (kartu ini, sama seperti kartu Impor,
+        // sengaja dikunci tidak ikut values-night).
         val nameInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT
             isSingleLine = true
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             filters = arrayOf(android.text.InputFilter.LengthFilter(MAX_EXPORT_NAME_LENGTH))
-            setPadding(48, 32, 48, 8)
+            setPadding(40, 28, 40, 20)
+            setTextColor(ContextCompat.getColor(context, R.color.export_glass_title_text))
+            setHintTextColor(ContextCompat.getColor(context, R.color.export_glass_placeholder))
             setText(sanitizeExportName(defaultName))
             setSelection(0)
         }
@@ -968,24 +1076,32 @@ class ConfigActivity : AppCompatActivity() {
             maxLines = 8
             isVerticalScrollBarEnabled = true
             movementMethod = android.text.method.ScrollingMovementMethod()
-            setPadding(48, 8, 48, 32)
+            setPadding(40, 20, 40, 28)
+            setTextColor(ContextCompat.getColor(context, R.color.export_glass_title_text))
+            setHintTextColor(ContextCompat.getColor(context, R.color.export_glass_placeholder))
         }
 
         val container = ScrollView(this).apply {
             addView(LinearLayout(this@ConfigActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(dialogInputLayout(nameInput, "Nama ekspor (opsional)"))
+                addView(
+                    dialogInputLayout(
+                        nameInput,
+                        "Nama ekspor (opsional)",
+                        styleOverlay = R.style.ThemeOverlay_TunnelApp_UnderlineField_Export
+                    )
+                )
                 addView(
                     dialogInputLayout(
                         noteInput,
-                        "Catatan, mendukung HTML (opsional)",
-                        placeholderText = "<b>Akun kantor</b>, dipakai untuk tim support..."
+                        placeholderText = "Catatan, mendukung HTML (opsional)...",
+                        styleOverlay = R.style.ThemeOverlay_TunnelApp_UnderlineField_Export
                     )
                 )
             })
         }
 
-        newDialogBuilder()
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog_Export)
             .setTitle("Detail Ekspor")
             .setMessage("Nama & catatan ini disertakan pada hasil ekspor. Kolom catatan mendukung format HTML.")
             .setView(container)
@@ -996,7 +1112,13 @@ class ConfigActivity : AppCompatActivity() {
                     noteInput.text?.toString().orEmpty().trim()
                 )
             }
-            .show()
+            .create()
+        // PENTING: sama seperti bg_dialog_import_glass, MaterialAlertDialogBuilder
+        // .create() selalu menimpa background window dengan MaterialShapeDrawable
+        // solid -- drawable gradasi "kaca" ini harus dipasang lagi di sini,
+        // SETELAH create(), SEBELUM show().
+        dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_export_glass)
+        dialog.show()
     }
 
     /**
@@ -1260,30 +1382,191 @@ class ConfigActivity : AppCompatActivity() {
      * [onPicked] menerima sublist [profiles] SESUAI URUTAN ASLINYA (bukan
      * urutan dicentang), berisi hanya akun-akun yang ter-centang.
      */
+    /**
+     * Satu baris akun di dialog "Pilih Akun untuk Diekspor" -- ikon
+     * lingkaran ceklis (hijau = tercentang/ikut ekspor, outline = tidak),
+     * nama akun bold, & subjudul statis "Sertakan untuk diekspor" persis
+     * contoh gambar. Tap di mana pun pada baris (bukan cuma ikonnya)
+     * membalik status centang & memanggil [onToggle] dengan nilai barunya.
+     */
+    private fun buildExportAccountRow(
+        label: String,
+        checkedInitially: Boolean,
+        onToggle: (Boolean) -> Unit
+    ): LinearLayout {
+        val icon = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(72, 72).apply { marginEnd = 32 }
+            setImageResource(
+                if (checkedInitially) R.drawable.ic_export_row_checked else R.drawable.ic_export_row_unchecked
+            )
+        }
+        val title = TextView(this).apply {
+            text = label
+            setTextColor(ContextCompat.getColor(context, R.color.export_glass_title_text))
+            textSize = 17f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        val subtitle = TextView(this).apply {
+            text = "Sertakan untuk diekspor"
+            setTextColor(ContextCompat.getColor(context, R.color.export_glass_body_text))
+            textSize = 14f
+        }
+        val textColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(title)
+            addView(subtitle)
+        }
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 28, 0, 28)
+            isClickable = true
+            isFocusable = true
+            val ripple = TypedValue()
+            theme.resolveAttribute(android.R.attr.selectableItemBackground, ripple, true)
+            setBackgroundResource(ripple.resourceId)
+            addView(icon)
+            addView(textColumn)
+
+            var checked = checkedInitially
+            setOnClickListener {
+                checked = !checked
+                icon.setImageResource(
+                    if (checked) R.drawable.ic_export_row_checked else R.drawable.ic_export_row_unchecked
+                )
+                onToggle(checked)
+            }
+        }
+    }
+
+    /**
+     * REDESIGN (permintaan user: gaya "glass" ungu-teal + ceklis lingkaran
+     * hijau sesuai contoh gambar) -- sebelumnya pakai
+     * `newDialogBuilder().setMultiChoiceItems(...)` (checklist sistem
+     * polos). Sekarang dibangun manual persis pola [showExportDetailsDialog]:
+     * kartu kaca lewat [R.drawable.bg_dialog_export_glass] dipasang ke
+     * window SETELAH create(), baris akun lewat [buildExportAccountRow],
+     * tombol "Lanjut" pill gradasi teal->indigo & "Batal" teks polos
+     * (BUKAN pill outline seperti di [showExportDetailsDialog] -- di
+     * contoh gambar dialog ini "Batal"-nya memang cuma teks, tanpa
+     * garis). Baris peringatan kecil di bawah tombol ("Tombol Ekspor akan
+     * menyertakan SEMUA akun...") ikut ditampilkan APA ADANYA sesuai
+     * contoh, supaya user paham bahwa akun yang di-uncheck di sini TETAP
+     * disertakan kalau nanti pakai tombol "Ekspor" lain (bukan lewat
+     * dialog ini) -- lihat catatan yang sama persis di teks caption.
+     */
     private fun showExportAccountPicker(
         profiles: List<SavedProfile>,
         onPicked: (List<SavedProfile>) -> Unit
     ) {
-        val labels = profiles
-            .map { it.config.accountName.trim().ifEmpty { "(Tanpa nama)" } }
-            .toTypedArray()
         val checked = BooleanArray(profiles.size) { true }
 
-        newDialogBuilder()
-            .setTitle("Pilih Akun untuk Diekspor")
-            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
-                checked[which] = isChecked
-            }
-            .setNegativeButton("Batal", null)
-            .setPositiveButton("Lanjut") { _, _ ->
-                val selected = profiles.filterIndexed { index, _ -> checked[index] }
-                if (selected.isEmpty()) {
-                    Toast.makeText(this, "Pilih minimal satu akun untuk diekspor", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+        val rowsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        profiles.forEachIndexed { index, profile ->
+            val label = profile.config.accountName.trim().ifEmpty { "(Tanpa nama)" }
+            rowsContainer.addView(
+                buildExportAccountRow(label, checked[index]) { isChecked -> checked[index] = isChecked }
+            )
+        }
+
+        // Dibungkus ScrollView supaya tetap nyaman dipakai kalau akun
+        // tersimpan banyak (sama pola dengan [onImportClicked]/kode
+        // bagikan) -- dibatasi tinggi maksimal 40% layar, sisanya scroll
+        // internal, supaya baris tombol di bawah selalu tetap kelihatan.
+        val maxHeightPx = (resources.displayMetrics.heightPixels * 0.4f).toInt()
+        val rowsScroll = object : ScrollView(this) {
+            override fun onMeasure(widthSpec: Int, heightSpec: Int) {
+                super.onMeasure(widthSpec, heightSpec)
+                if (measuredHeight > maxHeightPx) {
+                    setMeasuredDimension(measuredWidth, maxHeightPx)
                 }
-                onPicked(selected)
             }
-            .show()
+        }.apply { addView(rowsContainer) }
+
+        val divider = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 2).apply {
+                topMargin = 24
+                bottomMargin = 32
+            }
+            setBackgroundColor(ContextCompat.getColor(context, R.color.export_glass_divider))
+        }
+
+        val lanjutButton = Button(this).apply {
+            text = "Lanjut"
+            isAllCaps = false
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(ContextCompat.getColor(context, R.color.export_button_text))
+            background = ContextCompat.getDrawable(context, R.drawable.bg_button_export_primary)
+            setPadding(72, 28, 72, 28)
+            stateListAnimator = null
+            elevation = 0f
+        }
+        val batalButton = Button(this).apply {
+            text = "Batal"
+            isAllCaps = false
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setTextColor(ContextCompat.getColor(context, R.color.export_outline_button_text))
+            background = null
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(32, 28, 32, 28)
+            stateListAnimator = null
+            elevation = 0f
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { marginStart = 16 }
+        }
+        val buttonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(lanjutButton)
+            addView(batalButton)
+        }
+
+        val caption = TextView(this).apply {
+            text = "Tombol Ekspor akan menyertakan SEMUA akun tersimpan di bawah ini, termasuk akun yang tidak Anda pilih."
+            setTextColor(ContextCompat.getColor(context, R.color.export_glass_body_text))
+            textSize = 12f
+            gravity = Gravity.CENTER
+            setPadding(0, 24, 0, 0)
+        }
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 16, 48, 8)
+            addView(rowsScroll)
+            addView(divider)
+            addView(buttonRow)
+            addView(caption)
+        }
+
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog_Export)
+            .setTitle("Pilih Akun untuk Diekspor")
+            .setView(container)
+            .create()
+        // PENTING: sama seperti [showExportDetailsDialog]/bg_dialog_import_glass,
+        // MaterialAlertDialogBuilder.create() selalu menimpa background
+        // window dengan MaterialShapeDrawable solid -- drawable gradasi
+        // "kaca" ini harus dipasang lagi di sini, SETELAH create(),
+        // SEBELUM show().
+        dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_export_glass)
+
+        lanjutButton.setOnClickListener {
+            val selected = profiles.filterIndexed { index, _ -> checked[index] }
+            if (selected.isEmpty()) {
+                Toast.makeText(this, "Pilih minimal satu akun untuk diekspor", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            dialog.dismiss()
+            onPicked(selected)
+        }
+        batalButton.setOnClickListener { dialog.dismiss() }
+
+        dialog.show()
     }
 
     /**
@@ -1322,17 +1605,17 @@ class ConfigActivity : AppCompatActivity() {
             // dialog pilihan format di bawah baru muncul setelah form
             // [showExportDetailsDialog] dikonfirmasi.
             showExportDetailsDialog(defaultName = "") { name, note ->
-                val options = arrayOf("Simpan sebagai File (.spn)", "Salin ke Clipboard")
-                newDialogBuilder()
-                    .setTitle("Ekspor Akun Terpilih")
-                    .setItems(options) { _, which ->
-                        when (which) {
-                            0 -> onExportToFileClicked(selectedProfiles, name, note)
-                            1 -> onExportToClipboardClicked(selectedProfiles, name, note)
+                showExportTypeDialog(
+                    title = "Ekspor Akun Terpilih",
+                    options = listOf(
+                        Triple(R.drawable.ic_export_type_file, "Simpan sebagai File (.spn)") {
+                            onExportToFileClicked(selectedProfiles, name, note)
+                        },
+                        Triple(R.drawable.ic_export_type_clipboard, "Salin ke Clipboard") {
+                            onExportToClipboardClicked(selectedProfiles, name, note)
                         }
-                    }
-                    .setNegativeButton("Batal", null)
-                    .show()
+                    )
+                )
             }
         }
     }

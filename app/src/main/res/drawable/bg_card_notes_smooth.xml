@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Latar kartu "Catatan" di halaman Main Dashboard (permintaan user:
+     "biru smooth kehitaman") -- pola sama persis dengan bg_hero_gradient
+     di atas: dipakai sebagai android:background LinearLayout biasa
+     (BUKAN cardBackgroundColor MaterialCardView, yang cuma bisa terima
+     satu warna solid, tidak bisa gradasi). Sudut 18dp disamakan dengan
+     cardCornerRadius Card.Section supaya ukuran/bentuknya tetap konsisten
+     dengan kartu lain di halaman ini, cuma warnanya yang beda. Gradasi
+     diagonal dari biru gelap ke nyaris hitam supaya terasa "smooth",
+     bukan satu warna gelap flat begitu saja. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="18dp" />
+    <gradient
+        android:type="linear"
+        android:angle="135"
+        android:startColor="@color/notes_card_gradient_start"
+        android:endColor="@color/notes_card_gradient_end" />
+</shape>
