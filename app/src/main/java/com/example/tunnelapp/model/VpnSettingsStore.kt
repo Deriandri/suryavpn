@@ -64,31 +64,6 @@ import android.content.Context
  * overhead paket utk banyak koneksi kecil bersamaan (browsing/chat/banyak app),
  * dengan trade-off latensi sedikit lebih tinggi per paket.
  *
- * [useDefaultRoute], [customRoutes], dan [excludedRoutes] MENGONTROL rute apa
- * saja yang ditangkap TUN interface (lihat MyVpnService.applyRoutes) -- pola
- * & nama field ini SENGAJA meniru kartu "Connection" di app referensi
- * (toggle "Use default route" + field "Custom Routes" + field "Excluded
- * Routes") supaya user yang sudah familiar dengan app itu tidak bingung:
- *  - [useDefaultRoute] TRUE (default, perilaku LAMA sebelum fitur ini ada):
- *    TUN selalu addRoute("0.0.0.0", 0) -- SEMUA trafik IPv4 masuk tunnel,
- *    [customRoutes] diabaikan total.
- *  - [useDefaultRoute] FALSE: [customRoutes] dipakai sebagai daftar CIDR
- *    (dipisah ";", mis. "0.0.0.0/0" atau beberapa subnet spesifik) yang
- *    di-addRoute() satu-satu ke TUN, MENGGANTIKAN default route tunggal di
- *    atas. Kosong -> fallback ke "0.0.0.0/0" (sama seperti default lama)
- *    supaya tidak pernah menghasilkan TUN tanpa rute sama sekali.
- *  - [excludedRoutes]: daftar CIDR (dipisah ";") yang DIKELUARKAN dari rute
- *    TUN di atas lewat [android.net.VpnService.Builder.excludeRoute] --
- *    trafik ke rentang ini lewat jalur asli device (DI LUAR tunnel), bukan
- *    dibuang. Default-nya 3 rentang IP privat standar (RFC 1918:
- *    10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) supaya perangkat/router di
- *    jaringan lokal user tetap bisa dijangkau langsung selagi VPN aktif.
- *    CATATAN PENTING: [android.net.IpPrefix]/excludeRoute() baru ADA sejak
- *    API 33 (Android 13) -- di device lebih lama, excludedRoutes ini TIDAK
- *    BEREFEK (dicatat ke StatusBus, bukan gagal diam-diam), karena tidak
- *    ada API pengganti yang setara di VpnService.Builder untuk versi
- *    Android di bawah itu.
- *
  * [sshEngine] pilih IMPLEMENTASI SSH yang dipakai [com.example.tunnelapp.tunnel.SshEngineRouter]:
  *  - [ENGINE_TRILEAD] (default): fork jenkinsci/trilead-ssh2, engine ASLI app
  *    ini sejak awal, sudah paling teruji. TIDAK mendukung kompresi zlib sama
@@ -146,12 +121,7 @@ data class VpnSettings(
     // Default ENGINE_TRILEAD -- engine asli app ini, paling teruji. User
     // pindah ke ENGINE_SSHJ secara sadar lewat kartu "VPN Setting" kalau mau
     // kompresi beneran aktif atau mau coba engine alternatif.
-    val sshEngine: String = ENGINE_TRILEAD,
-    // Default true: perilaku LAMA (addRoute("0.0.0.0", 0) hardcoded) tidak
-    // berubah sama sekali buat user yang sudah pakai -- lihat catatan di atas.
-    val useDefaultRoute: Boolean = true,
-    val customRoutes: String = DEFAULT_CUSTOM_ROUTES,
-    val excludedRoutes: String = DEFAULT_EXCLUDED_ROUTES
+    val sshEngine: String = ENGINE_TRILEAD
 ) {
     companion object {
         const val DEFAULT_MTU = 1500
@@ -177,17 +147,6 @@ data class VpnSettings(
 
         const val ENGINE_TRILEAD = "TRILEAD"
         const val ENGINE_SSHJ = "SSHJ"
-
-        // Default persis sama dengan perilaku lama sebelum fitur routing
-        // ini ada (addRoute("0.0.0.0", 0) tunggal) -- lihat catatan
-        // useDefaultRoute/customRoutes di atas.
-        const val DEFAULT_CUSTOM_ROUTES = "0.0.0.0/0"
-        // 3 rentang IP privat standar RFC 1918 -- default paling aman
-        // supaya jaringan lokal (router, printer, NAS, dll) tetap
-        // dijangkau langsung selagi VPN aktif. Kosongkan field ini di UI
-        // kalau user memang mau SEMUA trafik (termasuk ke jaringan lokal)
-        // lewat tunnel.
-        const val DEFAULT_EXCLUDED_ROUTES = "10.0.0.0/8;172.16.0.0/12;192.168.0.0/16"
     }
 }
 
@@ -205,9 +164,6 @@ object VpnSettingsStore {
     private const val KEY_PERFORMANCE_MODE = "vpn_performance_mode"
     private const val KEY_COMPRESSION_ENABLED = "vpn_compression_enabled"
     private const val KEY_SSH_ENGINE = "vpn_ssh_engine"
-    private const val KEY_USE_DEFAULT_ROUTE = "vpn_use_default_route"
-    private const val KEY_CUSTOM_ROUTES = "vpn_custom_routes"
-    private const val KEY_EXCLUDED_ROUTES = "vpn_excluded_routes"
 
     fun load(context: Context): VpnSettings {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -231,16 +187,7 @@ object VpnSettingsStore {
             // ini sama sekali -- default ke ENGINE_TRILEAD supaya perilaku
             // user lama TIDAK BERUBAH sama sekali.
             sshEngine = prefs.getString(KEY_SSH_ENGINE, VpnSettings.ENGINE_TRILEAD)
-                ?: VpnSettings.ENGINE_TRILEAD,
-            // Data lama (sebelum fitur routing ini ada) tidak punya key ini
-            // sama sekali -- default true + DEFAULT_CUSTOM_ROUTES/
-            // DEFAULT_EXCLUDED_ROUTES supaya perilaku user lama TIDAK
-            // BERUBAH (tetap addRoute("0.0.0.0", 0) polos, tanpa exclude).
-            useDefaultRoute = prefs.getBoolean(KEY_USE_DEFAULT_ROUTE, true),
-            customRoutes = prefs.getString(KEY_CUSTOM_ROUTES, VpnSettings.DEFAULT_CUSTOM_ROUTES)
-                ?: VpnSettings.DEFAULT_CUSTOM_ROUTES,
-            excludedRoutes = prefs.getString(KEY_EXCLUDED_ROUTES, VpnSettings.DEFAULT_EXCLUDED_ROUTES)
-                ?: VpnSettings.DEFAULT_EXCLUDED_ROUTES
+                ?: VpnSettings.ENGINE_TRILEAD
         )
     }
 
@@ -259,9 +206,6 @@ object VpnSettingsStore {
             .putBoolean(KEY_PERFORMANCE_MODE, settings.performanceMode)
             .putBoolean(KEY_COMPRESSION_ENABLED, settings.compressionEnabled)
             .putString(KEY_SSH_ENGINE, settings.sshEngine)
-            .putBoolean(KEY_USE_DEFAULT_ROUTE, settings.useDefaultRoute)
-            .putString(KEY_CUSTOM_ROUTES, settings.customRoutes)
-            .putString(KEY_EXCLUDED_ROUTES, settings.excludedRoutes)
             .apply()
     }
 }

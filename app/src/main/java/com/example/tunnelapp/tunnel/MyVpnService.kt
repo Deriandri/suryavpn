@@ -831,6 +831,7 @@ class MyVpnService : VpnService() {
             val builder = Builder()
                 .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
+                .addRoute("0.0.0.0", 0)
                 // REVERT (laporan user: server SSH yang dipakai TIDAK punya rute
                 // IPv6 sama sekali -- SEMUA percobaan CONNECT SOCKS5 ke tujuan
                 // IPv6 selalu gagal "Could not open channel (state:4)", terus
@@ -855,11 +856,6 @@ class MyVpnService : VpnService() {
                 // TERNYATA punya rute IPv6, addRoute("::", 0) bisa diaktifkan
                 // lagi khusus untuk server itu.
                 .setMtu(currentMtu)
-            // FITUR BARU (kartu "Connection" -- lihat VpnSettingsStore &
-            // MyVpnService.applyRoutes): addRoute("0.0.0.0", 0) yang dulu
-            // hardcoded di sini sekarang lewat applyRoutes(), yang MENJAGA
-            // perilaku lama persis (useDefaultRoute default true).
-            applyRoutes(builder, vpnSettings)
             applyDnsServers(builder, config, vpnSettings)
 
             vpnInterface = try {
@@ -929,16 +925,15 @@ class MyVpnService : VpnService() {
             }
         }
         if (!addedAny) {
-            // DIHILANGKAN (permintaan user, 2x sudah diperingatkan risikonya):
-            // fallback DEFAULT_DNS ($DEFAULT_DNS) tidak dipanggil lagi.
-            // Kalau DNS1/DNS2 kosong semua, TIDAK ADA addDnsServer() yang
-            // dipanggil -- TUN interface jalan tanpa DNS server terdaftar.
-            // addRoute("0.0.0.0", 0) tetap menangkap SEMUA trafik termasuk
-            // DNS bawaan operator/wifi (sering IP privat, tidak bisa
-            // dicapai lewat tunnel) -- efek yang paling mungkin: resolusi
-            // domain gagal total untuk user yang tidak isi DNS1/DNS2
-            // manual ("connect tapi internet tidak jalan").
-            StatusBus.log("[DNS] DNS1/DNS2 kosong -- TIDAK ada DNS dipasang ke TUN (fallback default dihilangkan)")
+            // FIX (permintaan user): fallback DEFAULT_DNS DIHAPUS LAGI --
+            // kalau DNS1/DNS2 kosong semua, TIDAK ADA addDnsServer() yang
+            // dipanggil sama sekali. Efek yang paling mungkin: resolusi
+            // domain gagal total buat user yang tidak isi DNS1/DNS2 manual,
+            // karena addRoute("0.0.0.0", 0) tetap menangkap SEMUA trafik ke
+            // TUN termasuk DNS bawaan operator/wifi (sering IP privat,
+            // tidak bisa dicapai lewat tunnel). Kalau efeknya memang
+            // seburuk itu, tinggal balikin addDnsServer(DEFAULT_DNS) di sini.
+            StatusBus.log("[DNS] DNS1/DNS2 kosong -- TIDAK ada DNS dipasang ke TUN (fallback dihapus)")
         }
 
         // addedAny == true berarti user MEMANG mengisi DNS1/DNS2 sendiri
@@ -946,120 +941,6 @@ class MyVpnService : VpnService() {
         // diisi manual di Pengaturan" yang dipakai establishTunnel() utk
         // menyalakan/mematikan device-side DNS bypass di Socks5Server.
         customDnsConfigured = addedAny
-    }
-
-    /**
-     * Pasang rute ke [builder] sesuai [VpnSettings.useDefaultRoute]/
-     * [VpnSettings.customRoutes]/[VpnSettings.excludedRoutes] (kartu
-     * "Connection" -- lihat catatan lengkap di VpnSettingsStore).
-     *
-     * - useDefaultRoute TRUE (default): satu addRoute("0.0.0.0", 0), SAMA
-     *   PERSIS seperti sebelum fitur ini ada -- customRoutes tidak dipakai.
-     * - useDefaultRoute FALSE: tiap entri CIDR di customRoutes di-addRoute()
-     *   satu-satu. customRoutes kosong/semua entrinya tidak valid -> fallback
-     *   ke "0.0.0.0/0" (TUN TIDAK PERNAH dibiarkan tanpa rute sama sekali).
-     * - excludedRoutes: diterapkan lewat [Builder.excludeRoute] SETELAH rute
-     *   di atas terpasang -- HANYA berefek di API 33+ (Android 13+), lihat
-     *   catatan SDK di bawah.
-     */
-    private fun applyRoutes(builder: Builder, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
-        val routeEntries = if (vpnSettings.useDefaultRoute) {
-            listOf("0.0.0.0/0")
-        } else {
-            parseCidrEntries(vpnSettings.customRoutes).ifEmpty {
-                StatusBus.log("[Route] Custom Routes kosong/tidak valid -- fallback ke 0.0.0.0/0")
-                listOf("0.0.0.0/0")
-            }
-        }
-
-        var addedAnyRoute = false
-        for (cidr in routeEntries) {
-            val parsed = parseCidr(cidr)
-            if (parsed == null) {
-                StatusBus.log("[Route] \"$cidr\" bukan CIDR valid -- diabaikan")
-                continue
-            }
-            val (address, prefix) = parsed
-            try {
-                builder.addRoute(address, prefix)
-                addedAnyRoute = true
-            } catch (e: IllegalArgumentException) {
-                DebugLog.w(TAG, "Route \"$cidr\" gagal dipasang ke TUN", e)
-                StatusBus.log("[Route] \"$cidr\" gagal dipasang -- diabaikan")
-            }
-        }
-        // Sama seperti fallback DEFAULT_DNS dulu: kalau SEMUA entri gagal
-        // (bukan cuma kosong, tapi format-nya tidak valid semua), TUN tanpa
-        // rute sama sekali bikin device kehilangan internet total -- jaga
-        // dengan satu fallback terakhir ke default route.
-        if (!addedAnyRoute) {
-            try {
-                builder.addRoute("0.0.0.0", 0)
-                StatusBus.log("[Route] Semua Custom Routes gagal dipasang -- fallback ke 0.0.0.0/0")
-            } catch (e: IllegalArgumentException) {
-                DebugLog.w(TAG, "Fallback 0.0.0.0/0 juga gagal dipasang ke TUN", e)
-            }
-        }
-
-        val excludedEntries = parseCidrEntries(vpnSettings.excludedRoutes)
-        if (excludedEntries.isEmpty()) return
-
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            // android.net.IpPrefix + Builder.excludeRoute() baru ada sejak
-            // API 33 -- TIDAK ADA API pengganti yang setara untuk versi
-            // Android di bawah itu, jadi Excluded Routes cuma diam (dicatat
-            // ke log, BUKAN gagal diam-diam) di device lama.
-            StatusBus.log(
-                "[Route] Excluded Routes butuh Android 13+ (API 33) -- " +
-                    "diabaikan di device ini (API ${Build.VERSION.SDK_INT})"
-            )
-            return
-        }
-        for (cidr in excludedEntries) {
-            val parsed = parseCidr(cidr)
-            if (parsed == null) {
-                StatusBus.log("[Route] Excluded \"$cidr\" bukan CIDR valid -- diabaikan")
-                continue
-            }
-            val (address, prefix) = parsed
-            try {
-                val ipPrefix = android.net.IpPrefix(java.net.InetAddress.getByName(address), prefix)
-                builder.excludeRoute(ipPrefix)
-            } catch (e: Exception) {
-                DebugLog.w(TAG, "Excluded route \"$cidr\" gagal diterapkan", e)
-                StatusBus.log("[Route] Excluded \"$cidr\" gagal diterapkan -- diabaikan")
-            }
-        }
-    }
-
-    /**
-     * Pecah string CIDR dipisah ";" (juga toleransi "," dan baris baru,
-     * biar user yang paste dari sumber lain tidak perlu edit manual dulu)
-     * jadi list, buang entri kosong. TIDAK memvalidasi format di sini --
-     * validasi per-entri dilakukan di [parseCidr] saat dipakai.
-     */
-    private fun parseCidrEntries(raw: String): List<String> =
-        raw.split(';', ',', '\n')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-
-    /**
-     * Parse satu entri "ip/prefix" (mis. "10.0.0.0/8") jadi pasangan
-     * (alamat, prefix). Null kalau formatnya bukan CIDR IPv4 yang valid
-     * (bukan 2 bagian dipisah "/", alamat bukan literal IP, atau prefix di
-     * luar rentang 0-32) -- addRoute()/IpPrefix() sendiri juga akan
-     * menolak alamat yang tidak literal, tapi validasi di sini supaya
-     * pesan errornya lebih jelas ("bukan CIDR valid") sebelum sampai ke
-     * exception generik dari API Android.
-     */
-    private fun parseCidr(entry: String): Pair<String, Int>? {
-        val parts = entry.split('/')
-        if (parts.size != 2) return null
-        val address = parts[0].trim()
-        val prefix = parts[1].trim().toIntOrNull() ?: return null
-        if (prefix < 0 || prefix > 32) return null
-        if (!android.util.Patterns.IP_ADDRESS.matcher(address).matches()) return null
-        return address to prefix
     }
 
     /**
@@ -1565,8 +1446,8 @@ class MyVpnService : VpnService() {
             val builder = Builder()
                 .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
+                .addRoute("0.0.0.0", 0)
                 .setMtu(currentMtu)
-            applyRoutes(builder, vpnSettings)
             applyDnsServers(builder, config, vpnSettings)
 
             vpnInterface = try {
