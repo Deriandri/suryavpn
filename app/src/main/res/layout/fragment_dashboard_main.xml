@@ -227,8 +227,8 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Card: Catatan (menggantikan tampilan "Tahapan Koneksi" yang lama
-             -- dipindahkan dari tab Log, lihat DashboardLogFragment/
+        <!-- Card: Catatan (menggantikan tampilan "Tahapan Koneksi" yang lama,
+             dipindahkan dari tab Log, lihat DashboardLogFragment/
              fragment_dashboard_log.xml lama). PERMINTAAN USER: tampilan
              daftar tahap bertitik/timeline DIHILANGKAN, diganti kartu
              catatan sederhana satu TextView (tvNotes) yang isinya dirender

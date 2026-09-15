@@ -84,6 +84,31 @@
         <item name="android:textColorHint">@color/text_hint</item>
         <item name="boxStrokeColor">@color/brand_primary</item>
         <item name="boxStrokeErrorColor">@color/status_error</item>
+        <item name="placeholderTextColor">@color/text_hint</item>
+    </style>
+
+    <!-- PERBAIKAN BUG TAMPILAN (dialog Detail Ekspor & lain-lain yang dibuat
+         murni lewat Kotlin, tanpa XML): [dialogInputLayout] sebelumnya
+         membungkus context dengan ContextThemeWrapper memakai
+         [R.style.Field_Outlined] langsung sebagai "tema", tapi itu TIDAK sama
+         dengan memasang style tersebut sebagai style widget-nya. TextInputLayout
+         yang dibuat lewat constructor tanpa AttributeSet selalu mencari
+         style-nya dari atribut tema `?attr/textInputStyle`
+         (com.google.android.material.R.attr.textInputStyle), BUKAN dari
+         atribut-atribut custom di dalam Field.Outlined (boxCornerRadius, dst)
+         yang ikut "dicat" ke tema oleh ContextThemeWrapper. Karena tema app
+         ini tidak pernah menimpa `textInputStyle`, TextInputLayout jatuh
+         balik ke default Material3 (filled box / garis bawah polos), persis
+         bug "kotak outline hilang" yang terlihat di dialog Impor/Ekspor.
+         ThemeOverlay ini SATU-SATUNYA isinya adalah menimpa `textInputStyle`
+         agar menunjuk ke Field.Outlined, sehingga begitu context dibungkus
+         dengan overlay ini (bukan Field.Outlined langsung), constructor
+         TextInputLayout(context) akan resolve `?attr/textInputStyle` ke
+         Field.Outlined dengan benar, menghasilkan kotak outline bulat +
+         garis ungu brand yang konsisten dengan field lain di app (lihat
+         [dialogInputLayout] di ConfigActivity.kt). -->
+    <style name="ThemeOverlay.TunnelApp.OutlinedField" parent="">
+        <item name="textInputStyle">@style/Field.Outlined</item>
     </style>
 
     <style name="Button.Primary" parent="Widget.Material3.Button">
@@ -191,6 +216,89 @@
         <item name="buttonBarNeutralButtonStyle">@style/TunnelApp.Dialog.Button.Neutral</item>
         <item name="android:windowAnimationStyle">@style/Animation.TunnelApp.Dialog</item>
         <item name="android:backgroundDimAmount">0.45</item>
+    </style>
+
+    <!-- REDESIGN dialog "Impor konfigurasi" (permintaan user: gaya "glass"
+         ungu-biru sesuai contoh gambar) — dipakai HANYA oleh dialog itu
+         (lihat ConfigActivity.onImportClicked()), dialog lain di app ini
+         tetap pakai ThemeOverlay.TunnelApp.Dialog biasa supaya tidak ikut
+         berubah. Warna background kartu sendiri dipasang manual lewat
+         drawable/bg_dialog_import_glass.xml (lihat komentar di file
+         tersebut kenapa tidak cukup lewat android:windowBackground di
+         sini) — colorSurface di bawah cuma cadangan tipis kalau
+         MaterialShapeDrawable sempat kegambar sekilas sebelum ditimpa. -->
+    <style name="ThemeOverlay.TunnelApp.Dialog.Import" parent="ThemeOverlay.TunnelApp.Dialog">
+        <item name="colorSurface">@color/import_glass_bg_start</item>
+        <item name="materialAlertDialogTitleTextStyle">@style/TunnelApp.Dialog.Title.Import</item>
+        <item name="buttonBarPositiveButtonStyle">@style/TunnelApp.Dialog.Button.Positive.Import</item>
+        <item name="buttonBarNegativeButtonStyle">@style/TunnelApp.Dialog.Button.Negative.Import</item>
+        <item name="buttonBarNeutralButtonStyle">@style/TunnelApp.Dialog.Button.Neutral.Import</item>
+        <item name="android:backgroundDimAmount">0.55</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Title.Import" parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:textColor">@color/import_glass_title_text</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">26sp</item>
+    </style>
+
+    <!-- Tombol "Impor" (positive) tampil sebagai pill terisi warna
+         teal/cyan lembut, meniru tombol highlight di contoh gambar —
+         sengaja pakai Widget.Material3.Button (contained), BUKAN varian
+         TextButton.Dialog seperti tombol lain, supaya benar-benar terisi
+         warna, bukan teks polos. -->
+    <style name="TunnelApp.Dialog.Button.Positive.Import" parent="Widget.Material3.Button">
+        <item name="backgroundTint">@color/import_pill_solid</item>
+        <item name="android:textColor">@color/import_pill_text</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="cornerRadius">100dp</item>
+        <item name="android:paddingStart">28dp</item>
+        <item name="android:paddingEnd">28dp</item>
+        <item name="elevation">0dp</item>
+        <item name="rippleColor">#330A3B40</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Button.Negative.Import" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/import_glass_button_text</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="rippleColor">#1F28339C</item>
+    </style>
+
+    <style name="TunnelApp.Dialog.Button.Neutral.Import" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/import_glass_button_text</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="rippleColor">#1F28339C</item>
+    </style>
+
+    <!-- Kotak input di dialog Impor: pill penuh (bukan outline persegi
+         seperti Field.Outlined), latar putih transparan ala kaca, tanpa
+         label mengambang — cuma placeholder abu-abu di dalam kotak,
+         persis contoh gambar. -->
+    <style name="Field.Pill.Import" parent="Widget.Material3.TextInputLayout.FilledBox">
+        <item name="boxBackgroundMode">filled</item>
+        <item name="boxBackgroundColor">@color/import_glass_input_bg</item>
+        <item name="boxCornerRadiusTopStart">28dp</item>
+        <item name="boxCornerRadiusTopEnd">28dp</item>
+        <item name="boxCornerRadiusBottomStart">28dp</item>
+        <item name="boxCornerRadiusBottomEnd">28dp</item>
+        <item name="boxStrokeWidth">0dp</item>
+        <item name="boxStrokeWidthFocused">1dp</item>
+        <item name="boxStrokeColor">@color/import_glass_input_stroke</item>
+        <item name="hintTextColor">@color/import_glass_placeholder</item>
+        <item name="android:textColorHint">@color/import_glass_placeholder</item>
+        <item name="placeholderTextColor">@color/import_glass_placeholder</item>
+        <item name="android:layout_marginTop">18dp</item>
+    </style>
+
+    <!-- Sama polanya dengan ThemeOverlay.TunnelApp.OutlinedField: satu-
+         satunya isi overlay ini adalah menimpa ?attr/textInputStyle,
+         karena TextInputLayout(context) tanpa AttributeSet HANYA membaca
+         style widget-nya lewat atribut tema itu. -->
+    <style name="ThemeOverlay.TunnelApp.PillField.Import" parent="">
+        <item name="textInputStyle">@style/Field.Pill.Import</item>
     </style>
 </resources>
 

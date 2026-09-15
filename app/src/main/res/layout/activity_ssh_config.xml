@@ -581,7 +581,7 @@
              SavedConfig.dns1/dns2) tidak perlu diubah & tetap kompilasi;
              DNS per-profil ini sekarang cuma efektif diisi dari data lama
              (kalau ada). Kartu "Pengaturan > VPN Setting" SUDAH TIDAK PUNYA
-             field DNS manual lagi -- cuma switch "DNS Default Otomatis"
+             field DNS manual lagi, cuma switch "DNS Default Otomatis"
              (dnsFallbackEnabled) yang menentukan apakah DNS default
              (1.1.1.1) dipasang saat DNS1/DNS2 di sini kosong dua-duanya
              (lihat VpnSettingsStore & MyVpnService.applyDnsServers). -->

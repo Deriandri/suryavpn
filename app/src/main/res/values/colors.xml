@@ -83,6 +83,24 @@
     <color name="section_title_gradient_mid">#4F46E5</color>
     <color name="section_title_gradient_end">#4338CA</color>
 
+    <!-- REDESIGN dialog "Impor konfigurasi" (permintaan user: gaya "glass"
+         ungu-biru sesuai contoh gambar) — dipakai KHUSUS oleh
+         ThemeOverlay.TunnelApp.Dialog.Import & Field.Pill.Import di
+         themes.xml, lihat ConfigActivity.onImportClicked(). Sengaja warna
+         tetap (tidak ikut values-night) karena kartu "kaca" ini memang
+         dirancang selalu punya tampilan gradasi sendiri, terlepas dari
+         mode terang/gelap sistem — sama seperti hero_gradient_start/end
+         yang juga dikunci. -->
+    <color name="import_glass_bg_start">#CBD0F5</color>
+    <color name="import_glass_bg_end">#AEB6EC</color>
+    <color name="import_glass_title_text">#15152E</color>
+    <color name="import_glass_input_bg">#40FFFFFF</color>
+    <color name="import_glass_input_stroke">#59FFFFFF</color>
+    <color name="import_glass_placeholder">#6C6F92</color>
+    <color name="import_glass_button_text">#28339C</color>
+    <color name="import_pill_solid">#79E3DC</color>
+    <color name="import_pill_text">#0A3B40</color>
+
     <!-- Status -->
     <color name="status_success">#16A34A</color>
     <color name="status_success_bg">#DCFCE7</color>

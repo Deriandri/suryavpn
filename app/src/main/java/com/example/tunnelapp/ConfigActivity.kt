@@ -13,9 +13,11 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.text.Editable
 import android.text.InputType
+import android.text.TextUtils
 import android.text.TextWatcher
 import android.text.format.DateFormat
 import android.util.Base64
+import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -84,6 +86,15 @@ import kotlinx.coroutines.withContext
  */
 class ConfigActivity : AppCompatActivity() {
 
+    private companion object {
+        // Batas panjang kolom "Nama ekspor" di dialog "Detail Ekspor" --
+        // lihat dokumentasi [sanitizeExportName]. Angka ini cukup untuk
+        // label akun normal (jauh di bawah lebar dialog satu baris) tapi
+        // tetap memotong ASCII-art/markup HTML dekoratif dari provider
+        // Cloud Config yang bisa berupa ratusan karakter.
+        private const val MAX_EXPORT_NAME_LENGTH = 60
+    }
+
     private lateinit var binding: ActivityConfigBinding
 
     // FITUR BARU (permintaan user, "kunci edit config saat tunnel
@@ -120,18 +131,80 @@ class ConfigActivity : AppCompatActivity() {
      * terasa seperti kotak polos bawaan Android, melainkan konsisten
      * dengan seluruh form di app: label mengambang, sudut membulat, garis
      * highlight ungu saat fokus.
+     *
+     * PERBAIKAN BUG TAMPILAN (kotak outline hilang, jatuh balik ke garis
+     * bawah polos -- terlihat di dialog "Detail Ekspor"): percobaan
+     * SEBELUMNYA membungkus context dengan [ContextThemeWrapper] memakai
+     * [R.style.Field_Outlined] LANGSUNG sebagai tema ternyata tetap tidak
+     * cukup -- itu hanya "mengecat" atribut-atribut custom milik
+     * Field.Outlined (boxCornerRadius, hintTextColor, dst) ke tema,
+     * padahal TextInputLayout(context) TANPA AttributeSet selalu mencari
+     * style widget-nya lewat atribut tema `?attr/textInputStyle`, bukan
+     * dari atribut-atribut itu. Karena tema app ini tidak pernah menimpa
+     * `textInputStyle`, hasilnya tetap jatuh ke default Material3 (garis
+     * bawah polos). Sekarang dibungkus dengan [R.style.ThemeOverlay_TunnelApp_OutlinedField]
+     * yang isinya SATU baris: menimpa `textInputStyle` agar menunjuk ke
+     * Field.Outlined -- ini yang benar-benar dibaca oleh constructor
+     * TextInputLayout, sehingga hasilnya kotak outline bulat + garis ungu
+     * brand yang konsisten, sama seperti field Host/Port/dst di
+     * SshConfigActivity.
+     *
+     * [placeholderText] (opsional): teks contoh abu-abu yang tampil DI
+     * DALAM kotak saat field masih kosong, terpisah dari label mengambang
+     * (dipakai di kolom "Catatan" pada [showExportDetailsDialog] untuk
+     * mencontohkan format HTML, misal "<b>Akun kantor</b>, dipakai untuk
+     * tim support...").
      */
-    private fun dialogInputLayout(editText: EditText, hintText: String? = null): TextInputLayout {
-        return TextInputLayout(this, null, com.google.android.material.R.attr.textInputOutlinedStyle).apply {
+    private fun dialogInputLayout(
+        editText: EditText,
+        hintText: String? = null,
+        placeholderText: String? = null,
+        // BARU (redesign dialog Impor, permintaan user): dialog Impor
+        // butuh gaya field pill/kaca sendiri (Field.Pill.Import), beda
+        // dari Field.Outlined yang dipakai semua dialog lain -- ditambah
+        // sebagai parameter opsional di sini (default TETAP
+        // OutlinedField lama) supaya semua pemanggil lain (Bagikan akun,
+        // Nama file ekspor, dst) tidak perlu diubah sama sekali.
+        styleOverlay: Int = R.style.ThemeOverlay_TunnelApp_OutlinedField
+    ): TextInputLayout {
+        val styledContext = ContextThemeWrapper(this, styleOverlay)
+        return TextInputLayout(styledContext).apply {
             id = View.generateViewId()
             hintText?.let { hint = it }
-            setBoxCornerRadii(28f, 28f, 28f, 28f)
+            placeholderText?.let { this.placeholderText = it }
             setPadding(24, 8, 24, 0)
             addView(
                 editText,
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
+        }
+    }
+
+    /**
+     * PERBAIKAN BUG (dialog "Detail Ekspor" meluber jadi blok teks HTML
+     * raksasa yang tidak terpotong -- lihat dokumentasi [showExportDetailsDialog]):
+     * mengandalkan `isSingleLine`/`maxLines`/`ellipsize` SAJA di [EditText]
+     * ternyata tidak cukup untuk menjamin tampilan tetap satu baris rapi
+     * begitu [defaultName] diisi provider dengan ASCII-art/markup HTML
+     * dekoratif ber-newline (kasus akun hasil sinkron "Cloud Config").
+     * Sekarang [defaultName] dibersihkan DI LEVEL DATA sebelum sampai ke
+     * EditText sama sekali, supaya perilakunya tidak lagi bergantung pada
+     * kuirk rendering TextView:
+     *  1. buang semua tag HTML (`<...>`),
+     *  2. ratakan semua whitespace/baris baru jadi satu spasi,
+     *  3. potong ke [MAX_EXPORT_NAME_LENGTH] karakter + "…" kalau lebih
+     *     panjang dari itu.
+     * Hasilnya selalu satu baris pendek yang aman ditampilkan apa pun
+     * konten aslinya.
+     */
+    private fun sanitizeExportName(raw: String): String {
+        val noTags = raw.replace(Regex("<[^>]*>"), " ")
+        val collapsed = noTags.replace(Regex("\\s+"), " ").trim()
+        return if (collapsed.length > MAX_EXPORT_NAME_LENGTH) {
+            collapsed.take(MAX_EXPORT_NAME_LENGTH).trimEnd() + "…"
+        } else {
+            collapsed
         }
     }
 
@@ -803,13 +876,37 @@ class ConfigActivity : AppCompatActivity() {
         // atau kode teks) sekarang BARU muncul SETELAH form
         // [showExportDetailsDialog] dikonfirmasi -- lihat dokumentasinya.
         showExportDetailsDialog(defaultName = profile.config.accountName.trim()) { name, note ->
+            // BARU (permintaan user, "nama ekspor konfig dibikin menyatu
+            // dengan nama akun -- ketik nama ekspor, nama akun ikut
+            // berubah juga"): kalau nama yang diketik di kolom "Nama
+            // ekspor" TIDAK KOSONG dan beda dari nama akun saat ini,
+            // langsung TIMPA nama akun tersimpan itu juga lewat
+            // [ProfileStore.upsert] (id tetap sama, cuma accountName yang
+            // berubah) supaya keduanya selalu menyatu/sama. Profil yang
+            // dipakai untuk proses ekspor selanjutnya ([effectiveProfile])
+            // ikut pakai nama baru ini juga, supaya isi hasil ekspornya
+            // (JSON/kode) konsisten dengan nama akun yang baru, bukan
+            // nama lama. INI CUMA berlaku di sini (ekspor SATU akun) --
+            // TIDAK berlaku sama sekali untuk "Ekspor Semua Akun"
+            // ([onExportAllClicked]) karena satu nama yang diketik user
+            // di situ tidak boleh menimpa nama SEMUA akun sekaligus.
+            val trimmedName = name.trim()
+            val effectiveProfile = if (trimmedName.isNotEmpty() && trimmedName != profile.config.accountName.trim()) {
+                val renamedConfig = profile.config.copy(accountName = trimmedName)
+                ProfileStore.upsert(this, id = profile.id, config = renamedConfig)
+                refreshAccountsList()
+                profile.copy(config = renamedConfig)
+            } else {
+                profile
+            }
+
             val options = arrayOf("Simpan sebagai File (.spn)", "Kode Teks (Salin/Bagikan)")
             newDialogBuilder()
                 .setTitle("Ekspor akun ini")
                 .setItems(options) { _, which ->
                     when (which) {
-                        0 -> onExportToFileClicked(listOf(profile), name, note)
-                        1 -> shareRowAsTextCode(profile, name, note)
+                        0 -> onExportToFileClicked(listOf(effectiveProfile), trimmedName, note)
+                        1 -> shareRowAsTextCode(effectiveProfile, trimmedName, note)
                     }
                 }
                 .setNegativeButton("Batal", null)
@@ -832,6 +929,24 @@ class ConfigActivity : AppCompatActivity() {
      *    bisa dirender sebagai HTML di tempat lain, sesuai permintaan user.
      * [onConfirmed] menerima (nama, catatan) apa adanya (sudah di-trim),
      * dan HANYA dipanggil kalau user menekan "Lanjut" (bukan "Batal").
+     *
+     * PERBAIKAN BUG (dialog pecah/meluber keluar layar): [defaultName]
+     * datang dari [SavedProfile.config.accountName], yang untuk akun hasil
+     * sinkron "Cloud Config" bisa saja diisi provider dengan remark/"ps"
+     * super panjang berisi ASCII art & tag HTML dekoratif (bukan cuma satu
+     * baris nama pendek seperti "TES UNLOCK"). SEBELUMNYA [nameInput]
+     * tidak dibatasi baris/panjangnya sama sekali, jadi begitu diisi teks
+     * semacam itu, EditText ikut melar puluhan baris ke bawah dan
+     * mendorong seluruh dialog meluber keluar batas layar. Sekarang:
+     *  - [nameInput] DIKUNCI satu baris (isSingleLine + maxLines=1 +
+     *    ellipsize) -- nama ekspor memang cuma label singkat, jadi teks
+     *    berlebih cukup dipotong "..." & tetap bisa digeser/diedit, tidak
+     *    lagi memaksa tinggi dialog membengkak.
+     *  - [noteInput] (yang memang boleh multi-baris untuk HTML) dibatasi
+     *    tinggi maksimalnya (maxLines) dengan scroll internal sendiri,
+     *    supaya kalau user tempel catatan yang sangat panjang, kotaknya
+     *    berhenti pada tinggi wajar & bisa digulir, bukan mendorong isi
+     *    ScrollView pembungkus jadi raksasa.
      */
     private fun showExportDetailsDialog(
         defaultName: String,
@@ -839,13 +954,20 @@ class ConfigActivity : AppCompatActivity() {
     ) {
         val nameInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT
+            isSingleLine = true
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            filters = arrayOf(android.text.InputFilter.LengthFilter(MAX_EXPORT_NAME_LENGTH))
             setPadding(48, 32, 48, 8)
-            setText(defaultName)
-            setSelection(defaultName.length)
+            setText(sanitizeExportName(defaultName))
+            setSelection(0)
         }
         val noteInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             minLines = 3
+            maxLines = 8
+            isVerticalScrollBarEnabled = true
+            movementMethod = android.text.method.ScrollingMovementMethod()
             setPadding(48, 8, 48, 32)
         }
 
@@ -853,7 +975,13 @@ class ConfigActivity : AppCompatActivity() {
             addView(LinearLayout(this@ConfigActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(dialogInputLayout(nameInput, "Nama ekspor (opsional)"))
-                addView(dialogInputLayout(noteInput, "Catatan, mendukung HTML (opsional)"))
+                addView(
+                    dialogInputLayout(
+                        noteInput,
+                        "Catatan, mendukung HTML (opsional)",
+                        placeholderText = "<b>Akun kantor</b>, dipakai untuk tim support..."
+                    )
+                )
             })
         }
 
@@ -1046,14 +1174,29 @@ class ConfigActivity : AppCompatActivity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
             minLines = 4
             setPadding(48, 32, 48, 32)
+            setTextColor(ContextCompat.getColor(context, R.color.import_glass_title_text))
+            setHintTextColor(ContextCompat.getColor(context, R.color.import_glass_placeholder))
         }
         // Dibungkus ScrollView supaya tetap nyaman diketik/ditempel kalau
         // isinya panjang (JSON hasil ekspor banyak akun bisa lumayan panjang).
+        // REDESIGN (permintaan user: tampilan dialog Impor jadi "glass"
+        // ungu-biru sesuai contoh gambar) -- kotaknya sekarang pill/kaca
+        // (Field.Pill.Import) lewat parameter [styleOverlay] baru di
+        // [dialogInputLayout], dan teksnya dipasang sebagai
+        // [placeholderText] (BUKAN [hintText]) supaya tampil sebagai
+        // placeholder statis di dalam kotak, tanpa label mengambang --
+        // persis seperti contoh gambar.
         val container = ScrollView(this).apply {
-            addView(dialogInputLayout(input, "Tempel kode akun (SVPN2:...) atau isi file JSON hasil ekspor di sini"))
+            addView(
+                dialogInputLayout(
+                    input,
+                    placeholderText = "Tempel kode akun (SVPN2:...) atau isi file JSON hasil ekspor di sini",
+                    styleOverlay = R.style.ThemeOverlay_TunnelApp_PillField_Import
+                )
+            )
         }
 
-        newDialogBuilder()
+        val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog_Import)
             .setTitle("Impor konfigurasi")
             .setView(container)
             .setNegativeButton("Batal", null)
@@ -1063,7 +1206,16 @@ class ConfigActivity : AppCompatActivity() {
             .setPositiveButton("Impor") { _, _ ->
                 performImport(input.text?.toString().orEmpty())
             }
-            .show()
+            .create()
+        // PENTING: MaterialAlertDialogBuilder.create() SELALU menimpa
+        // background window dengan MaterialShapeDrawable solid warna
+        // colorSurface, terlepas dari android:windowBackground apa pun
+        // yang dipasang di tema overlay -- satu-satunya cara drawable
+        // gradasi "kaca" (bg_dialog_import_glass) benar-benar kepakai
+        // adalah memasangnya lagi di sini, SETELAH create(), SEBELUM
+        // show(). Lihat juga komentar di drawable itu sendiri.
+        dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_import_glass)
+        dialog.show()
     }
 
     /**
@@ -1093,6 +1245,48 @@ class ConfigActivity : AppCompatActivity() {
     }
 
     /**
+     * BARU (permintaan user, "ekspor konfig semua dirubah logikanya jadi
+     * flexible dan harus centang konfig yang mau diekspor"): SEBELUM
+     * [onExportAllClicked] dulu langsung mengekspor SEMUA akun tanpa
+     * tanya-tanya -- sekarang WAJIB lewat checklist di sini dulu, supaya
+     * user bebas pilih sendiri kombinasi akun mana saja yang mau ikut
+     * (tidak harus benar-benar "semua"). Default checklist ini SEMUA
+     * akun ke-centang (kasus paling umum: user memang mau ekspor semua),
+     * tapi tiap baris bisa dicentang/dilepas bebas satu-satu SEBELUM
+     * menekan "Lanjut". Kalau user menekan "Lanjut" tanpa satupun akun
+     * ter-centang, tampilkan Toast peringatan & dialog checklist ini
+     * TETAP terbuka (tidak lanjut ke [onPicked]) -- supaya tidak pernah
+     * kejadian ekspor dengan daftar akun kosong.
+     * [onPicked] menerima sublist [profiles] SESUAI URUTAN ASLINYA (bukan
+     * urutan dicentang), berisi hanya akun-akun yang ter-centang.
+     */
+    private fun showExportAccountPicker(
+        profiles: List<SavedProfile>,
+        onPicked: (List<SavedProfile>) -> Unit
+    ) {
+        val labels = profiles
+            .map { it.config.accountName.trim().ifEmpty { "(Tanpa nama)" } }
+            .toTypedArray()
+        val checked = BooleanArray(profiles.size) { true }
+
+        newDialogBuilder()
+            .setTitle("Pilih Akun untuk Diekspor")
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setNegativeButton("Batal", null)
+            .setPositiveButton("Lanjut") { _, _ ->
+                val selected = profiles.filterIndexed { index, _ -> checked[index] }
+                if (selected.isEmpty()) {
+                    Toast.makeText(this, "Pilih minimal satu akun untuk diekspor", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                onPicked(selected)
+            }
+            .show()
+    }
+
+    /**
      * Ekspor SEMUA akun tersimpan -- BARU (permintaan user, "tambah fungsi
      * ekspor salin clipboard"): sekarang ada DUA jalur, ditanya dulu lewat
      * dialog pilihan di sini:
@@ -1107,6 +1301,14 @@ class ConfigActivity : AppCompatActivity() {
      *     (permintaan user, "hasil salin clipboard itu langsung pakai
      *     logika lock all") supaya teks yang gampang ke-paste ke mana pun
      *     itu selalu dalam kondisi paling aman/tersamar.
+     *
+     * REDESIGN (permintaan user, "dirubah logikanya jadi flexible dan
+     * harus centang konfig yang mau diekspor"): SEBELUM form Detail
+     * Ekspor & pemilihan format di bawah tampil, akun yang ikut diekspor
+     * sekarang HARUS dipilih dulu lewat checklist [showExportAccountPicker]
+     * -- daftar akun yang benar-benar dipakai di [onExportToFileClicked]/
+     * [onExportToClipboardClicked] adalah [selectedProfiles] (hasil
+     * checklist), BUKAN lagi seluruh [profiles] begitu saja.
      */
     private fun onExportAllClicked() {
         val profiles = ProfileStore.getAll(this)
@@ -1114,22 +1316,24 @@ class ConfigActivity : AppCompatActivity() {
             Toast.makeText(this, "Belum ada akun untuk diekspor", Toast.LENGTH_SHORT).show()
             return
         }
-        // FITUR BARU (permintaan user, "sebelum pemilihan jenis konfig
-        // dikasih form nama & catatan"): sama seperti [onShareRowClicked],
-        // dialog pilihan format di bawah baru muncul setelah form
-        // [showExportDetailsDialog] dikonfirmasi.
-        showExportDetailsDialog(defaultName = "") { name, note ->
-            val options = arrayOf("Simpan sebagai File (.spn)", "Salin ke Clipboard")
-            newDialogBuilder()
-                .setTitle("Ekspor Semua Akun")
-                .setItems(options) { _, which ->
-                    when (which) {
-                        0 -> onExportToFileClicked(profiles, name, note)
-                        1 -> onExportToClipboardClicked(profiles, name, note)
+        showExportAccountPicker(profiles) { selectedProfiles ->
+            // FITUR BARU (permintaan user, "sebelum pemilihan jenis konfig
+            // dikasih form nama & catatan"): sama seperti [onShareRowClicked],
+            // dialog pilihan format di bawah baru muncul setelah form
+            // [showExportDetailsDialog] dikonfirmasi.
+            showExportDetailsDialog(defaultName = "") { name, note ->
+                val options = arrayOf("Simpan sebagai File (.spn)", "Salin ke Clipboard")
+                newDialogBuilder()
+                    .setTitle("Ekspor Akun Terpilih")
+                    .setItems(options) { _, which ->
+                        when (which) {
+                            0 -> onExportToFileClicked(selectedProfiles, name, note)
+                            1 -> onExportToClipboardClicked(selectedProfiles, name, note)
+                        }
                     }
-                }
-                .setNegativeButton("Batal", null)
-                .show()
+                    .setNegativeButton("Batal", null)
+                    .show()
+            }
         }
     }
 
