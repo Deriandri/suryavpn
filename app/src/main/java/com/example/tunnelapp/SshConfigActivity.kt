@@ -565,7 +565,13 @@ class SshConfigActivity : AppCompatActivity() {
                 dns2 = dns2,
                 accountName = accountName,
                 isLocked = originalConfig?.isLocked ?: false,
-                lockMode = originalConfig?.lockMode ?: ConfigLockMode.NONE
+                lockMode = originalConfig?.lockMode ?: ConfigLockMode.NONE,
+                // FITUR BARU (permintaan user, "catatan hasil impor tampil
+                // di menu Catatan Dashboard"): dipertahankan apa adanya
+                // sama seperti isLocked/lockMode di atas -- tanpa ini,
+                // catatan akun hasil impor ke-reset diam-diam jadi kosong
+                // tiap kali profil ini disimpan ulang lewat layar edit ini.
+                note = originalConfig?.note ?: ""
             )
         )
 

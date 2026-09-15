@@ -580,9 +580,10 @@
              yang masih membaca/menulis binding.etDns1/etDns2 ke
              SavedConfig.dns1/dns2) tidak perlu diubah & tetap kompilasi;
              DNS per-profil ini sekarang cuma efektif diisi dari data lama
-             (kalau ada), dan yang dipakai user untuk override DNS sehari-hari
-             cukup lewat "Pengaturan > VPN Setting" (etVpnDns1/etVpnDns2 di
-             SettingsActivity), yang MENIMPA nilai di sini juga kalau diisi
+             (kalau ada). Kartu "Pengaturan > VPN Setting" SUDAH TIDAK PUNYA
+             field DNS manual lagi -- cuma switch "DNS Default Otomatis"
+             (dnsFallbackEnabled) yang menentukan apakah DNS default
+             (1.1.1.1) dipasang saat DNS1/DNS2 di sini kosong dua-duanya
              (lihat VpnSettingsStore & MyVpnService.applyDnsServers). -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"

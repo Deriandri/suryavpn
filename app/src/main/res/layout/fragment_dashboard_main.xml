@@ -14,9 +14,15 @@
      - Card "Kontrol Koneksi" dapat sub-judul + tombol yang lebih besar dan
        memakai ikon power.
      - Semua id yang dipakai DashboardMainFragment.kt (pillStatus, tvStatus,
-       tvActiveProfile, btnConnectToggle, tvLogEmpty, llLogSteps) TETAP
-       dipertahankan persis, cuma gaya visualnya yang berubah - supaya kode
-       Kotlin yang sudah ada tidak perlu diubah sama sekali. -->
+       tvActiveProfile, btnConnectToggle) TETAP dipertahankan persis, cuma
+       gaya visualnya yang berubah - supaya kode Kotlin yang sudah ada
+       tidak perlu diubah sama sekali.
+
+     UPDATE (permintaan user): kartu "Tahapan Koneksi" (daftar bertitik/
+     timeline, id lama tvLogEmpty + llLogSteps) DIHILANGKAN, diganti kartu
+     "Catatan" (tvNotes) yang isinya dirender lewat HtmlCompat.fromHtml di
+     DashboardMainFragment.renderNotes(), supaya ke depannya kartu ini bisa
+     menampilkan teks berformat HTML apa pun. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -221,12 +227,16 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Card: Tahapan Koneksi (dipindahkan dari tab Log, lihat
-             DashboardLogFragment/fragment_dashboard_log.xml lama). PERMINTAAN
-             USER (update): sebelumnya di atas "Profil aktif", sekarang
-             dipindah ke BAWAH card "Kontrol Koneksi" supaya tombol
-             Connect/Disconnect langsung terlihat duluan tanpa perlu scroll
-             lewat progres tahapan koneksi dulu. -->
+        <!-- Card: Catatan (menggantikan tampilan "Tahapan Koneksi" yang lama
+             -- dipindahkan dari tab Log, lihat DashboardLogFragment/
+             fragment_dashboard_log.xml lama). PERMINTAAN USER: tampilan
+             daftar tahap bertitik/timeline DIHILANGKAN, diganti kartu
+             catatan sederhana satu TextView (tvNotes) yang isinya dirender
+             lewat HtmlCompat.fromHtml (lihat
+             DashboardMainFragment.renderNotes()) supaya ke depannya bisa
+             menampilkan teks berformat HTML apa pun (bold/warna/link/dst),
+             bukan cuma daftar status kaku. textIsSelectable supaya isi
+             catatan bisa disalin user seperti halnya di tab Log. -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"
             android:layout_width="match_parent"
@@ -238,59 +248,23 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <!-- REDESIGN (permintaan user: kartu ini lebih profesional/
-                     modern/smooth): judul digabung satu baris dengan badge
-                     progres "x/y selesai" (tvStepsProgress) di kanan —
-                     diisi & disembunyikan otomatis dari
-                     DashboardMainFragment.renderLogSteps(), sama seperti
-                     tvLogEmpty/llLogSteps sebelumnya. -->
-                <LinearLayout
-                    android:layout_width="match_parent"
+                <TextView
+                    style="@style/SectionTitleText"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        style="@style/SectionTitleText"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginBottom="0dp"
-                        android:text="Tahapan Koneksi" />
-
-                    <TextView
-                        android:id="@+id/tvStepsProgress"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:background="@drawable/bg_pill_brand_soft"
-                        android:paddingHorizontal="10dp"
-                        android:paddingVertical="4dp"
-                        android:textColor="@color/brand_primary_dark"
-                        android:textSize="11.5sp"
-                        android:textStyle="bold"
-                        android:visibility="gone"
-                        tools:text="6/8 selesai" />
-                </LinearLayout>
+                    android:text="Catatan" />
 
                 <TextView
-                    android:id="@+id/tvLogEmpty"
+                    android:id="@+id/tvNotes"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:lineSpacingExtra="2dp"
-                    android:text="Belum ada aktivitas koneksi. Tekan Connect di tab Main untuk memulai."
+                    android:textIsSelectable="true"
+                    android:autoLink="web"
+                    android:text="Belum ada catatan. Tekan Connect di tab Main untuk memulai."
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp" />
-
-                <LinearLayout
-                    android:id="@+id/llLogSteps"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginStart="-4dp"
-                    android:layout_marginEnd="-4dp"
-                    android:orientation="vertical"
-                    android:animateLayoutChanges="true" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

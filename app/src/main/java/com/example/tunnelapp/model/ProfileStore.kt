@@ -256,6 +256,7 @@ object ProfileStore {
         editor.putString(k(id, "accountName"), c.accountName)
         editor.putBoolean(k(id, "isLocked"), c.isLocked)
         editor.putString(k(id, "lockMode"), c.lockMode.name)
+        editor.putString(k(id, "note"), c.note)
     }
 
     private fun readConfig(prefs: android.content.SharedPreferences, id: String): SavedConfig? {
@@ -281,7 +282,8 @@ object ProfileStore {
             dns2 = prefs.getString(k(id, "dns2"), "").orEmpty(),
             accountName = prefs.getString(k(id, "accountName"), "").orEmpty(),
             isLocked = prefs.getBoolean(k(id, "isLocked"), false),
-            lockMode = ConfigLockMode.fromName(prefs.getString(k(id, "lockMode"), null))
+            lockMode = ConfigLockMode.fromName(prefs.getString(k(id, "lockMode"), null)),
+            note = prefs.getString(k(id, "note"), "").orEmpty()
         )
     }
 
@@ -290,7 +292,7 @@ object ProfileStore {
             "host", "port", "username", "password", "modeIndex", "sni", "payload",
             "proxyHost", "proxyPort", "tlsVersion", "useWebSocket", "wsPath",
             "proxyRawMode", "xrayLink", "customHeaders", "ignoreCertErrors", "dns1", "dns2",
-            "accountName", "isLocked", "lockMode"
+            "accountName", "isLocked", "lockMode", "note"
         )) {
             editor.remove(k(id, field))
         }

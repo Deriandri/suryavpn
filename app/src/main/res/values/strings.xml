@@ -15,7 +15,7 @@
     <string name="settings_subtitle">Pengaturan VPN &amp; info aplikasi</string>
 
     <!-- Kartu: Tampilan -->
-    <string name="section_display">Tampilan</string>
+    <string name="section_display">Tampilan &amp; Bahasa</string>
     <string name="display_desc">Pilih tampilan terang, gelap, atau ikut pengaturan sistem HP.</string>
     <string name="theme_light">Terang</string>
     <string name="theme_dark">Gelap</string>
@@ -64,11 +64,9 @@
     <!-- Kartu: VPN Setting -->
     <string name="section_vpn">VPN Setting</string>
     <string name="dns_label">DNS</string>
-    <string name="dns_desc">Kalau dinyalakan, DNS di bawah menimpa DNS profil SSH/Xray. Mati (default): DNS di sini diabaikan, tetap pakai DNS profil masing-masing.</string>
-    <string name="dns_override_title">Timpa DNS</string>
-    <string name="dns_override_desc">Aktifkan untuk memakai DNS 1/DNS 2 di bawah. Mati secara default.</string>
-    <string name="dns1_hint">DNS 1 (mis. 8.8.8.8)</string>
-    <string name="dns2_hint">DNS 2 (mis. 1.1.1.1)</string>
+    <string name="dns_desc">DNS default (1.1.1.1) otomatis dipasang kalau DNS 1/DNS 2 profil SSH/Xray (diisi di layar Konfigurasi) kosong dua-duanya, supaya resolusi domain tidak gagal total.</string>
+    <string name="dns_fallback_title">DNS Default Otomatis</string>
+    <string name="dns_fallback_desc">Aktif secara default. Matikan kalau tidak mau ada DNS default sama sekali saat DNS profil kosong.</string>
     <string name="mtu_hint">MTU (default 1500)</string>
     <string name="ports_desc">Kosongkan port di bawah untuk pakai default masing-masing profil. SOCKS5 Port menimpa port semua profil. HTTP Port menyalakan proxy HTTP lokal tambahan (chaining ke SOCKS5) untuk app yang cuma dukung proxy HTTP. UDPGW Port, kalau diisi, meneruskan UDP non-DNS (game, QUIC/HTTP3, VoIP) lewat proses badvpn-udpgw di server (server WAJIB sudah menjalankan badvpn-udpgw di port ini).</string>
     <string name="socks_port_hint">SOCKS5 Port (opsional)</string>
@@ -94,8 +92,6 @@
     <string name="battery_settings_open_failed">Tidak bisa membuka pengaturan baterai di device ini</string>
     <string name="btn_save_vpn">Simpan VPN Setting</string>
     <string name="toast_vpn_saved">VPN Setting disimpan</string>
-    <string name="error_dns1">Harus alamat IP (mis. 1.1.1.1), bukan domain</string>
-    <string name="error_dns2">Harus alamat IP (mis. 1.0.0.1), bukan domain</string>
     <string name="error_mtu">MTU harus angka %1$d-%2$d</string>
     <string name="error_port">%1$s harus angka %2$d-%3$d, atau kosongkan</string>
     <string name="port_socks5_label">SOCKS5 Port</string>

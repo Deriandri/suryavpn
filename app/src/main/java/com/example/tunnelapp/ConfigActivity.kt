@@ -44,9 +44,12 @@ import com.example.tunnelapp.model.decryptWholeFileBytes
 import com.example.tunnelapp.model.encryptWholeFileBytes
 import com.example.tunnelapp.model.importConfigsFromText
 import com.example.tunnelapp.model.profilesToJson
+import com.example.tunnelapp.tunnel.StatusBus
 import com.example.tunnelapp.tunnel.XrayLinkParser
 import java.io.File
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -82,6 +85,17 @@ import kotlinx.coroutines.withContext
 class ConfigActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityConfigBinding
+
+    // FITUR BARU (permintaan user, "kunci edit config saat tunnel
+    // terhubung"): diisi lewat collector StatusBus.state di onCreate,
+    // dipakai bindAccountRow() buat memblokir tombol Edit KHUSUS baris
+    // akun yang SEDANG AKTIF (isActive == true) selagi tunnel-nya benar-
+    // benar terhubung -- akun lain yang tidak dipakai tunnel tetap bebas
+    // diedit seperti biasa, karena tidak memengaruhi tunnel yang sedang
+    // jalan. Definisi "terhubung" dipusatkan di StatusBus.isConnected()
+    // supaya sama persis dengan yang menentukan tombol Connect/Disconnect
+    // di Dashboard.
+    private var vpnConnected = false
 
     // --- Dialog modern (permintaan user, "profesional, modern, smooth") -
     //
@@ -268,6 +282,25 @@ class ConfigActivity : AppCompatActivity() {
 
         setupAccountSearch()
         setupBottomNav()
+
+        // FITUR BARU (permintaan user, "kunci edit config saat tunnel
+        // terhubung"): dengarkan StatusBus.state SELAMA layar ini terlihat
+        // (repeatOnLifecycle STARTED, sama pola dengan DashboardMainFragment)
+        // supaya kalau user pindah ke Dashboard buat Connect lalu balik lagi
+        // ke tab Konfigurasi ini SEBELUM proses connect selesai, begitu
+        // status berubah jadi "aktif" tombol Edit baris yang aktif langsung
+        // ikut terkunci tanpa perlu keluar-masuk tab dulu.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                StatusBus.state.collect { status ->
+                    val nowConnected = StatusBus.isConnected(status)
+                    if (nowConnected != vpnConnected) {
+                        vpnConnected = nowConnected
+                        refreshAccountsList()
+                    }
+                }
+            }
+        }
     }
 
     override fun onResume() {
@@ -585,9 +618,29 @@ class ConfigActivity : AppCompatActivity() {
         } else {
             row.tvRowActiveBadge.visibility = View.GONE
             row.tvRowSetActive.visibility = View.VISIBLE
+            // FITUR BARU (permintaan user, "kunci jadikan aktif saat tunnel
+            // terhubung"): selagi ADA tunnel yang terhubung (vpnConnected),
+            // ganti akun aktif diblokir -- bukan cuma buat baris yang lagi
+            // aktif (itu memang tidak akan kelihatan tombol ini, lihat
+            // isActive di atas), tapi buat SEMUA baris lain juga, karena
+            // MyVpnService & notifikasi Connect/Reconnect dari luar app
+            // (lihat MyVpnService.EXTRA_PROFILE_ID) berpatokan ke
+            // ProfileStore.getActive() -- kalau id-nya diganti diam-diam
+            // selagi tunnel jalan, reconnect otomatis/tombol notifikasi bisa
+            // jadi nyambung ke akun yang salah, beda dari yang tadinya
+            // benar-benar terhubung di layar.
+            row.tvRowSetActive.alpha = if (vpnConnected) 0.35f else 1f
             row.tvRowSetActive.setOnClickListener {
-                ProfileStore.setActiveId(this, profile.id)
-                refreshAccountsList()
+                if (vpnConnected) {
+                    Toast.makeText(
+                        this,
+                        "Ada tunnel yang sedang terhubung. Disconnect dulu untuk mengganti akun aktif.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    ProfileStore.setActiveId(this, profile.id)
+                    refreshAccountsList()
+                }
             }
         }
 
@@ -623,13 +676,21 @@ class ConfigActivity : AppCompatActivity() {
             }
         }
 
+        // FITUR BARU (permintaan user, "kunci edit config saat tunnel
+        // terhubung"): Edit akun ini diblokir TAMBAHAN kalau akun ini yang
+        // SEDANG AKTIF (isActive) DAN tunnel-nya benar-benar terhubung
+        // (vpnConnected, lihat collector StatusBus.state di onCreate) --
+        // akun lain yang bukan sedang dipakai tunnel TIDAK terpengaruh,
+        // tetap bebas diedit walau ada tunnel lain yang jalan.
+        val editBlockedByVpn = isActive && vpnConnected
+
         // FITUR BARU (permintaan user, "kunci konfig saat ekspor"): Edit
         // SELALU dipudarkan & diblokir total untuk akun contentLocked, apa
         // pun status isLocked biasa-nya -- beda dari isLocked yang cuma
         // memudarkan kalau memang lagi dikunci user sendiri.
-        val lockedAlpha = if (config.isLocked || contentLocked) 0.35f else 1f
+        val lockedAlpha = if (config.isLocked || contentLocked || editBlockedByVpn) 0.35f else 1f
         row.btnRowEdit.alpha = lockedAlpha
-        row.btnRowDelete.alpha = if (config.isLocked && !contentLocked) 0.35f else 1f
+        row.btnRowDelete.alpha = if ((config.isLocked && !contentLocked) || editBlockedByVpn) 0.35f else 1f
 
         row.btnRowEdit.setOnClickListener {
             when {
@@ -639,6 +700,11 @@ class ConfigActivity : AppCompatActivity() {
                     Toast.LENGTH_LONG
                 ).show()
                 config.isLocked -> Toast.makeText(this, "Akun ini terkunci. Buka kunci dulu untuk mengedit.", Toast.LENGTH_SHORT).show()
+                editBlockedByVpn -> Toast.makeText(
+                    this,
+                    "Akun ini sedang dipakai tunnel yang terhubung. Disconnect dulu untuk mengedit.",
+                    Toast.LENGTH_SHORT
+                ).show()
                 else -> openEditScreen()
             }
         }
@@ -651,6 +717,21 @@ class ConfigActivity : AppCompatActivity() {
             // [SavedConfig.lockMode].
             if (config.isLocked && !contentLocked) {
                 Toast.makeText(this, "Akun ini terkunci. Buka kunci dulu untuk menghapus.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            // FITUR BARU (permintaan user, "kunci hapus saat tunnel
+            // terhubung"): akun yang SEDANG AKTIF & tunnel-nya terhubung
+            // (editBlockedByVpn, sama syaratnya dengan Edit) tidak boleh
+            // dihapus -- menghapus akun yang sedang dipakai tunnel yang
+            // masih jalan bisa bikin ProfileStore.getActive() kehilangan
+            // profil aktifnya di tengah koneksi (reconnect otomatis/tombol
+            // notifikasi jadi tidak tahu harus connect ke mana).
+            if (editBlockedByVpn) {
+                Toast.makeText(
+                    this,
+                    "Akun ini sedang dipakai tunnel yang terhubung. Disconnect dulu untuk menghapus.",
+                    Toast.LENGTH_SHORT
+                ).show()
                 return@setOnClickListener
             }
             // Pakai nama akun kalau ada (row.tvRowTitle sudah menampilkan itu
@@ -717,16 +798,76 @@ class ConfigActivity : AppCompatActivity() {
      *     yang masih pakai tombol "Impor" kode "SVPN1:...".
      */
     private fun onShareRowClicked(profile: SavedProfile) {
-        val options = arrayOf("Simpan sebagai File (.spn)", "Kode Teks (Salin/Bagikan)")
-        newDialogBuilder()
-            .setTitle("Ekspor akun ini")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> onExportToFileClicked(listOf(profile))
-                    1 -> shareRowAsTextCode(profile)
+        // FITUR BARU (permintaan user, "sebelum pemilihan jenis konfig
+        // dikasih form nama & catatan"): dialog pilihan format (file/.spn
+        // atau kode teks) sekarang BARU muncul SETELAH form
+        // [showExportDetailsDialog] dikonfirmasi -- lihat dokumentasinya.
+        showExportDetailsDialog(defaultName = profile.config.accountName.trim()) { name, note ->
+            val options = arrayOf("Simpan sebagai File (.spn)", "Kode Teks (Salin/Bagikan)")
+            newDialogBuilder()
+                .setTitle("Ekspor akun ini")
+                .setItems(options) { _, which ->
+                    when (which) {
+                        0 -> onExportToFileClicked(listOf(profile), name, note)
+                        1 -> shareRowAsTextCode(profile, name, note)
+                    }
                 }
-            }
+                .setNegativeButton("Batal", null)
+                .show()
+        }
+    }
+
+    /**
+     * FITUR BARU (permintaan user): form "Detail Ekspor" yang tampil SEBELUM
+     * dialog pemilihan jenis konfig (file/.spn, kode teks, atau clipboard),
+     * baik untuk ekspor satu akun ([onShareRowClicked]) maupun ekspor semua
+     * ([onExportAllClicked]). Dua kolom, KEDUANYA OPSIONAL (boleh dikosongkan,
+     * "Lanjut" tetap jalan):
+     *  - Nama: label bebas untuk ekspor ini -- kalau diisi, ikut dipakai
+     *    sebagai saran nama file di [showExportFilenameDialog] (jalur
+     *    "Simpan sebagai File").
+     *  - Catatan: teks bebas yang ditulis APA ADANYA (lihat [profilesToJson]/
+     *    [buildShareCode]) ke hasil ekspor -- SENGAJA tidak disaring/di-escape
+     *    di sini supaya boleh berisi markup HTML (atau apa pun) yang nanti
+     *    bisa dirender sebagai HTML di tempat lain, sesuai permintaan user.
+     * [onConfirmed] menerima (nama, catatan) apa adanya (sudah di-trim),
+     * dan HANYA dipanggil kalau user menekan "Lanjut" (bukan "Batal").
+     */
+    private fun showExportDetailsDialog(
+        defaultName: String,
+        onConfirmed: (name: String, note: String) -> Unit
+    ) {
+        val nameInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT
+            setPadding(48, 32, 48, 8)
+            setText(defaultName)
+            setSelection(defaultName.length)
+        }
+        val noteInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 3
+            setPadding(48, 8, 48, 32)
+        }
+
+        val container = ScrollView(this).apply {
+            addView(LinearLayout(this@ConfigActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(dialogInputLayout(nameInput, "Nama ekspor (opsional)"))
+                addView(dialogInputLayout(noteInput, "Catatan, mendukung HTML (opsional)"))
+            })
+        }
+
+        newDialogBuilder()
+            .setTitle("Detail Ekspor")
+            .setMessage("Nama & catatan ini disertakan pada hasil ekspor. Kolom catatan mendukung format HTML.")
+            .setView(container)
             .setNegativeButton("Batal", null)
+            .setPositiveButton("Lanjut") { _, _ ->
+                onConfirmed(
+                    nameInput.text?.toString().orEmpty().trim(),
+                    noteInput.text?.toString().orEmpty().trim()
+                )
+            }
             .show()
     }
 
@@ -780,10 +921,10 @@ class ConfigActivity : AppCompatActivity() {
      *     dua lapis: field terkunci LOCK_ALL di lapis-1, seluruh JSON di
      *     lapis-2).
      */
-    private fun shareRowAsTextCode(profile: SavedProfile) {
+    private fun shareRowAsTextCode(profile: SavedProfile, exportName: String = "", exportNote: String = "") {
         lifecycleScope.launch {
             val code = withContext(Dispatchers.Default) {
-                buildShareCode(profile.config, ConfigLockMode.LOCK_ALL)
+                buildShareCode(profile.config, ConfigLockMode.LOCK_ALL, exportName, exportNote)
             }
             showShareCodeDialog(code)
         }
@@ -973,17 +1114,23 @@ class ConfigActivity : AppCompatActivity() {
             Toast.makeText(this, "Belum ada akun untuk diekspor", Toast.LENGTH_SHORT).show()
             return
         }
-        val options = arrayOf("Simpan sebagai File (.spn)", "Salin ke Clipboard")
-        newDialogBuilder()
-            .setTitle("Ekspor Semua Akun")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> onExportToFileClicked(profiles)
-                    1 -> onExportToClipboardClicked(profiles)
+        // FITUR BARU (permintaan user, "sebelum pemilihan jenis konfig
+        // dikasih form nama & catatan"): sama seperti [onShareRowClicked],
+        // dialog pilihan format di bawah baru muncul setelah form
+        // [showExportDetailsDialog] dikonfirmasi.
+        showExportDetailsDialog(defaultName = "") { name, note ->
+            val options = arrayOf("Simpan sebagai File (.spn)", "Salin ke Clipboard")
+            newDialogBuilder()
+                .setTitle("Ekspor Semua Akun")
+                .setItems(options) { _, which ->
+                    when (which) {
+                        0 -> onExportToFileClicked(profiles, name, note)
+                        1 -> onExportToClipboardClicked(profiles, name, note)
+                    }
                 }
-            }
-            .setNegativeButton("Batal", null)
-            .show()
+                .setNegativeButton("Batal", null)
+                .show()
+        }
     }
 
     /**
@@ -992,9 +1139,13 @@ class ConfigActivity : AppCompatActivity() {
      * lalu nama filenya, baru ditulis sebagai file .spn biner terenkripsi
      * ke Download/SuryaVPN/.
      */
-    private fun onExportToFileClicked(profiles: List<SavedProfile>) {
+    private fun onExportToFileClicked(
+        profiles: List<SavedProfile>,
+        exportName: String = "",
+        exportNote: String = ""
+    ) {
         showLockModePicker { chosenMode ->
-            showExportFilenameDialog(profiles) { filename ->
+            showExportFilenameDialog(profiles, exportName) { filename ->
                 // PERBAIKAN (permintaan user, "klik Lanjut kok agak nge-
                 // freeze"): lihat dokumentasi lengkap di [buildShareCodeAsync]
                 // -- masalah & solusinya sama persis di sini, cuma untuk
@@ -1003,7 +1154,7 @@ class ConfigActivity : AppCompatActivity() {
                 // di main thread.
                 lifecycleScope.launch {
                     val bytes = withContext(Dispatchers.Default) {
-                        val json = profilesToJson(profiles, chosenMode)
+                        val json = profilesToJson(profiles, chosenMode, exportName, exportNote)
                         // FITUR BARU (permintaan user, "sekalian ganti biner"): seluruh
                         // envelope JSON (bukan cuma field yang dikunci per-akun)
                         // dienkripsi jadi satu blob biner di sini, SEBELUM ditulis ke
@@ -1031,7 +1182,11 @@ class ConfigActivity : AppCompatActivity() {
      *    di-encode Base64 jadi teks biasa, lalu disalin langsung ke
      *    clipboard (lihat [copyToClipboard]), siap ditempel ke chat/pesan.
      */
-    private fun onExportToClipboardClicked(profiles: List<SavedProfile>) {
+    private fun onExportToClipboardClicked(
+        profiles: List<SavedProfile>,
+        exportName: String = "",
+        exportNote: String = ""
+    ) {
         // PERBAIKAN (permintaan user, "klik Lanjut kok agak nge-freeze"):
         // sama seperti [onExportToFileClicked]/[buildShareCodeAsync] --
         // profilesToJson + encryptWholeFileBytes CPU-bound, dipindah ke
@@ -1039,7 +1194,7 @@ class ConfigActivity : AppCompatActivity() {
         // bikin UI macet sesaat.
         lifecycleScope.launch {
             val text = withContext(Dispatchers.Default) {
-                val json = profilesToJson(profiles, ConfigLockMode.LOCK_ALL)
+                val json = profilesToJson(profiles, ConfigLockMode.LOCK_ALL, exportName, exportNote)
                 val bytes = encryptWholeFileBytes(json)
                 Base64.encodeToString(bytes, Base64.NO_WRAP)
             }
@@ -1061,9 +1216,12 @@ class ConfigActivity : AppCompatActivity() {
      * mengubah namanya sama sekali.
      *
      * Aturan prefill kolom nama:
-     *  - Kalau [profiles] cuma berisi SATU akun & akun itu sudah punya nama
-     *    custom (accountName tidak kosong) -> nama itu yang disarankan
-     *    duluan, user tinggal konfirmasi atau ubah kalau mau.
+     *  - Kalau [exportName] diisi (dari form [showExportDetailsDialog] yang
+     *    tampil sebelumnya) -> itu yang disarankan duluan, prioritas
+     *    tertinggi.
+     *  - Kalau tidak, dan [profiles] cuma berisi SATU akun & akun itu sudah
+     *    punya nama custom (accountName tidak kosong) -> nama itu yang
+     *    disarankan, user tinggal konfirmasi atau ubah kalau mau.
      *  - Selain itu (ekspor banyak akun sekaligus, ATAU satu-satunya akun
      *    itu belum punya nama) -> kolom dikosongkan sama sekali, WAJIB
      *    diisi manual oleh user sebelum bisa lanjut menyimpan (lihat
@@ -1076,8 +1234,16 @@ class ConfigActivity : AppCompatActivity() {
      * nama akhirnya dipakai, supaya tetap aman ditulis di semua versi
      * Android.
      */
-    private fun showExportFilenameDialog(profiles: List<SavedProfile>, onConfirmed: (String) -> Unit) {
-        val suggestedName = if (profiles.size == 1) profiles[0].config.accountName.trim() else ""
+    private fun showExportFilenameDialog(
+        profiles: List<SavedProfile>,
+        exportName: String = "",
+        onConfirmed: (String) -> Unit
+    ) {
+        val suggestedName = when {
+            exportName.isNotBlank() -> exportName
+            profiles.size == 1 -> profiles[0].config.accountName.trim()
+            else -> ""
+        }
 
         val input = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT

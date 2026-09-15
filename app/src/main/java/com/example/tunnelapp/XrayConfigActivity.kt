@@ -55,6 +55,12 @@ class XrayConfigActivity : AppCompatActivity() {
      */
     private var originalLockMode: ConfigLockMode = ConfigLockMode.NONE
     private var originalIsLocked: Boolean = false
+    // FITUR BARU (permintaan user, "catatan hasil impor tampil di menu
+    // Catatan Dashboard"): dipertahankan dengan pola yang sama seperti
+    // originalLockMode/originalIsLocked di atas -- tanpa ini, catatan akun
+    // hasil impor akan ke-reset diam-diam jadi kosong tiap kali profil ini
+    // disimpan ulang lewat layar edit ini.
+    private var originalNote: String = ""
 
     /** Hasil urai terakhir, dipakai sebagai basis .copy() supaya field lanjutan
      *  yang tidak ada di form (headerType, seed, xhttpMode, dst) tidak hilang. */
@@ -78,6 +84,7 @@ class XrayConfigActivity : AppCompatActivity() {
             binding.etXrayLink.setText(saved.xrayLink)
             originalLockMode = saved.lockMode
             originalIsLocked = saved.isLocked
+            originalNote = saved.note
             // Kalau sudah ada akun tersimpan sebelumnya, langsung urai saat layar
             // dibuka juga -- tidak perlu tunggu tempel/ketik baru dulu.
             autoParseSilently()
@@ -334,7 +341,8 @@ class XrayConfigActivity : AppCompatActivity() {
                 xrayLink = xrayLink,
                 accountName = accountName,
                 isLocked = originalIsLocked,
-                lockMode = originalLockMode
+                lockMode = originalLockMode,
+                note = originalNote
             )
         )
 

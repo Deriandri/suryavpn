@@ -70,7 +70,19 @@ data class SavedConfig(
     // oleh pemilik HP -- lockMode TIDAK bisa "dibuka" dari UI karena memang
     // dimaksudkan supaya penerima akun (mis. dari penjual konfig) tidak bisa
     // mengintip/menyalin kredensial & trik aslinya.
-    val lockMode: ConfigLockMode = ConfigLockMode.NONE
+    val lockMode: ConfigLockMode = ConfigLockMode.NONE,
+    // FITUR BARU (permintaan user, "form nama & catatan sebelum ekspor" +
+    // "catatan otomatis tampil di menu Catatan Dashboard saat diimpor"):
+    // catatan bebas (boleh berisi HTML) yang diisi lewat
+    // ConfigActivity.showExportDetailsDialog saat akun ini diekspor --
+    // ikut tersimpan di JSON ekspor (lihat ConfigIO.toConfigJson field
+    // "note") supaya saat akun ini DIIMPOR di HP lain, catatannya ikut
+    // terbawa & otomatis ditampilkan di kartu "Catatan" Dashboard
+    // (DashboardMainFragment.renderCatatan) MENGGANTIKAN tampilan log
+    // koneksi -- tapi HANYA kalau field ini terisi; kosong = kartu
+    // Catatan tetap menampilkan log koneksi seperti biasa. Kosong = akun
+    // biasa yang belum pernah diberi catatan saat ekspor.
+    val note: String = ""
 )
 
 object ConfigStore {

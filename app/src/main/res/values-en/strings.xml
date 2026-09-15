@@ -15,7 +15,7 @@
     <string name="settings_subtitle">VPN settings &amp; app info</string>
 
     <!-- Card: Appearance -->
-    <string name="section_display">Appearance</string>
+    <string name="section_display">Appearance &amp; Language</string>
     <string name="display_desc">Choose light, dark, or follow your phone\'s system setting.</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
@@ -64,11 +64,9 @@
     <!-- Card: VPN Setting -->
     <string name="section_vpn">VPN Setting</string>
     <string name="dns_label">DNS</string>
-    <string name="dns_desc">When enabled, the DNS below overrides the SSH/Xray profile\'s DNS. Off (default): the DNS here is ignored, each profile keeps using its own DNS.</string>
-    <string name="dns_override_title">Override DNS</string>
-    <string name="dns_override_desc">Turn on to use DNS 1/DNS 2 below. Off by default.</string>
-    <string name="dns1_hint">DNS 1 (e.g. 8.8.8.8)</string>
-    <string name="dns2_hint">DNS 2 (e.g. 1.1.1.1)</string>
+    <string name="dns_desc">A default DNS (1.1.1.1) is applied automatically when the SSH/Xray profile\'s DNS 1/DNS 2 (set on the Configuration screen) are both empty, so domain resolution doesn\'t fail entirely.</string>
+    <string name="dns_fallback_title">Automatic Default DNS</string>
+    <string name="dns_fallback_desc">On by default. Turn off if you don\'t want any default DNS at all when the profile DNS is empty.</string>
     <string name="mtu_hint">MTU (default 1500)</string>
     <string name="ports_desc">Leave the ports below blank to use each profile\'s default. SOCKS5 Port overrides the port for every profile. HTTP Port turns on an additional local HTTP proxy (chained to SOCKS5) for apps that only support an HTTP proxy. UDPGW Port, if filled in, forwards non-DNS UDP (games, QUIC/HTTP3, VoIP) through a badvpn-udpgw process on the server (the server MUST already be running badvpn-udpgw on this port).</string>
     <string name="socks_port_hint">SOCKS5 Port (optional)</string>
@@ -94,8 +92,6 @@
     <string name="battery_settings_open_failed">Couldn\'t open battery settings on this device</string>
     <string name="btn_save_vpn">Save VPN Setting</string>
     <string name="toast_vpn_saved">VPN Setting saved</string>
-    <string name="error_dns1">Must be an IP address (e.g. 1.1.1.1), not a domain</string>
-    <string name="error_dns2">Must be an IP address (e.g. 1.0.0.1), not a domain</string>
     <string name="error_mtu">MTU must be a number %1$d-%2$d</string>
     <string name="error_port">%1$s must be a number %2$d-%3$d, or leave it blank</string>
     <string name="port_socks5_label">SOCKS5 Port</string>

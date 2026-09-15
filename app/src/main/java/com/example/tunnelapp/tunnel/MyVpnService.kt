@@ -882,32 +882,22 @@ class MyVpnService : VpnService() {
      * ketik DNS tidak menggagalkan seluruh pembuatan TUN interface, cukup
      * diabaikan + dicatat ke log).
      *
-     * Prioritas sumber DNS: DNS1/DNS2 di kartu "VPN Setting"
-     * ([VpnSettingsStore], global) MENIMPA DNS per-server
-     * ([ServerConfig.dns1]/[ServerConfig.dns2], dari Konfigurasi SSH) kalau
-     * switch [VpnSettings.dnsOverrideEnabled] NYALA dan salah satu dari
-     * dns1/dns2 diisi. Kalau switch-nya MATI (default), dns1/dns2 di sini
-     * diabaikan TOTAL walau field-nya terisi -- langsung jatuh ke DNS
-     * per-server seperti sebelum fitur override ini ada.
+     * Sumber DNS: DNS1/DNS2 per-server ([ServerConfig.dns1]/[ServerConfig.dns2],
+     * diisi di layar Konfigurasi SSH/Xray masing-masing profil).
      *
-     * PERCOBAAN (atas permintaan user, SUDAH DIPERINGATKAN risikonya):
-     * fallback ke [DEFAULT_DNS] DIHAPUS -- kalau DNS1/DNS2 kosong semua,
-     * TIDAK ADA addDnsServer() dipanggil sama sekali. Efek yang paling
-     * mungkin: resolusi domain gagal total buat user yang tidak isi
-     * DNS1/DNS2 manual, karena addRoute("0.0.0.0", 0) tetap menangkap
+     * Kalau DNS1/DNS2 per-server kosong dua-duanya, DNS default
+     * ([DEFAULT_DNS]) dipasang sebagai gantinya -- KECUALI switch
+     * "DNS Default Otomatis" ([VpnSettings.dnsFallbackEnabled], kartu VPN
+     * Setting) dimatikan user sendiri. Default switch ini NYALA. Kalau
+     * dimatikan dan DNS1/DNS2 kosong, TIDAK ADA addDnsServer() dipanggil
+     * sama sekali -- perlu diingat addRoute("0.0.0.0", 0) tetap menangkap
      * SEMUA trafik ke TUN termasuk DNS bawaan operator/wifi (yang sering
-     * berupa IP privat, tidak bisa dicapai server SSH). Kalau efeknya
-     * memang seburuk itu, tinggal balikin baris addDnsServer(DEFAULT_DNS)
-     * di bawah (kodenya dipertahankan dlm komentar, bukan dihapus total).
+     * berupa IP privat, tidak bisa dicapai server SSH), jadi resolusi
+     * domain kemungkinan besar gagal total buat profil yang tidak diisi
+     * DNS1/DNS2 manual selama switch ini mati.
      */
     private fun applyDnsServers(builder: Builder, config: ServerConfig, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
-        val useGlobalOverride = vpnSettings.dnsOverrideEnabled &&
-            (vpnSettings.dns1.isNotBlank() || vpnSettings.dns2.isNotBlank())
-        val dnsCandidates = if (useGlobalOverride) {
-            listOf("DNS1 (VPN Setting)" to vpnSettings.dns1, "DNS2 (VPN Setting)" to vpnSettings.dns2)
-        } else {
-            listOf("DNS1" to config.dns1, "DNS2" to config.dns2)
-        }
+        val dnsCandidates = listOf("DNS1" to config.dns1, "DNS2" to config.dns2)
 
         var addedAny = false
         for ((label, dns) in dnsCandidates) {
@@ -921,27 +911,30 @@ class MyVpnService : VpnService() {
             }
         }
         if (!addedAny) {
-            // FIX: fallback DEFAULT_DNS DIHIDUPKAN LAGI -- sebelumnya kalau
-            // DNS1/DNS2 kosong, TIDAK ADA addDnsServer() dipanggil sama
-            // sekali, padahal addRoute("0.0.0.0", 0) tetap menangkap semua
-            // trafik ke TUN termasuk DNS bawaan operator/wifi (sering IP
-            // privat, tidak bisa dicapai server tunnel) -- efeknya resolusi
-            // domain gagal total ("connect tapi internet tidak jalan").
-            // Balikin ke DEFAULT_DNS ($DEFAULT_DNS) supaya user yang tidak
-            // isi DNS1/DNS2 manual tetap punya DNS yang valid & bisa
-            // dijangkau lewat tunnel.
-            try {
-                builder.addDnsServer(DEFAULT_DNS)
-                StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $DEFAULT_DNS")
-            } catch (e: IllegalArgumentException) {
-                DebugLog.w(TAG, "DEFAULT_DNS \"$DEFAULT_DNS\" gagal dipasang ke TUN", e)
-                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $DEFAULT_DNS gagal dipasang -- TIDAK ada DNS di TUN")
+            if (vpnSettings.dnsFallbackEnabled) {
+                // DNS1/DNS2 per-server kosong -- pasang DNS default supaya
+                // resolusi domain tidak gagal total ("connect tapi internet
+                // tidak jalan"). Bisa dimatikan lewat switch "DNS Default
+                // Otomatis" di kartu VPN Setting kalau user memang tidak mau
+                // ada DNS default sama sekali.
+                try {
+                    builder.addDnsServer(DEFAULT_DNS)
+                    StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $DEFAULT_DNS")
+                } catch (e: IllegalArgumentException) {
+                    DebugLog.w(TAG, "DEFAULT_DNS \"$DEFAULT_DNS\" gagal dipasang ke TUN", e)
+                    StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $DEFAULT_DNS gagal dipasang -- TIDAK ada DNS di TUN")
+                }
+            } else {
+                // User mematikan switch "DNS Default Otomatis" -- TIDAK ADA
+                // addDnsServer() dipanggil sama sekali. Lihat catatan risiko
+                // di kdoc applyDnsServers().
+                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS Default Otomatis dimatikan -- TIDAK ada DNS dipasang ke TUN")
             }
         }
 
-        // addedAny == true berarti user MEMANG mengisi DNS1/DNS2 sendiri
-        // (bukan fallback DEFAULT_DNS diam-diam) -- inilah sinyal "DNS
-        // diisi manual di Pengaturan" yang dipakai establishTunnel() utk
+        // addedAny == true berarti user MEMANG mengisi DNS1/DNS2 per-server
+        // sendiri (bukan fallback DEFAULT_DNS diam-diam) -- inilah sinyal
+        // "DNS diisi manual" yang dipakai establishTunnel() utk
         // menyalakan/mematikan device-side DNS bypass di Socks5Server.
         customDnsConfigured = addedAny
     }

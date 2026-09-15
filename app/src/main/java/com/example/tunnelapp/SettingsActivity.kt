@@ -8,7 +8,6 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
-import android.util.Patterns
 import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.Toast
@@ -471,28 +470,9 @@ class SettingsActivity : AppCompatActivity() {
 
     /** Isi form VPN Setting dari [VpnSettingsStore] (dipanggil tiap onCreate, termasuk saat kembali dari layar lain lewat singleTop). */
 
-    /**
-     * Nyala/matikan field DNS1/DNS2 mengikuti switchDnsOverride -- murni
-     * indikasi visual (disabled = abu-abu) supaya user paham isian DNS
-     * di bawah TIDAK dipakai selama switch-nya mati. Penegakan sebenarnya
-     * (DNS diabaikan total kalau mati) ada di
-     * MyVpnService.applyDnsServers/VpnSettings.dnsOverrideEnabled, BUKAN
-     * di sini -- jadi walau ada bug UI, perilaku tunnel tetap benar.
-     */
-    private fun applyDnsFieldsAvailability(overrideEnabled: Boolean) {
-        binding.etVpnDns1.isEnabled = overrideEnabled
-        binding.etVpnDns2.isEnabled = overrideEnabled
-    }
-
     private fun loadVpnSettingsIntoForm() {
         val settings = VpnSettingsStore.load(this)
-        binding.etVpnDns1.setText(settings.dns1)
-        binding.etVpnDns2.setText(settings.dns2)
-        binding.switchDnsOverride.isChecked = settings.dnsOverrideEnabled
-        applyDnsFieldsAvailability(settings.dnsOverrideEnabled)
-        binding.switchDnsOverride.setOnCheckedChangeListener { _, isChecked ->
-            applyDnsFieldsAvailability(isChecked)
-        }
+        binding.switchDnsFallback.isChecked = settings.dnsFallbackEnabled
         binding.etVpnMtu.setText(settings.mtu.toString())
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
         binding.switchAutoReconnect.isChecked = settings.autoReconnect
@@ -525,30 +505,14 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /**
-     * Validasi ringan lalu simpan ke [VpnSettingsStore]. Sama seperti validasi
-     * DNS di SshConfigActivity: DNS custom di VpnService.Builder WAJIB
-     * literal IP, bukan hostname/domain.
+     * Validasi ringan lalu simpan ke [VpnSettingsStore]. DNS per-server
+     * (validasi format IP-nya) ada di SshConfigActivity, bukan di sini --
+     * kartu VPN Setting cuma punya switch on/off DNS default (lihat
+     * MyVpnService.applyDnsServers/VpnSettings.dnsFallbackEnabled).
      */
     private fun saveVpnSettingsFromForm() {
-        val dns1 = binding.etVpnDns1.text.toString().trim()
-        val dns2 = binding.etVpnDns2.text.toString().trim()
-        val dnsOverrideEnabled = binding.switchDnsOverride.isChecked
+        val dnsFallbackEnabled = binding.switchDnsFallback.isChecked
         val mtuText = binding.etVpnMtu.text.toString().trim()
-
-        // Validasi format IP DNS1/DNS2 CUMA dipaksa kalau switch override
-        // nyala -- kalau mati, isian field ini toh diabaikan total oleh
-        // MyVpnService (lihat VpnSettings.dnsOverrideEnabled), jadi tidak
-        // perlu menghalangi Simpan gara-gara isinya belum valid.
-        if (dnsOverrideEnabled) {
-            if (dns1.isNotEmpty() && !Patterns.IP_ADDRESS.matcher(dns1).matches()) {
-                binding.etVpnDns1.error = getString(R.string.error_dns1)
-                return
-            }
-            if (dns2.isNotEmpty() && !Patterns.IP_ADDRESS.matcher(dns2).matches()) {
-                binding.etVpnDns2.error = getString(R.string.error_dns2)
-                return
-            }
-        }
 
         val mtu = mtuText.toIntOrNull()
         if (mtuText.isEmpty() || mtu == null || mtu < VpnSettings.MIN_MTU || mtu > VpnSettings.MAX_MTU) {
@@ -563,9 +527,7 @@ class SettingsActivity : AppCompatActivity() {
         VpnSettingsStore.save(
             this,
             VpnSettings(
-                dns1 = dns1,
-                dns2 = dns2,
-                dnsOverrideEnabled = dnsOverrideEnabled,
+                dnsFallbackEnabled = dnsFallbackEnabled,
                 mtu = mtu,
                 keepCpuAwake = binding.switchKeepAwake.isChecked,
                 autoReconnect = binding.switchAutoReconnect.isChecked,

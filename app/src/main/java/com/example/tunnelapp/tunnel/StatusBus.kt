@@ -17,6 +17,29 @@ object StatusBus {
     val steps = MutableStateFlow<List<ConnectionStep>>(emptyList())
 
     /**
+     * FITUR BARU (permintaan user, "kunci edit config saat tunnel terhubung"):
+     * pengecekan murni dari teks [state] apakah tunnel LAGI BENAR-BENAR aktif
+     * (bukan idle/gagal/lagi proses connect-disconnect). Logikanya SENGAJA
+     * dipindah ke sini (dari yang sebelumnya cuma ada inline di
+     * DashboardMainFragment.applyConnectButtonState) supaya ConfigActivity
+     * (buat memblokir tombol Edit akun aktif) bisa pakai definisi "terhubung"
+     * yang PERSIS SAMA dengan yang menentukan tombol Connect/Disconnect di
+     * Dashboard -- tidak ada dua sumber kebenaran yang bisa berbeda.
+     */
+    fun isConnected(status: String): Boolean {
+        val isIdle = status == "Belum tersambung" || status == "Terputus"
+        val isFailed = !isIdle && status.startsWith("Gagal")
+        val isTransitioning = !isIdle && !isFailed && (
+            status.contains("Menghubungkan") ||
+                status.contains("Membuat") ||
+                status.contains("tersambung") ||
+                status.contains("Memutuskan") ||
+                status.contains("reconnect otomatis", ignoreCase = true)
+            )
+        return !isIdle && !isFailed && !isTransitioning && status.contains("aktif", ignoreCase = true)
+    }
+
+    /**
      * Log mentah real-time ala terminal (gaya DarkTunnel): setiap baris di sini
      * berasal dari event ASLI yang benar-benar terjadi di socket (payload yang
      * betul-betul ditulis ke stream, baris respons yang betul-betul dibaca dari

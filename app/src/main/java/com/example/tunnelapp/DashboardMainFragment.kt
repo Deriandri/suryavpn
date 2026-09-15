@@ -7,10 +7,10 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.text.HtmlCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -119,12 +119,20 @@ class DashboardMainFragment : Fragment() {
             }
         }
 
-        // Kartu "Tahapan Koneksi" dipindahkan ke sini dari tab Log (lihat
-        // DashboardLogFragment yang lama) -- ditaruh tepat di atas "Profil
-        // aktif" supaya progres tahapan koneksi langsung kelihatan di Main.
+        // Kartu "Tahapan Koneksi" (daftar bertitik/timeline) DIHILANGKAN
+        // (permintaan user) -- diganti kartu "Catatan" (tvNotes). Isinya
+        // sekarang punya DUA sumber, lihat renderCatatan():
+        //  - Kalau akun aktif punya catatan hasil impor (SavedConfig.note,
+        //    lihat ConfigIO.kt) -> catatan ITU yang ditampilkan (dirender
+        //    HtmlCompat.fromHtml), MENGGANTIKAN log koneksi sepenuhnya.
+        //  - Kalau tidak (note kosong) -> kartu ini tetap menampilkan log
+        //    koneksi seperti sebelumnya (StatusBus.steps).
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                StatusBus.steps.collect { steps -> renderLogSteps(steps) }
+                StatusBus.steps.collect { steps ->
+                    lastConnectionSteps = steps
+                    renderCatatan()
+                }
             }
         }
     }
@@ -145,6 +153,11 @@ class DashboardMainFragment : Fragment() {
 
     private var connectButtonState = ConnectButtonState.IDLE
 
+    /** Cache tahap koneksi terakhir, dipakai [renderCatatan] sebagai fallback
+     *  (lihat dokumentasinya) tiap kali profil aktif berganti tanpa perlu
+     *  menunggu StatusBus.steps mengeluarkan nilai baru lagi. */
+    private var lastConnectionSteps: List<ConnectionStep> = emptyList()
+
     private fun onConnectToggleClicked() {
         when (connectButtonState) {
             ConnectButtonState.CONNECTED -> onDisconnectClicked()
@@ -163,7 +176,10 @@ class DashboardMainFragment : Fragment() {
                 status.contains("Memutuskan") ||
                 status.contains("reconnect otomatis", ignoreCase = true)
             )
-        val isConnected = !isIdle && !isFailed && !isTransitioning && status.contains("aktif", ignoreCase = true)
+        // isConnected sekarang pakai StatusBus.isConnected() (dipindah ke sana
+        // supaya ConfigActivity bisa pakai definisi "terhubung" yang sama --
+        // lihat kdoc-nya) -- perilaku PERSIS sama seperti sebelumnya.
+        val isConnected = StatusBus.isConnected(status)
 
         connectButtonState = when {
             isTransitioning -> ConnectButtonState.CONNECTING
@@ -212,120 +228,88 @@ class DashboardMainFragment : Fragment() {
         binding.tvStatus.setTextColor(ContextCompat.getColor(ctx, text))
     }
 
-    private fun renderLogSteps(steps: List<ConnectionStep>) {
+    /**
+     * Kartu "Catatan" (menggantikan tampilan "Tahapan Koneksi" lama yang
+     * berupa daftar bertitik/timeline dengan garis rail & spinner per baris
+     * -- permintaan user). Sekarang tahap-tahap koneksi dirangkum jadi satu
+     * blok teks yang dirender lewat [HtmlCompat.fromHtml], supaya ke
+     * depannya kartu ini bisa menampilkan catatan berformat HTML APA PUN
+     * (bold, warna, link, dst), tidak lagi terikat ke tampilan timeline
+     * yang kaku. Warna per baris dibuat lewat tag <font color=...> memakai
+     * hex yang sama seperti warna status di tempat lain (status_success/
+     * error/running/pending) supaya tetap konsisten secara visual.
+     *
+     * FITUR BARU (permintaan user, "catatan config hasil impor tampil di
+     * menu Catatan, gantikan log -- tapi kalau tidak ada catatan, log
+     * tetap ada"): fungsi ini SEKARANG murni fallback tampilan log koneksi
+     * -- pemanggilnya SELALU lewat [renderCatatan], yang mengecek dulu
+     * apakah akun aktif punya catatan hasil impor ([SavedConfig.note])
+     * sebelum memutuskan mau menampilkan catatan itu atau log koneksi ini.
+     */
+    private fun renderConnectionLogAsNotes(steps: List<ConnectionStep>) {
         val b = _binding ?: return
+        val ctx = requireContext()
+
         if (steps.isEmpty()) {
-            b.tvLogEmpty.visibility = View.VISIBLE
-            b.llLogSteps.visibility = View.GONE
-            b.llLogSteps.removeAllViews()
-            b.tvStepsProgress.visibility = View.GONE
+            b.tvNotes.text = "Belum ada catatan. Tekan Connect di tab Main untuk memulai."
             return
         }
-        b.tvLogEmpty.visibility = View.GONE
-        b.llLogSteps.visibility = View.VISIBLE
-        b.llLogSteps.removeAllViews()
-        val ctx = requireContext()
-        val inflater = LayoutInflater.from(ctx)
 
-        // REDESIGN (permintaan user: "Tahapan Koneksi" lebih profesional/
-        // modern/smooth): badge "x/y selesai" di header kartu -- y itung
-        // semua tahap SELAIN yang di-skip (mis. "CONNECT dilewati" pada mode
-        // raw passthrough), supaya persentasenya tetap masuk akal biarpun
-        // ada tahap yang memang sengaja tidak dijalankan.
+        fun colorHex(colorRes: Int) = String.format(
+            "#%06X", 0xFFFFFF and ContextCompat.getColor(ctx, colorRes)
+        )
+
+        // "x/y selesai" -- y itung semua tahap SELAIN yang di-skip (mis.
+        // "CONNECT dilewati" pada mode raw passthrough), sama seperti
+        // logika badge progres versi timeline sebelumnya.
         val countedSteps = steps.count { it.status != StepStatus.SKIPPED }
         val doneSteps = steps.count { it.status == StepStatus.SUCCESS }
+
+        val html = StringBuilder()
         if (countedSteps > 0) {
-            b.tvStepsProgress.visibility = View.VISIBLE
-            b.tvStepsProgress.text = "$doneSteps/$countedSteps selesai"
-        } else {
-            b.tvStepsProgress.visibility = View.GONE
+            html.append("<b>$doneSteps/$countedSteps selesai</b><br><br>")
         }
 
         steps.forEachIndexed { index, step ->
-            val row = inflater.inflate(R.layout.item_log_step, b.llLogSteps, false)
-            val rowRoot = row.findViewById<View>(R.id.rowRoot)
-            val lineTop = row.findViewById<View>(R.id.lineTop)
-            val lineBottom = row.findViewById<View>(R.id.lineBottom)
-            val dot = row.findViewById<View>(R.id.dot)
-            val dotStatus = row.findViewById<View>(R.id.dotStatus)
-            val spinner = row.findViewById<ProgressBar>(R.id.spinner)
-            val tvLabel = row.findViewById<TextView>(R.id.tvLabel)
-            val tvDetail = row.findViewById<TextView>(R.id.tvDetail)
-
-            tvLabel.text = step.label
-
-            // Garis rail cuma nyambung ke tahap SEBELUM/SESUDAHnya -- tahap
-            // paling atas tidak punya garis di atas, tahap paling bawah
-            // tidak punya garis di bawah, biar timeline-nya rapi tanpa
-            // "nub" nyangkut di ujung kartu.
-            lineTop.visibility = if (index == 0) View.INVISIBLE else View.VISIBLE
-            lineBottom.visibility = if (index == steps.lastIndex) View.INVISIBLE else View.VISIBLE
-
-            // Sembunyikan semua isi badge dulu, baru tampilkan yang relevan
-            // sesuai status -- badge sekarang cuma punya 2 kemungkinan isi:
-            // titik kecil (dotStatus, dipakai utk SUCCESS/ERROR/PENDING/
-            // SKIPPED, warnanya dimutasi per status di bawah) atau spinner
-            // (RUNNING). SUCCESS & ERROR TIDAK lagi pakai ikon centang/
-            // silang putih (permintaan user: disamakan gaya titik polos
-            // seperti titik teal di chip "Profil aktif").
-            dotStatus.visibility = View.GONE
-            spinner.visibility = View.GONE
-
-            val circleColorRes: Int
-            val dotColorRes: Int
-            when (step.status) {
-                StepStatus.RUNNING -> {
-                    spinner.visibility = View.VISIBLE
-                    circleColorRes = R.color.status_running_bg
-                    dotColorRes = R.color.status_running
-                }
-                StepStatus.SUCCESS -> {
-                    dotStatus.visibility = View.VISIBLE
-                    circleColorRes = R.color.status_success_bg
-                    dotColorRes = R.color.status_success
-                }
-                StepStatus.ERROR -> {
-                    dotStatus.visibility = View.VISIBLE
-                    circleColorRes = R.color.status_error_bg
-                    dotColorRes = R.color.status_error
-                }
-                else -> {
-                    dotStatus.visibility = View.VISIBLE
-                    circleColorRes = R.color.status_pending_bg
-                    dotColorRes = R.color.status_pending
-                }
+            if (index > 0) html.append("<br>")
+            val (colorRes, prefix) = when (step.status) {
+                StepStatus.RUNNING -> R.color.status_running to "&#8226; "
+                StepStatus.SUCCESS -> R.color.status_success to "&#10003; "
+                StepStatus.ERROR -> R.color.status_error to "&#10007; "
+                StepStatus.SKIPPED -> R.color.text_hint to "&#8226; "
+                StepStatus.PENDING -> R.color.text_hint to "&#8226; "
             }
-            (dot.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(ctx, circleColorRes))
-            (dotStatus.background.mutate() as GradientDrawable).setColor(ContextCompat.getColor(ctx, dotColorRes))
-
+            html.append("<font color='${colorHex(colorRes)}'>$prefix${step.label}</font>")
             if (step.status == StepStatus.ERROR && !step.detail.isNullOrEmpty()) {
-                tvDetail.visibility = View.VISIBLE
-                tvDetail.text = step.detail
-                tvDetail.setTextColor(ContextCompat.getColor(ctx, R.color.status_error))
-            } else {
-                tvDetail.visibility = View.GONE
+                html.append("<br><font color='${colorHex(R.color.status_error)}'><small>${step.detail}</small></font>")
             }
+        }
 
-            tvLabel.setTextColor(
-                ContextCompat.getColor(
-                    ctx,
-                    if (step.status == StepStatus.SKIPPED) R.color.text_hint else R.color.text_primary
-                )
-            )
+        b.tvNotes.text = HtmlCompat.fromHtml(html.toString(), HtmlCompat.FROM_HTML_MODE_LEGACY)
+    }
 
-            // Highlight lembut & bulat di belakang baris yang lagi RUNNING/
-            // ERROR supaya tahap yang butuh perhatian user langsung menonjol
-            // sekilas dari daftar, tanpa perlu scroll baca satu-satu.
-            val highlightColorRes = when (step.status) {
-                StepStatus.RUNNING -> R.color.status_running_bg
-                StepStatus.ERROR -> R.color.status_error_bg
-                else -> android.R.color.transparent
-            }
-            (rowRoot.background.mutate() as GradientDrawable).setColor(
-                ContextCompat.getColor(ctx, highlightColorRes)
-            )
-
-            b.llLogSteps.addView(row)
+    /**
+     * FITUR BARU (permintaan user): pintu masuk TUNGGAL buat isi kartu
+     * "Catatan" -- dipanggil tiap kali StatusBus.steps berubah MAUPUN tiap
+     * kali profil aktif bisa saja berganti ([refreshActiveProfileSummary],
+     * dipanggil dari onResume() & [showAccountPicker]), supaya kartu ini
+     * selalu konsisten dengan akun yang sedang aktif SAAT INI:
+     *  - Akun aktif punya catatan hasil impor (SavedConfig.note tidak
+     *    kosong, lihat ConfigIO.kt/ConfigActivity.showExportDetailsDialog)
+     *    -> catatan itu yang ditampilkan (HtmlCompat.fromHtml), MENGGANTIKAN
+     *    log koneksi sepenuhnya.
+     *  - Akun aktif TIDAK punya catatan (baru dibuat manual di app ini,
+     *    atau hasil impor yang memang tidak diisi catatan sama sekali)
+     *    -> kartu ini tetap menampilkan log koneksi seperti biasa lewat
+     *    [renderConnectionLogAsNotes].
+     */
+    private fun renderCatatan() {
+        val b = _binding ?: return
+        val accountNote = ProfileStore.getActive(requireContext())?.config?.note?.trim().orEmpty()
+        if (accountNote.isNotEmpty()) {
+            b.tvNotes.text = HtmlCompat.fromHtml(accountNote, HtmlCompat.FROM_HTML_MODE_LEGACY)
+        } else {
+            renderConnectionLogAsNotes(lastConnectionSteps)
         }
     }
 
@@ -335,6 +319,7 @@ class DashboardMainFragment : Fragment() {
         val saved = ProfileStore.getActive(requireContext())?.config
         if (saved == null) {
             binding.tvActiveProfile.text = "Profil aktif: belum ada konfigurasi"
+            renderCatatan()
             return
         }
         // FITUR BARU (nama akun custom): kalau accountName diisi, tampilkan
@@ -344,6 +329,14 @@ class DashboardMainFragment : Fragment() {
         val label = accountLabel(saved)
         binding.tvActiveProfile.text = "Profil aktif: $label"
         refreshAccountPickerVisibility()
+        // FITUR BARU (permintaan user, "catatan config hasil impor tampil
+        // di menu Catatan"): profil aktif bisa saja baru saja berganti
+        // (mis. lewat showAccountPicker, atau akun diedit di ConfigActivity
+        // lalu kembali ke Dashboard) -- refresh kartu "Catatan" supaya
+        // langsung menampilkan catatan akun yang SEKARANG aktif (atau log
+        // koneksi kalau akun itu tidak punya catatan), tanpa perlu menunggu
+        // StatusBus.steps berubah dulu.
+        renderCatatan()
     }
 
     /** Label ringkas satu akun buat ditampilkan di UI (ringkasan Dashboard

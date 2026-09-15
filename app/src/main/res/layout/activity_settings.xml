@@ -68,8 +68,14 @@
                 android:background="@drawable/bg_header_accent_divider" />
         </LinearLayout>
 
-        <!-- Card: Tampilan (FITUR BARU, permintaan user "tema dark"),
-             lihat ThemeStore.kt & SettingsActivity.applyThemeChoice(). -->
+        <!-- Card: Tampilan dan Bahasa (DIGABUNG, permintaan user). Sebelumnya
+             dua kartu terpisah ("Tampilan"/FITUR BARU "tema dark" dan "Bahasa"/
+             FITUR BARU "tambahkan bahasa Inggris"), sekarang satu kartu
+             dengan dua sub-bagian dipisah divider tipis, supaya lebih ringkas.
+             Lihat ThemeStore.kt/SettingsActivity.applyThemeChoice() untuk
+             Tampilan, LocaleStore.kt/SettingsActivity.loadLanguageIntoForm()
+             untuk Bahasa. Kedua fungsinya TIDAK berubah sama sekali, cuma
+             tampilannya yang disatukan. -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"
             android:layout_width="match_parent"
@@ -147,53 +153,26 @@
                         android:layout_weight="1"
                         android:text="@string/theme_system" />
                 </com.google.android.material.button.MaterialButtonToggleGroup>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
 
-        <!-- Card: Bahasa (FITUR BARU, permintaan user "tambahkan bahasa
-             Inggris"), diletakkan TEPAT DI ATAS kartu "Pengaturan Dasar"
-             sesuai permintaan user. Lihat LocaleStore.kt dan
-             SettingsActivity.loadLanguageIntoForm(). -->
-        <com.google.android.material.card.MaterialCardView
-            style="@style/Card.Section"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp">
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="12dp"
+                    android:background="@color/divider" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <LinearLayout
+                <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingHorizontal="14dp"
-                    android:paddingVertical="9dp"
-                    android:background="@drawable/bg_section_title_seablue">
-
-                    <ImageView
-                        android:layout_width="18dp"
-                        android:layout_height="18dp"
-                        android:src="@drawable/ic_section_language"
-                        android:contentDescription="@null" />
-
-                    <TextView
-                        style="@style/SectionTitleText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:layout_marginBottom="0dp"
-                        android:textColor="#FFFFFF"
-                        android:text="@string/section_language" />
-                </LinearLayout>
+                    android:text="@string/section_language"
+                    android:textColor="@color/text_primary"
+                    android:textStyle="bold"
+                    android:textSize="14sp" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
                     android:layout_marginBottom="6dp"
                     android:text="@string/language_desc"
                     android:textColor="@color/text_secondary"
@@ -563,7 +542,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/dns_override_title"
+                            android:text="@string/dns_fallback_title"
                             android:textColor="@color/text_primary"
                             android:textStyle="bold"
                             android:textSize="14sp" />
@@ -571,56 +550,15 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/dns_override_desc"
+                            android:text="@string/dns_fallback_desc"
                             android:textColor="@color/text_secondary"
                             android:textSize="12sp" />
                     </LinearLayout>
 
                     <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/switchDnsOverride"
+                        android:id="@+id/switchDnsFallback"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        style="@style/Field.Outlined"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:hint="@string/dns1_hint">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etVpnDns1"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="text"
-                            android:textColor="@color/text_primary"
-                            android:textColorHint="@color/text_hint"
-                            android:autofillHints="" />
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        style="@style/Field.Outlined"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:hint="@string/dns2_hint">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etVpnDns2"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="text"
-                            android:textColor="@color/text_primary"
-                            android:textColorHint="@color/text_hint"
-                            android:autofillHints="" />
-                    </com.google.android.material.textfield.TextInputLayout>
                 </LinearLayout>
 
                 <com.google.android.material.textfield.TextInputLayout

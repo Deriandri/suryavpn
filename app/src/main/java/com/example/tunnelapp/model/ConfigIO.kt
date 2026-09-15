@@ -63,8 +63,18 @@ private const val ENVELOPE_VERSION = 1
  * cuma perlu menawarkan pilihan mode ke user untuk akun yang BELUM terkunci
  * ([ConfigLockMode.NONE]), karena penerima akun terkunci tidak berhak
  * mengubah/melonggarkan kuncinya sendiri.
+ *
+ * FITUR BARU (permintaan user, "catatan otomatis tampil di menu Catatan
+ * Dashboard saat diimpor"): field "note" SELALU ditulis ke JSON ini --
+ * defaultnya [SavedConfig.note] milik akun ini sendiri (supaya catatan yang
+ * sudah tersimpan ikut terbawa kalau akun ini di-ekspor/dibagikan ulang
+ * TANPA mengisi ulang kolom Catatan), TAPI kalau [noteOverride] diisi
+ * (tidak null -- dikirim [ConfigActivity] dari form "Detail Ekspor" saat
+ * user MENGISI kolom Catatan untuk ekspor kali ini), nilai itu yang dipakai
+ * & ikut TERSIMPAN sebagai catatan baru akun ini kalau nanti diimpor
+ * kembali (lihat [configFromJson]).
  */
-fun SavedConfig.toConfigJson(exportLockMode: ConfigLockMode = lockMode): JSONObject {
+fun SavedConfig.toConfigJson(exportLockMode: ConfigLockMode = lockMode, noteOverride: String? = null): JSONObject {
     val json = JSONObject().apply {
         put("host", host)
         put("port", port)
@@ -85,6 +95,7 @@ fun SavedConfig.toConfigJson(exportLockMode: ConfigLockMode = lockMode): JSONObj
         put("dns1", dns1)
         put("dns2", dns2)
         put("accountName", accountName)
+        put("note", noteOverride ?: note)
     }
     return applyLockMode(json, exportLockMode)
 }
@@ -136,6 +147,13 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
         dns1 = o.optString("dns1", ""),
         dns2 = o.optString("dns2", ""),
         accountName = o.optString("accountName", ""),
+        // FITUR BARU (permintaan user, "catatan otomatis tampil di menu
+        // Catatan Dashboard saat diimpor"): baca balik field "note" (lihat
+        // [toConfigJson]) -- fallback ke "exportNote" untuk kompatibilitas
+        // dengan hasil ekspor sebelum field "note" ada di sini (versi awal
+        // fitur ini sempat menulis catatan HANYA di level envelope/kode
+        // bagikan sebagai "exportNote", belum di tiap akun).
+        note = o.optString("note", o.optString("exportNote", "")),
         // Akun hasil impor cuma otomatis ikut isLocked=true (gembok
         // "proteksi tidak sengaja" biasa) kalau lockMode-nya LOCK_ALL --
         // lihat dokumentasi [SavedConfig.lockMode] soal beda isLocked
@@ -179,14 +197,41 @@ private fun effectiveExportLockMode(config: SavedConfig, exportLockMode: ConfigL
  * amplop JSON berisi SEMUA akun tersimpan di [ProfileStore], rapi
  * (indent 2 spasi) supaya enak dibaca manual kalau perlu.
  */
-fun profilesToJson(profiles: List<SavedProfile>, exportLockMode: ConfigLockMode = ConfigLockMode.NONE): String {
+/**
+ * FITUR BARU (permintaan user, "form nama & catatan sebelum pemilihan jenis
+ * konfig"): [exportName]/[exportNote] adalah metadata OPSIONAL yang diisi
+ * user lewat [ConfigActivity.showExportDetailsDialog] SEBELUM memilih jenis
+ * ekspor (file/.spn atau clipboard) -- ikut ditulis apa adanya ke envelope
+ * (cuma kalau tidak kosong) sebagai "exportName"/"exportNote", TIDAK pernah
+ * diformat ulang atau di-escape sama sekali di sini. [exportNote] SENGAJA
+ * boleh berisi markup HTML mentah (atau apa pun, termasuk PHP) -- field ini
+ * cuma teks biasa buat [importConfigsFromText]/[configFromJson] (yang pakai
+ * `optString`, otomatis mengabaikan field tak dikenal), jadi tetap aman
+ * dibaca balik oleh versi app lama yang belum tahu field ini; perendahan
+ * jadi HTML (kalau memang dipakai begitu) adalah urusan UI penampil, bukan
+ * bagian dari fungsi ini.
+ */
+fun profilesToJson(
+    profiles: List<SavedProfile>,
+    exportLockMode: ConfigLockMode = ConfigLockMode.NONE,
+    exportName: String = "",
+    exportNote: String = ""
+): String {
     val arr = JSONArray()
     // Lihat dokumentasi [effectiveExportLockMode]: akun Xray belum-terkunci
     // dipaksa LOCK_ALL di sini, terlepas dari [exportLockMode] yang dipilih
     // user untuk keseluruhan ekspor.
+    //
+    // [exportNote] (kalau diisi user lewat form "Detail Ekspor") dipakai
+    // sebagai [noteOverride] untuk SEMUA akun di [profiles] -- menimpa
+    // catatan lama masing-masing akun (kalau ada) dengan catatan baru yang
+    // sama untuk seluruh ekspor ini. Kosong ("") -> null -> tiap akun tetap
+    // pakai catatannya sendiri-sendiri ([SavedConfig.note]) apa adanya,
+    // tidak ada yang ditimpa.
+    val noteOverride = exportNote.ifBlank { null }
     profiles.forEach { profile ->
         val mode = effectiveExportLockMode(profile.config, exportLockMode)
-        arr.put(profile.config.toConfigJson(mode))
+        arr.put(profile.config.toConfigJson(mode, noteOverride))
     }
 
     val envelope = JSONObject()
@@ -194,6 +239,8 @@ fun profilesToJson(profiles: List<SavedProfile>, exportLockMode: ConfigLockMode 
     envelope.put("format", ENVELOPE_FORMAT)
     envelope.put("version", ENVELOPE_VERSION)
     envelope.put("exportedAt", System.currentTimeMillis())
+    if (exportName.isNotBlank()) envelope.put("exportName", exportName)
+    if (exportNote.isNotBlank()) envelope.put("exportNote", exportNote)
     envelope.put("profiles", arr)
     return envelope.toString(2)
 }
@@ -209,12 +256,22 @@ fun profilesToJson(profiles: List<SavedProfile>, exportLockMode: ConfigLockMode 
  * langsung dibaca lewat decode base64 manual, terlepas dari [mode] yang
  * dipilih (termasuk saat [ConfigLockMode.NONE]).
  */
-fun buildShareCode(config: SavedConfig, exportLockMode: ConfigLockMode = config.lockMode): String {
+fun buildShareCode(
+    config: SavedConfig,
+    exportLockMode: ConfigLockMode = config.lockMode,
+    exportName: String = "",
+    exportNote: String = ""
+): String {
     // Lihat dokumentasi [effectiveExportLockMode]: akun Xray belum-terkunci
     // dipaksa LOCK_ALL di sini juga, terlepas dari mode yang dipilih user
     // lewat [ConfigActivity.showLockModePicker].
     val mode = effectiveExportLockMode(config, exportLockMode)
-    val json = config.toConfigJson(mode).toString()
+    // Sama seperti [profilesToJson]: [exportNote] (kalau diisi lewat form
+    // "Detail Ekspor") menimpa catatan lama akun ini untuk hasil ekspor
+    // kali ini -- kosong -> null -> tetap pakai [config.note] apa adanya.
+    val jsonObject = config.toConfigJson(mode, exportNote.ifBlank { null })
+    if (exportName.isNotBlank()) jsonObject.put("exportName", exportName)
+    val json = jsonObject.toString()
     val doubleEncrypted = encryptWholeFileBytes(json)
     val b64 = Base64.encodeToString(doubleEncrypted, Base64.NO_WRAP)
     return SHARE_CODE_PREFIX_V2 + b64
