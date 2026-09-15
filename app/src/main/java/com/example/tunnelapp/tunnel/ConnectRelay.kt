@@ -24,7 +24,7 @@ import javax.net.ssl.X509TrustManager
 /**
  * Relay lokal satu-koneksi di 127.0.0.1.
  *
- * trilead-ssh2 connect ke relay ini (loopback, otomatis tidak kena routing
+ * sshj connect ke relay ini (loopback, otomatis tidak kena routing
  * TUN). Kelas ini yang benar-benar membuka koneksi ke server SSH ASLI --
  * termasuk protect() (wajib, anti-loop VPN), proxy HTTP (CONNECT) kalau
  * dipakai, payload custom, dan pembungkusan TLS kalau mode yang dipilih
@@ -100,7 +100,7 @@ class ConnectRelay(
 
         acceptThread = Thread({
             try {
-                val clientSocket = ss.accept() // trilead-ssh2 yang connect ke sini
+                val clientSocket = ss.accept() // sshj yang connect ke sini
                 handleClient(clientSocket)
             } catch (e: Exception) {
                 if (running) DebugLog.e(TAG, "Error accept relay", e)
@@ -115,7 +115,7 @@ class ConnectRelay(
             openRealConnection(attemptWebSocket = true)
         } catch (e: Exception) {
             // PENTING: sebelumnya exception di sini hanya di-log lalu socket
-            // ditutup diam-diam -- trilead-ssh2 hanya melihat koneksi putus
+            // ditutup diam-diam -- sshj hanya melihat koneksi putus
             // dan melempar error generik ("connection reset") tanpa alasan
             // asli. Sekarang alasan sebenarnya (host unreachable, protect()
             // gagal, proxy menolak, TLS gagal, dll) dilaporkan ke StatusBus
@@ -348,27 +348,27 @@ class ConnectRelay(
             // banner SSH asli ("SSH-2.0-...") benar-benar mulai. RFC 4253 §4.2 memang
             // mengizinkan baris pembuka seperti itu, dan client WAJIB membuang baris yang
             // TIDAK diawali "SSH-" sampai baris identifikasi asli ditemukan. Sebelumnya
-            // kode ini langsung menyerahkan socket ke trilead-ssh2 tanpa membuang baris
-            // itu -- trilead bisa salah mem-parsing baris HTTP itu sebagai banner dan
+            // kode ini langsung menyerahkan socket ke sshj tanpa membuang baris
+            // itu -- sshj bisa salah mem-parsing baris HTTP itu sebagai banner dan
             // gagal. Sekarang kita yang membaca & membuang baris-baris itu SENDIRI, sambil
             // mencatatnya sebagai log -- baru socket yang bersih (persis mulai dari
-            // "SSH-2.0-...") diserahkan ke trilead-ssh2.
+            // "SSH-2.0-...") diserahkan ke sshj.
             try {
                 // PENTING (bug fix INTI -- ini penyebab asli "handshake SSH gagal"
                 // walau terminal jelas-jelas sudah menerima banner SSH asli):
                 // consumeUntilSshBanner() dulu cuma MEMBACA & MEMBUANG baris
                 // banner dari socket (dicatat ke log doang), byte-nya sendiri
                 // hilang selamanya -- padahal socket ini nantinya diserahkan ke
-                // trilead-ssh2 lewat relay loopback, dan trilead-ssh2 WAJIB
+                // sshj lewat relay loopback, dan sshj WAJIB
                 // menerima baris identifikasi server itu sebagai byte PERTAMA
                 // yang ia baca (RFC 4253 SS4.2). Begitu baris itu sudah kepakai
-                // duluan di sini, yang trilead-ssh2 baca berikutnya adalah paket
+                // duluan di sini, yang sshj baca berikutnya adalah paket
                 // biner KEXINIT SSH asli -- bukan teks "SSH-2.0-...", jadi parser
                 // banner-nya gagal walau proxy/TLS/payload semua sukses (persis
                 // gejala di log: banner keliatan sampai, tapi tahap SSH tetap merah).
                 // Sekarang byte mentah baris banner itu ditangkap balik, lalu
                 // "ditempel" lagi di depan stream lewat PrefixedSocket supaya
-                // trilead-ssh2 tetap melihatnya persis seolah belum pernah dibaca.
+                // sshj tetap melihatnya persis seolah belum pernah dibaca.
                 val bannerLine = consumeUntilSshBanner(socket.getInputStream())
                 socket = PrefixedSocket(socket, bannerLine)
             } catch (e: Exception) {
@@ -499,7 +499,7 @@ class ConnectRelay(
      * @return byte MENTAH baris banner SSH ("SSH-2.0-...\r\n" atau "SSH-2.0-...\n",
      * apa adanya persis seperti yang datang dari server, TERMASUK delimiter akhirnya)
      * -- WAJIB dikembalikan (bukan cuma di-log) supaya bisa "ditempel balik" di
-     * depan stream yang diserahkan ke trilead-ssh2 lewat [PrefixedSocket]. Lihat
+     * depan stream yang diserahkan ke sshj lewat [PrefixedSocket]. Lihat
      * catatan bug fix di titik pemanggilan fungsi ini untuk penjelasan lengkap
      * kenapa ini penting.
      */
@@ -601,7 +601,7 @@ class ConnectRelay(
  * Dipakai HANYA untuk mengembalikan baris banner SSH ("SSH-2.0-...") yang
  * dibaca [ConnectRelay.consumeUntilSshBanner] saat mencari & membuang baris
  * non-SSH (respons HTTP dari payload/CDN) sebelumnya -- tanpa ini, baris
- * banner itu hilang permanen dan trilead-ssh2 di ujung relay loopback tidak
+ * banner itu hilang permanen dan sshj di ujung relay loopback tidak
  * pernah melihat baris identifikasi server yang wajib ia baca pertama kali
  * (RFC 4253 SS4.2), walau baris itu betul-betul sudah diterima dari server.
  *

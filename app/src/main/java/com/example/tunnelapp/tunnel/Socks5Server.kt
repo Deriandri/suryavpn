@@ -18,8 +18,8 @@ import java.net.Socket
  * Mendukung 2 command:
  *  - CONNECT (0x01): trafik TCP biasa (HTTP/HTTPS/dll), diteruskan lewat
  *    [SshConnectionHandle.openDirectTcpip] -- abstraksi tipis di atas
- *    "direct-tcpip channel" resmi SSH, supaya server ini jalan sama persis
- *    di ATAS engine trilead-ssh2 MAUPUN sshj (lihat SshEngineTypes.kt).
+ *    "direct-tcpip channel" resmi SSH, supaya server ini jalan generik di
+ *    atas engine SSH manapun (lihat SshEngineTypes.kt).
  *  - UDP ASSOCIATE (0x03): PENTING untuk DNS. hev-socks5-tunnel mengirim
  *    query DNS device sebagai paket UDP ke sini. Protokol SSH sendiri
  *    TIDAK BISA forward UDP mentah (hanya TCP), jadi query DNS-nya
@@ -111,7 +111,7 @@ class Socks5Server {
     private var running = false
 
     // Koneksi SSH yang sedang aktif untuk melayani client SOCKS5 yang masuk.
-    // @Volatile + di-attach/detach dari luar (SshTunnelManager) tanpa pernah
+    // @Volatile + di-attach/detach dari luar (SshjTunnelManager) tanpa pernah
     // menyentuh serverSocket/port sama sekali -- inilah inti perubahan
     // arsitektur di atas. Kalau null (persis di antara SSH lama putus dan
     // SSH baru berhasil connect saat reconnect), client yang kebetulan masuk
@@ -121,7 +121,7 @@ class Socks5Server {
     private var sshConnection: SshConnectionHandle? = null
 
     // Client udpgw opsional -- kalau di-set (lihat setUdpgwClient(), dipasang
-    // SshTunnelManager cuma kalau user mengisi VPN Setting > UDPGW Port),
+    // SshjTunnelManager cuma kalau user mengisi VPN Setting > UDPGW Port),
     // UDP non-DNS di relayUdpPacket() diteruskan lewat ini alih-alih dibuang.
     // Null (default) = perilaku lama persis: UDP selain DNS tetap dibuang,
     // sama seperti sebelum fitur ini ada.
@@ -136,22 +136,15 @@ class Socks5Server {
     // DIHAPUS (root cause "tunnel connect tapi internet tidak jalan, tanpa
     // error di log"): sebelumnya ada `channelOpenLock` yang menyerialkan
     // SEMUA pembukaan channel (CONNECT & UDP-relay-DNS) di satu lock global,
-    // atas dasar kekhawatiran "trilead-ssh2 tidak aman dipanggil concurrent".
-    // Dicek langsung ke source resmi fork yang dipakai project ini
-    // (org.jenkins-ci:trilead-ssh2, lihat app/build.gradle.kts) --
-    // ChannelManager.openDirectTCPIPChannel() mengalokasikan ID channel di
-    // bawah lock PER-CHANNEL-nya sendiri (`synchronized(c)`), lalu
-    // waitUntilChannelOpen(c) juga menunggu di monitor `c` itu sendiri, BUKAN
-    // di lock global -- library ini memang didesain untuk banyak
-    // channel/session concurrent dari banyak thread. Jadi lock global di
-    // atas TIDAK diperlukan untuk keamanan trilead-ssh2, dan efek sampingnya
-    // justru berbahaya: createLocalStreamForwarder() TIDAK punya timeout,
-    // jadi begitu satu destinasi lambat/macet, SEMUA koneksi & query DNS
-    // baru lain ikut menunggu di lock yang sama -- persis kelihatan seperti
-    // "internet mati total" walau status tunnel masih "Terhubung", dan
-    // tidak ada exception yang dilempar (makanya tidak ada apa pun di log).
-    // Sekarang setiap channel dibuka independen; yang macet cuma menunda
-    // channel itu sendiri (lihat CHANNEL_OPEN_TIMEOUT_MS di handleConnect).
+    // atas dasar kekhawatiran keamanan-concurrency yang ternyata tidak
+    // diperlukan -- efek sampingnya justru berbahaya:
+    // createLocalStreamForwarder() TIDAK punya timeout, jadi begitu satu
+    // destinasi lambat/macet, SEMUA koneksi & query DNS baru lain ikut
+    // menunggu di lock yang sama -- persis kelihatan seperti "internet mati
+    // total" walau status tunnel masih "Terhubung", dan tidak ada exception
+    // yang dilempar (makanya tidak ada apa pun di log). Sekarang setiap
+    // channel dibuka independen; yang macet cuma menunda channel itu sendiri
+    // (lihat CHANNEL_OPEN_TIMEOUT_MS di handleConnect).
 
     fun isRunning(): Boolean = running
 
@@ -386,8 +379,8 @@ class Socks5Server {
             // menolak channel baru begitu limitnya kena -- tunnel SSH-nya
             // sendiri masih "connected", tapi tidak ada request baru yang bisa
             // lewat lagi (persis kelihatan seperti "internet hilang"), dan/atau
-            // (b) dispatcher internal trilead-ssh2 (SATU thread pembaca untuk
-            // SEMUA channel di Connection yang sama) ikut tersendat kalau
+            // (b) dispatcher internal engine SSH (SATU thread pembaca untuk
+            // SEMUA channel di koneksi yang sama) ikut tersendat kalau
             // buffer channel yang bocor itu penuh dan tidak pernah dikuras --
             // yang berakibat channel LAIN (bukan cuma yang bocor) ikut macet
             // juga, plus jumlah objek/thread yang menumpuk seiring waktu bisa

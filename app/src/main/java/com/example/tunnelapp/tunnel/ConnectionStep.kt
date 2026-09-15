@@ -19,7 +19,7 @@ data class ConnectionStep(
 
 /**
  * ID tahap koneksi, dipakai bersama oleh MyVpnService, ConnectRelay, dan
- * SshTunnelManager supaya semua pihak melapor ke StatusBus dengan id yang sama.
+ * SshjTunnelManager supaya semua pihak melapor ke StatusBus dengan id yang sama.
  */
 object StepId {
     const val TUN = "tun"

@@ -70,7 +70,7 @@ class DashboardLogFragment : Fragment() {
     }
 
     /**
-     * Render log real-time (event asli dari ConnectRelay/SshTunnelManager), auto-scroll ke bawah.
+     * Render log real-time (event asli dari ConnectRelay/SshjTunnelManager), auto-scroll ke bawah.
      * (Lihat penjelasan lengkap bug fix HTML entity & nested-scroll di LogActivity versi lama --
      * logikanya dipindah apa adanya ke sini.)
      */

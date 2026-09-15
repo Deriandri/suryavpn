@@ -21,7 +21,7 @@ object StatusBus {
      * berasal dari event ASLI yang benar-benar terjadi di socket (payload yang
      * betul-betul ditulis ke stream, baris respons yang betul-betul dibaca dari
      * server, banner SSH asli, dll) -- lihat pemanggil [log] di ConnectRelay.kt
-     * dan SshTunnelManager.kt. Bukan teks statis/hiasan.
+     * dan SshjTunnelManager.kt. Bukan teks statis/hiasan.
      */
     private const val MAX_LOG_LINES = 300
     val liveLog = MutableStateFlow<List<String>>(emptyList())

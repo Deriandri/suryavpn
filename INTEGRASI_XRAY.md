@@ -10,7 +10,7 @@ Yang SUDAH selesai ditulis (tidak butuh apa-apa lagi):
   field host/port/user/pass/SNI/TLS/payload/proxy punya jalur SSH
 - Pipeline TUN tidak berubah: `hev-socks5-tunnel` tetap membaca TUN lalu
   forward sebagai SOCKS5 ke port yang sama — cuma "penyedia" SOCKS5-nya
-  yang beda (Xray-core, bukan `SshTunnelManager`)
+  yang beda (Xray-core, bukan `SshjTunnelManager`)
 
 Yang BELUM bisa saya selesaikan di sini (butuh akses jaringan/compile Go yang
 tidak tersedia di sandbox saya), dan jadi tugas kamu:

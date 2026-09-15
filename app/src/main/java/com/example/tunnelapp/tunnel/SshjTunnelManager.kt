@@ -22,9 +22,8 @@ import javax.net.SocketFactory
  * rewel di Android) dan bukan pula fork JSch (usul awal, tapi sshj dinilai
  * paritas fiturnya lebih baik).
  *
- * BEDA UTAMA dari [SshTunnelManager] (trilead-ssh2): sshj BENERAN mendukung
- * kompresi zlib/zlib@openssh.com lewat [SSHClient.useCompression] -- lihat
- * catatan JUJUR soal ini di VpnSettingsStore.compressionEnabled.
+ * sshj BENERAN mendukung kompresi zlib/zlib@openssh.com lewat
+ * [SSHClient.useCompression] -- lihat VpnSettingsStore.compressionEnabled.
  *
  * CATATAN VERIFIKASI (baca ini kalau gagal compile): kelas ini ditulis dari
  * pengetahuan API publik sshj (useCompression(), newLocalPortForwarder(),
@@ -75,16 +74,12 @@ import javax.net.SocketFactory
  * khusus utk sshj. Efeknya: X25519/EC dkk tetap lengkap tersedia utk sshj,
  * TANPA mengubah provider default TLS lain di app.
  *
- * ARSITEKTUR: memakai [ConnectRelay] yang SAMA PERSIS dengan [SshTunnelManager]
- * (relay itu murni socket loopback, tidak terikat ke satu library SSH manapun)
- * -- jadi SEMUA [com.example.tunnelapp.model.ConnectionMode] (SSH biasa, SSH
- * SSL, SSH SSL+Payload, Remote Proxy, Enhanced) otomatis ikut didukung tanpa
- * kode tambahan di sini. [Socks5Server]/[UdpgwClient] juga dipakai ulang lewat
+ * ARSITEKTUR: memakai [ConnectRelay] (relay itu murni socket loopback, tidak
+ * terikat ke satu library SSH manapun) -- jadi SEMUA
+ * [com.example.tunnelapp.model.ConnectionMode] (SSH biasa, SSH SSL, SSH
+ * SSL+Payload, Remote Proxy, Enhanced) otomatis ikut didukung tanpa kode
+ * tambahan di sini. [Socks5Server]/[UdpgwClient] juga dipakai ulang lewat
  * abstraksi [SshConnectionHandle]/[DirectTcpipForwarder] (lihat SshEngineTypes.kt).
- *
- * FITUR YANG BELUM DIPORTASI dari trilead-ssh2 (non-esensial, tunnel tetap
- * jalan penuh tanpa ini): reorder cipher cepat (preferFastCiphers), dan pesan
- * error per-ConnectionMode yang detail (di sini digeneralisasi).
  *
  * SUDAH DIPERBAIKI (audit "apakah sudah maksimal", permintaan user):
  * (1) Performance Mode (TCP_NODELAY) SEKARANG ikut diimplementasikan lewat
@@ -96,20 +91,18 @@ import javax.net.SocketFactory
  *     connect()/authPassword() berisiko menggantung tanpa batas kalau server
  *     tidak jelas membalas.
  *
- * "Server Message"/banner SUDAH diportasi (lihat connect(), setelah
- * authPassword() sukses) -- BEDA dengan trilead yang butuh reflection, sshj
- * mengekspornya lewat API publik resmi client.userAuth.banner.
+ * "Server Message"/banner (lihat connect(), setelah authPassword() sukses)
+ * diekspor sshj lewat API publik resmi client.userAuth.banner.
  */
 class SshjTunnelManager : SshEngineHandle {
 
     /**
      * Bungkus [SSHClient] jadi [SshConnectionHandle] generik supaya
-     * [Socks5Server]/[UdpgwClient] bisa dipakai ulang persis seperti di
-     * [SshTunnelManager].
+     * [Socks5Server]/[UdpgwClient] bisa dipakai ulang lewat abstraksi umum.
      *
      * sshj TIDAK punya API publik "buka satu direct-tcpip channel, kembalikan
-     * stream-nya langsung" sesederhana trilead-ssh2's createLocalStreamForwarder()
-     * -- API forwarding publik & stabil di sshj adalah [SSHClient.newLocalPortForwarder]
+     * stream-nya langsung" yang sesederhana itu -- API forwarding publik &
+     * stabil di sshj adalah [SSHClient.newLocalPortForwarder]
      * (gaya "ssh -L": SATU forwarder = SATU tujuan tetap, bind ke SATU
      * ServerSocket). Jadi di sini kita buat SATU ServerSocket loopback
      * sementara (port 0 = pilih otomatis) + SATU LocalPortForwarder per
@@ -160,16 +153,13 @@ class SshjTunnelManager : SshEngineHandle {
     }
 
     /**
-     * PARITAS FITUR (sebelumnya belum diportasi dari [SshTunnelManager]):
      * "Performance Mode" (TCP_NODELAY, matikan algoritma Nagle). sshj TIDAK
-     * punya setter publik setara Connection.setTCPNoDelay milik trilead-ssh2
-     * -- tapi ADA jalan resmi lain: SSHClient.setSocketFactory() (API
-     * publik sshj yang sama dipakai contoh resmi mereka untuk konek lewat
-     * SOCKS proxy custom). Dengan menyuntikkan SocketFactory sendiri di
-     * sini, kita bisa set tcpNoDelay pada socket SEBELUM dipakai sshj utk
-     * connect ke relay lokal -- efeknya identik dengan Connection.setTCPNoDelay
-     * di versi trilead (cuma memengaruhi socket loopback ke [ConnectRelay],
-     * sama seperti catatan di SshTunnelManager.connect()).
+     * punya setter publik langsung untuk ini -- tapi ADA jalan resmi lain:
+     * SSHClient.setSocketFactory() (API publik sshj yang sama dipakai contoh
+     * resmi mereka untuk konek lewat SOCKS proxy custom). Dengan menyuntikkan
+     * SocketFactory sendiri di sini, kita bisa set tcpNoDelay pada socket
+     * SEBELUM dipakai sshj utk connect ke relay lokal (cuma memengaruhi
+     * socket loopback ke [ConnectRelay]).
      *
      * CATATAN VERIFIKASI (sama seperti javadoc kelas ini): ditulis dari API
      * publik javax.net.SocketFactory (bagian dari JDK/Android sendiri, jadi
@@ -306,16 +296,14 @@ class SshjTunnelManager : SshEngineHandle {
         // FIX (bug potensial "menggantung tanpa batas"): SEBELUMNYA tidak
         // ada timeout sama sekali di level SSHClient -- kalau server tidak
         // jelas membalas saat handshake/auth, client.connect()/authPassword()
-        // bisa BLOCKING SELAMANYA (beda dari trilead-ssh2 yang selalu diberi
-        // CONNECT_TIMEOUT_MS eksplisit lewat conn.connect(...)). Di sini
-        // disamakan: connectTimeout utk fase TCP connect, timeout (SO_TIMEOUT)
-        // utk operasi blocking sesudahnya (key exchange, auth).
+        // bisa BLOCKING SELAMANYA. Di sini connectTimeout dipakai utk fase TCP
+        // connect, timeout (SO_TIMEOUT) utk operasi blocking sesudahnya (key
+        // exchange, auth).
         client.connectTimeout = CONNECT_TIMEOUT_MS
         client.timeout = CONNECT_TIMEOUT_MS
         // Performance Mode (TCP_NODELAY) -- lihat javadoc PerformanceModeSocketFactory.
         client.socketFactory = PerformanceModeSocketFactory(performanceMode)
-        // MVP: terima host key apa pun -- sama persis kebijakan
-        // ServerHostKeyVerifier di SshTunnelManager (trilead).
+        // MVP: terima host key apa pun.
         client.addHostKeyVerifier(PromiscuousVerifier())
         if (compressionEnabled) {
             try {
@@ -346,13 +334,10 @@ class SshjTunnelManager : SshEngineHandle {
         }
         StatusBus.log("Auth complete")
         // "Server Message"/banner (SSH_MSG_USERAUTH_BANNER, RFC 4252 SS5.4) --
-        // beda dengan trilead-ssh2 (lihat SshTunnelManager.extractServerBanner()),
-        // sshj MENGEKSPOR ini lewat API publik resmi: SSHClient.getUserAuth().getBanner()
-        // (lihat net.schmizz.sshj.SSHClient.getUserAuth() & UserAuth.getBanner()),
-        // jadi TIDAK perlu reflection ke field internal seperti versi trilead.
-        // CATATAN: sshj mengembalikan "" (bukan null) kalau server tidak kirim
-        // banner sama sekali -- makanya dicek isNotBlank(), sama persis
-        // perilaku extractServerBanner() versi trilead.
+        // sshj mengekspor ini lewat API publik resmi:
+        // SSHClient.getUserAuth().getBanner() (lihat net.schmizz.sshj.SSHClient.getUserAuth()
+        // & UserAuth.getBanner()). CATATAN: sshj mengembalikan "" (bukan null)
+        // kalau server tidak kirim banner sama sekali -- makanya dicek isNotBlank().
         client.userAuth.banner?.takeIf { it.isNotBlank() }?.let { banner ->
             StatusBus.log("Server Message:\n$banner")
         }
@@ -428,9 +413,8 @@ class SshjTunnelManager : SshEngineHandle {
         }
 
         // Deteksi "tunnel mati sendiri": sshj tidak punya event listener
-        // setunggal ConnectionMonitor milik trilead-ssh2 di API publiknya --
-        // cara yang stabil & publik di sini adalah thread pengintai
-        // isConnected() berkala.
+        // koneksi tunggal di API publiknya -- cara yang stabil & publik di
+        // sini adalah thread pengintai isConnected() berkala.
         disconnectWatchThread = Thread({
             try {
                 while (client.isConnected) {
@@ -444,7 +428,7 @@ class SshjTunnelManager : SshEngineHandle {
         Log.i(TAG, "SSH (sshj) tersambung via relay lokal. SOCKS5 di 127.0.0.1:${config.socksPort}")
     }
 
-    /** Versi sederhana dari SshTunnelManager.explainHandshakeFailure -- lihat catatan "FITUR YANG BELUM DIPORTASI" di atas. */
+    /** Versi sederhana dari explainHandshakeFailure. */
     private fun explainHandshakeFailure(e: Exception, config: ServerConfig): String {
         StatusBus.firstErrorDetail()?.let { return it }
         val rawDetail = (e.message ?: e.javaClass.simpleName)

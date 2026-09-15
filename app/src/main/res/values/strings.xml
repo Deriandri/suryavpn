@@ -63,10 +63,6 @@
 
     <!-- Kartu: VPN Setting -->
     <string name="section_vpn">VPN Setting</string>
-    <string name="ssh_engine_label">SSH Engine</string>
-    <string name="ssh_engine_desc">Trilead: engine asli app ini, paling teruji. sshj: engine kedua, mendukung kompresi zlib nyata (lihat toggle Compression di bawah).</string>
-    <string name="engine_trilead">Trilead (default)</string>
-    <string name="engine_sshj">sshj (Beta)</string>
     <string name="dns_label">DNS</string>
     <string name="dns_desc">Kalau dinyalakan, DNS di bawah menimpa DNS profil SSH/Xray. Mati (default): DNS di sini diabaikan, tetap pakai DNS profil masing-masing.</string>
     <string name="dns_override_title">Timpa DNS</string>
@@ -86,8 +82,7 @@
     <string name="performance_mode_title">Performance Mode</string>
     <string name="performance_mode_desc">Aktifkan untuk mode full traffic (download, speedtest, dll). Kalau dimatikan, mode multi-tasking yang dipakai.</string>
     <string name="compression_title">Enable Compression</string>
-    <string name="compression_hint_enabled">Compress trafik SSH pakai zlib -- BENERAN aktif di engine sshj.</string>
-    <string name="compression_hint_disabled">Compress trafik SSH pakai zlib. Cuma berfungsi nyata di engine sshj -- pilih \'sshj (Beta)\' di SSH Engine di atas dulu, baru toggle ini bisa dinyalakan. Engine Trilead tidak mendukung ini sama sekali (dikunci otomatis).</string>
+    <string name="compression_hint">Compress trafik SSH pakai zlib -- mengurangi pemakaian data dengan sedikit overhead CPU.</string>
     <string name="battery_usage_title">Battery Usage</string>
     <string name="battery_checking">Mengecek status...</string>
     <string name="battery_not_applicable">Tidak berlaku di versi Android ini</string>

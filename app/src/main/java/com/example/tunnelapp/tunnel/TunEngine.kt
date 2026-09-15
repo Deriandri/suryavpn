@@ -23,7 +23,7 @@ interface TunEngine {
      * @param tunAddress alamat IPv4 lokal TUN interface (mis. "10.10.0.2")
      * @param mtu MTU TUN interface
      * @param socksHost host SOCKS5 tujuan, selalu "127.0.0.1" di app ini
-     * @param socksPort port SOCKS5 tujuan -- disediakan oleh SshTunnelManager
+     * @param socksPort port SOCKS5 tujuan -- disediakan oleh SshjTunnelManager
      *                  ATAU XrayTunnelManager tergantung [com.example.tunnelapp.model.ServerConfig.mode]
      * @param onUnexpectedStop dipanggil (dari thread APAPUN, implementasi caller wajib thread-safe)
      *   kalau engine berhenti SENDIRI di tengah jalan (native lib exit, socket

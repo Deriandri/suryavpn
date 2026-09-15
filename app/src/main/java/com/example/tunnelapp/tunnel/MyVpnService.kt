@@ -240,7 +240,7 @@ class MyVpnService : VpnService() {
      *
      * PENTING (bug fix "app stuck total, VPN tidak bisa dimatikan"): panggilan
      * ini bisa datang dari thread MANA PUN -- callback native hev-socks5-
-     * tunnel, ConnectionMonitor trilead-ssh2, callback ConnectivityManager
+     * tunnel, monitor koneksi sshj, callback ConnectivityManager
      * saat jaringan device mati (handleTunnelDeath), ATAU shutdownScope
      * (stopVpn manual). xrayTunnelManager.disconnect() KHUSUSNYA memanggil
      * LibXray.invoke("stopXray") -- native call ke runtime Go yang TIDAK
@@ -342,13 +342,9 @@ class MyVpnService : VpnService() {
     }
     private var serviceJob: Job = SupervisorJob()
     private var serviceScope = CoroutineScope(Dispatchers.IO + serviceJob + serviceExceptionHandler)
-    // FITUR BARU (permintaan user: "tambah library SSH kedua, bisa pilih di
-    // Pengaturan"): SshEngineRouter memilih trilead-ssh2 ATAU sshj berdasarkan
-    // VpnSettingsStore.sshEngine -- lihat javadoc lengkap di SshEngineRouter.kt.
-    // SEMUA pemanggilan sshTunnelManager.* di bawah (connect/disconnect/
-    // disconnectForReconnect/isConnected) TIDAK PERLU diubah sama sekali,
-    // signature-nya sengaja dibuat identik dengan SshTunnelManager lama.
-    private val sshTunnelManager = SshEngineRouter(this)
+    // Engine SSH tunggal yang dipakai app ini (sshj) -- lihat SshEngineTypes.kt
+    // utk kontrak SshEngineHandle yang dipenuhi SshjTunnelManager.
+    private val sshTunnelManager = SshjTunnelManager()
     private val xrayTunnelManager by lazy { XrayTunnelManager(this) }
     private var tunEngine: TunEngine? = null
 
@@ -518,8 +514,8 @@ class MyVpnService : VpnService() {
     // --- FIX ANR: scope KHUSUS untuk teardown (tunEngine.stop(), SSH/Xray
     // disconnect(), vpnInterface.close()) ---
     // Semua panggilan itu BLOCKING: HevSocks5Engine.stop() nge-join thread
-    // native sampai 2 detik, SshTunnelManager.disconnect() nutup socket SSH
-    // (trilead-ssh2), XrayTunnelManager.disconnect() manggil JNI ke runtime Go
+    // native sampai 2 detik, SshjTunnelManager.disconnect() nutup socket SSH,
+    // XrayTunnelManager.disconnect() manggil JNI ke runtime Go
     // (libXray). stopVpn() dulu menjalankan semua itu LANGSUNG di badan
     // onStartCommand()/onDestroy() -- keduanya jalan di MAIN THREAD (sama
     // dengan UI Activity, app ini satu proses) -- jadi main thread ke-block
@@ -1045,7 +1041,7 @@ class MyVpnService : VpnService() {
                 // ulang di sini (bukan sekali di startVpn()) supaya toggle
                 // Compression yang user ubah SESUDAH tunnel sempat konek
                 // tapi SEBELUM reconnect berikutnya ikut kepakai. Cuma
-                // benar-benar berefek kalau sshEngine = ENGINE_SSHJ, lihat
+                // benar-benar berefek kalau kompresi diaktifkan, lihat
                 // catatan lengkap di VpnSettingsStore.compressionEnabled.
                 val compressionEnabled = VpnSettingsStore.load(this@MyVpnService).compressionEnabled
 
@@ -1133,7 +1129,7 @@ class MyVpnService : VpnService() {
                 StatusBus.success(StepId.TUNNEL_ACTIVE)
                 // FIX (laporan user): baris terakhir yang pernah masuk ke Log
                 // terminal sebelumnya cuma "Mengaktifkan tunnel ke seluruh
-                // trafik device..." (dari SshTunnelManager) -- tidak pernah ada
+                // trafik device..." (dari SshjTunnelManager) -- tidak pernah ada
                 // baris konfirmasi susulan setelah verifyTunnelReallyWorks()
                 // benar-benar sukses, jadi Log terlihat "berhenti di situ"
                 // padahal sebenarnya sudah terverifikasi aktif. Tambahkan event
@@ -1209,7 +1205,7 @@ class MyVpnService : VpnService() {
                 // FIX ARSITEKTUR EADDRINUSE (dulu "FIX BUG UTAMA bind failed:
                 // EADDRINUSE di percobaan reconnect berikutnya" -- ditambal
                 // dengan disconnect() penuh di sini; sekarang ditutup di akar
-                // masalahnya lewat SshTunnelManager.disconnectForReconnect()):
+                // masalahnya lewat SshjTunnelManager.disconnectForReconnect()):
                 // kalau attempt ini adalah RECONNECT yang gagal, SOCKS5 lokal
                 // SENGAJA dibiarkan hidup (port tidak dilepas) -- attempt
                 // berikutnya cuma perlu Connection SSH baru, tidak pernah
@@ -1219,7 +1215,7 @@ class MyVpnService : VpnService() {
                 // belum ada sesi yang perlu dipertahankan -- aman dibongkar
                 // total lewat disconnect() biasa. xrayTunnelManager tetap
                 // pakai disconnect() penuh di kedua kasus (jalurnya beda,
-                // tidak punya local proxy persisten seperti SshTunnelManager).
+                // tidak punya local proxy persisten seperti SshjTunnelManager).
                 stopHttpProxyServer()
                 if (isReconnect) {
                     runBlockingWithTimeout("sshTunnelManager.disconnectForReconnect() (cleanup reconnect gagal)") {
@@ -1256,7 +1252,7 @@ class MyVpnService : VpnService() {
      * Dipanggil dari SINYAL APAPUN yang menandakan tunnel mati sendiri (bukan
      * diminta stop): thread hev-socks5-tunnel exit tak terduga
      * ([HevSocks5Engine.onUnexpectedStop]), koneksi SSH putus
-     * ([com.trilead.ssh2.ConnectionMonitor]), atau watchdog gagal probe SOCKS5
+     * (monitor koneksi sshj), atau watchdog gagal probe SOCKS5
      * lokal ([startWatchdog]). Bisa dipanggil dari thread mana pun -- karena
      * itu semua state yang dibaca/ditulis di sini WAJIB aman dipanggil
      * berulang (idempotent), makanya pakai [handlingDeath] sebagai gerbang.
@@ -1301,7 +1297,7 @@ class MyVpnService : VpnService() {
         // mendengarkan di port yang sama, cuma referensi Connection SSH yang
         // matinya dilepas. Reconnect berikutnya (establishTunnel isReconnect
         // = true) jadi tidak pernah perlu bind() ulang port sama sekali.
-        // Lihat catatan arsitektur lengkap di SshTunnelManager & Socks5Server.
+        // Lihat catatan arsitektur lengkap di SshjTunnelManager & Socks5Server.
         runBlockingWithTimeout("sshTunnelManager.disconnectForReconnect()") { sshTunnelManager.disconnectForReconnect() }
         runBlockingWithTimeout("xrayTunnelManager.disconnect()") { xrayTunnelManager.disconnect() }
 
@@ -1480,7 +1476,7 @@ class MyVpnService : VpnService() {
      * callback hev-engine/SSH-monitor yang spesifik per komponen, watchdog
      * ini nutup celah kasus yang tidak trigger callback manapun (mis.
      * Xray-core hang/mati tanpa melempar error, yang tidak punya hook
-     * "connection lost" resmi ke luar seperti trilead-ssh2 py di SSH).
+     * "connection lost" resmi ke luar seperti sshj di SSH).
      */
     private fun startWatchdog(config: ServerConfig) {
         watchdogJob?.cancel()
@@ -2133,7 +2129,7 @@ class MyVpnService : VpnService() {
 
             // Aman dipanggil dua-duanya: masing-masing manager no-op kalau
             // memang tidak sedang aktif (lihat isConnected()/running di
-            // XrayTunnelManager, connection == null di SshTunnelManager).
+            // XrayTunnelManager, connection == null di SshjTunnelManager).
             runBlockingWithTimeout("sshTunnelManager.disconnect()") { sshTunnelManager.disconnect() }
             runBlockingWithTimeout("xrayTunnelManager.disconnect()") { xrayTunnelManager.disconnect() }
 

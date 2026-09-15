@@ -40,7 +40,7 @@ package com.example.tunnelapp.model
  *                          itu), lalu TLS dengan SNI = [ServerConfig.sslSni] (atau host asli)
  *                          supaya CDN bisa routing berbasis SNI ke origin yang benar.
  *  - XRAY:            mode terpisah dari jalur SSH di atas -- TIDAK dikonek pakai
- *                      trilead-ssh2 sama sekali. Server diisi lewat satu link
+ *                      engine SSH sama sekali. Server diisi lewat satu link
  *                      share ([ServerConfig.xrayLink], format vmess://, vless://,
  *                      atau trojan://) yang di-parse jadi konfigurasi Xray-core
  *                      lalu dijalankan lewat XrayTunnelManager (binding libXray/
@@ -49,7 +49,7 @@ package com.example.tunnelapp.model
  *                      -- port yang SAMA yang dipakai hev-socks5-tunnel buat
  *                      menjembatani TUN, jadi pipeline TUN->SOCKS5 di MyVpnService
  *                      tidak berubah sama sekali, cuma "penyedia" SOCKS5-nya yang
- *                      beda (Xray-core, bukan SshTunnelManager+Socks5Server).
+ *                      beda (Xray-core, bukan SshjTunnelManager+Socks5Server).
  *
  * CATATAN PENTING: WebSocket TIDAK ADA lagi togglenya di UI ataupun di [ConnectionMode] --
  * sekarang SELALU dicoba otomatis di SEMUA mode di atas (lihat [ServerConfig.usesWebSocket]),
@@ -279,7 +279,7 @@ data class ServerConfig(
      */
     fun attemptsFormalWebSocket(): Boolean = usesWebSocket() && payload.isNullOrEmpty()
 
-    /** Apakah mode ini pakai jalur Xray-core, bukan jalur SSH (trilead-ssh2). */
+    /** Apakah mode ini pakai jalur Xray-core, bukan jalur SSH. */
     fun usesXray(): Boolean = mode == ConnectionMode.XRAY
 }
 

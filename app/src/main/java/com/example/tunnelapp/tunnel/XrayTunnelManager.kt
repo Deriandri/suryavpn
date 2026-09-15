@@ -81,7 +81,7 @@ class XrayTunnelManager(private val context: Context) {
     private val disconnecting = AtomicBoolean(false)
 
     /**
-     * @param protectFd Callback fd-based (BUKAN Socket seperti punya SshTunnelManager),
+     * @param protectFd Callback fd-based (BUKAN Socket seperti punya SshjTunnelManager),
      * karena `DialerController.protectFd()` dari libXray beroperasi di level file
      * descriptor mentah (Go/gomobile). Panggil ini dari `VpnService.protect(fd: Int)`
      * langsung -- lihat pemanggilan di MyVpnService.

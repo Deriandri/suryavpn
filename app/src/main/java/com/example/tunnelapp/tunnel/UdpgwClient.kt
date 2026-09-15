@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * SATU instance ini PERSISTEN untuk seluruh umur sesi VPN (persis pola
  * [Socks5Server]): [attachConnection]/[detachConnection] dipanggil
- * [SshTunnelManager] setiap kali koneksi SSH connect/reconnect/putus, TANPA
+ * [SshjTunnelManager] setiap kali koneksi SSH connect/reconnect/putus, TANPA
  * membongkar instance ini sendiri. Channel TCP ke udpgw server dibuka
  * MALAS (lazy) -- baru benar-benar dibuka saat paket UDP pertama yang perlu
  * dikirim datang (lewat [sendPacket]) -- lalu dipakai ulang terus sampai
@@ -139,7 +139,7 @@ class UdpgwClient(private val remotePort: Int) {
     @Volatile private var running = false
     private var keepaliveThread: Thread? = null
 
-    /** Mulai housekeeping (keepalive+idle-eviction) -- dipanggil SEKALI oleh SshTunnelManager saat sesi VPN dimulai. */
+    /** Mulai housekeeping (keepalive+idle-eviction) -- dipanggil SEKALI oleh SshjTunnelManager saat sesi VPN dimulai. */
     fun start() {
         if (running) return
         running = true
