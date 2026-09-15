@@ -1034,58 +1034,49 @@ class ConfigActivity : AppCompatActivity() {
      * datang dari [SavedProfile.config.accountName], yang untuk akun hasil
      * sinkron "Cloud Config" bisa saja diisi provider dengan remark/"ps"
      * super panjang berisi ASCII art & tag HTML dekoratif (bukan cuma satu
-     * baris nama pendek seperti "TES UNLOCK"). SEBELUMNYA [nameInput]
-     * tidak dibatasi baris/panjangnya sama sekali, jadi begitu diisi teks
-     * semacam itu, EditText ikut melar puluhan baris ke bawah dan
-     * mendorong seluruh dialog meluber keluar batas layar. Sekarang:
-     *  - [nameInput] DIKUNCI satu baris (isSingleLine + maxLines=1 +
-     *    ellipsize) -- nama ekspor memang cuma label singkat, jadi teks
-     *    berlebih cukup dipotong "..." & tetap bisa digeser/diedit, tidak
-     *    lagi memaksa tinggi dialog membengkak.
-     *  - [noteInput] (yang memang boleh multi-baris untuk HTML) dibatasi
-     *    tinggi maksimalnya (maxLines) dengan scroll internal sendiri,
-     *    supaya kalau user tempel catatan yang sangat panjang, kotaknya
-     *    berhenti pada tinggi wajar & bisa digulir, bukan mendorong isi
-     *    ScrollView pembungkus jadi raksasa.
+     * baris nama pendek seperti "TES UNLOCK"). [nameInput] DIKUNCI satu
+     * baris (isSingleLine + maxLines=1 + ellipsize) -- nama ekspor memang
+     * cuma label singkat, jadi teks berlebih cukup dipotong "..." & tetap
+     * bisa digeser/diedit, tidak lagi memaksa tinggi dialog membengkak.
+     * [noteInput] (yang memang boleh multi-baris untuk HTML) dibatasi
+     * tinggi maksimalnya (maxLines) dengan scroll internal sendiri, supaya
+     * kalau user tempel catatan yang sangat panjang, kotaknya berhenti pada
+     * tinggi wajar & bisa digulir, bukan mendorong isi ScrollView pembungkus
+     * jadi raksasa.
+     *
+     * GANTI TOTAL (permintaan user, "masih ngebuggggg, ganti total tampilan
+     * & pastikan tidak ada bug tampilan lagi"): dua percobaan sebelumnya
+     * (mengunci padding lalu mematikan animasi hint saat mengisi teks
+     * default) SAMA-SAMA masih menyisakan celah -- root cause SEBENARNYA
+     * adalah [TextInputLayout] "label mengambang" itu sendiri: dia hanya
+     * BENAR-BENAR pindah ke posisi kecil di atas lewat animasi berbasis
+     * timing (fokus/isi berubah), yang gampang meleset kalau teksnya
+     * dipasang lewat kode (bukan diketik user) -- apa pun urutan/kondisi
+     * baru yang dicoba, celah timing itu tetap ada selama mekanismenya
+     * masih dipakai. Sekarang mekanisme itu DIBUANG TOTAL, bukan ditambal
+     * lagi: kedua field di dialog ini tidak lagi pakai [TextInputLayout]
+     * sama sekali -- label "Nama ekspor (opsional)"/"Catatan (opsional)"
+     * sekarang [TextView] STATIS terpisah yang SELALU duduk di atas
+     * kotaknya sendiri, tidak pernah animasi/collapse, sehingga SECARA
+     * KONSTRUKSI tidak mungkin lagi tumpang tindih dengan isi apa pun
+     * kondisi awalnya (kosong, terisi default, atau diisi ulang lewat
+     * kode). Lihat [buildStaticExportField].
      */
     private fun showExportDetailsDialog(
         defaultName: String,
         onConfirmed: (name: String, note: String) -> Unit
     ) {
-        // REDESIGN (permintaan user: tampilan dialog "Detail Ekspor" jadi
-        // gaya "glass" ungu-teal sesuai contoh gambar) -- input teks
-        // dipasang warna eksplisit (bukan ikut default tema) supaya tetap
-        // gelap & terbaca di atas kartu kaca yang TERANG, terlepas dari
-        // mode gelap/terang sistem (kartu ini, sama seperti kartu Impor,
-        // sengaja dikunci tidak ikut values-night).
-        //
-        // PERBAIKAN BUG (label "Nama ekspor (opsional)" TUMPANG TINDIH
-        // dengan teks yang sudah terisi, mis. "attrsaa" -- terlihat di
-        // screenshot laporan user): [TextInputLayout] hanya menghitung
-        // ulang status "hint mengambang" (expanded vs collapsed) pada
-        // SAAT [EditText] dipasang sebagai child-nya (lewat addView di
-        // [dialogInputLayout]) DAN saat isi teksnya berubah SETELAHNYA.
-        // SEBELUMNYA [setText(...)] dipanggil DI SINI, sebelum
-        // [nameInput] sempat dipasang ke TextInputLayout-nya sama sekali
-        // -- akibatnya saat addView benar-benar terjadi, TextInputLayout
-        // sempat salah membaca field ini sebagai "kosong" lalu hint-nya
-        // macet di posisi mengambang besar (bukan naik jadi label kecil
-        // di atas), jadi tertumpuk pas-pasan dengan teks isi yang baru
-        // "muncul tiba-tiba" setelahnya tanpa animasi collapse yang benar.
-        // Sekarang [nameInput] dibuat KOSONG dulu di sini; isinya baru
-        // diisi belakangan di bawah, SETELAH benar-benar terpasang ke
-        // TextInputLayout-nya, dengan animasi hint dimatikan sesaat
-        // supaya label langsung "lompat" ke posisi kecil-di-atas yang
-        // benar tanpa sempat tergambar tumpang tindih dulu.
         val nameInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT
             isSingleLine = true
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             filters = arrayOf(android.text.InputFilter.LengthFilter(MAX_EXPORT_NAME_LENGTH))
-            setPadding(40, 28, 40, 20)
             setTextColor(ContextCompat.getColor(context, R.color.export_glass_title_text))
             setHintTextColor(ContextCompat.getColor(context, R.color.export_glass_placeholder))
+            hint = "Contoh: Server Kantor"
+            setText(sanitizeExportName(defaultName))
+            setSelection(text?.length ?: 0)
         }
         val noteInput = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
@@ -1093,58 +1084,25 @@ class ConfigActivity : AppCompatActivity() {
             maxLines = 8
             isVerticalScrollBarEnabled = true
             movementMethod = android.text.method.ScrollingMovementMethod()
-            setPadding(40, 20, 40, 28)
             setTextColor(ContextCompat.getColor(context, R.color.export_glass_title_text))
             setHintTextColor(ContextCompat.getColor(context, R.color.export_glass_placeholder))
+            hint = "Mendukung format HTML..."
         }
 
-        // RAPIKAN LAYOUT (permintaan user, "lebih profesional dan modern"):
-        // sebelumnya kedua TextInputLayout ditumpuk langsung tanpa jarak
-        // eksplisit di sini -- LinearLayout.addView(view) TANPA LayoutParams
-        // memang mengikuti style Field.Underline.Export (layout_marginTop
-        // 18dp), tapi itu cuma berlaku kalau View di-inflate dari XML;
-        // dibangun murni lewat kode begini, atribut layout_marginTop di
-        // style TIDAK pernah kebaca oleh LinearLayout induknya, jadi field
-        // "Catatan" nempel langsung di bawah field "Nama" tanpa jeda.
-        // Sekarang jarak antar-field DIPASANG MANUAL lewat LayoutParams
-        // supaya konsisten profesional apa pun cara View-nya dibuat.
-        val fieldSpacingPx = 20
-        val nameFieldLayout = dialogInputLayout(
-            nameInput,
-            "Nama ekspor (opsional)",
-            styleOverlay = R.style.ThemeOverlay_TunnelApp_UnderlineField_Export
-        )
+        val fieldSpacingPx = 32
         val container = ScrollView(this).apply {
             addView(LinearLayout(this@ConfigActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(0, 8, 0, 4)
-                addView(nameFieldLayout)
+                setPadding(0, 16, 0, 4)
+                addView(buildStaticExportField("Nama ekspor (opsional)", nameInput))
                 addView(
-                    dialogInputLayout(
-                        noteInput,
-                        hintText = "Catatan (opsional)",
-                        placeholderText = "Mendukung format HTML...",
-                        styleOverlay = R.style.ThemeOverlay_TunnelApp_UnderlineField_Export
-                    ),
+                    buildStaticExportField("Catatan (opsional)", noteInput),
                     LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
                         LinearLayout.LayoutParams.WRAP_CONTENT
                     ).apply { topMargin = fieldSpacingPx }
                 )
             })
-        }
-        // Baru sekarang -- SETELAH [nameInput] benar-benar jadi child dari
-        // [nameFieldLayout] -- isi default-nya dipasang. [isHintAnimationEnabled]
-        // dimatikan sesaat supaya lompatan hint dari "mengambang besar" ke
-        // "label kecil di atas" terjadi LANGSUNG (tanpa frame transisi yang
-        // sempat menumpuk keduanya), lalu dinyalakan lagi untuk interaksi
-        // normal berikutnya (fokus/ketik manual oleh user).
-        val sanitizedDefaultName = sanitizeExportName(defaultName)
-        if (sanitizedDefaultName.isNotEmpty()) {
-            nameFieldLayout.isHintAnimationEnabled = false
-            nameInput.setText(sanitizedDefaultName)
-            nameInput.setSelection(0)
-            nameFieldLayout.isHintAnimationEnabled = true
         }
 
         val dialog = MaterialAlertDialogBuilder(this, R.style.ThemeOverlay_TunnelApp_Dialog_Export)
@@ -1166,6 +1124,43 @@ class ConfigActivity : AppCompatActivity() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.bg_dialog_export_glass)
         dialog.show()
     }
+
+    /**
+     * Satu field di dialog "Detail Ekspor" -- label [labelText] STATIS
+     * (bukan hint mengambang [TextInputLayout], lihat catatan "GANTI
+     * TOTAL" di [showExportDetailsDialog] untuk alasannya) selalu duduk
+     * di atas kotak input, lalu [editText] dibungkus kotak "kaca" bulat
+     * ([R.drawable.bg_field_export_static]) yang HANYA berubah warna
+     * garis tepi berdasarkan status FOKUS sungguhan (bukan animasi) --
+     * [addStatesFromChildren] dipasang true di kotak pembungkus supaya
+     * status fokus [editText] di dalamnya ikut "menular" jadi state
+     * drawable background kotak ini.
+     */
+    private fun buildStaticExportField(labelText: String, editText: EditText): LinearLayout {
+        val label = TextView(this).apply {
+            text = labelText
+            setTextColor(ContextCompat.getColor(context, R.color.export_glass_body_text))
+            textSize = 13f
+            setPadding(4, 0, 0, 10)
+        }
+        editText.setPadding(28, 24, 28, 24)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = ContextCompat.getDrawable(context, R.drawable.bg_field_export_static)
+            isAddStatesFromChildrenEnabled = true
+            addView(
+                editText,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label)
+            addView(box)
+        }
+    }
+
 
     /**
      * Tampilkan kode bagikan (format "SVPN1:...", lihat

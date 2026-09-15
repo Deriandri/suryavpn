@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GANTI TOTAL dialog "Detail Ekspor" (permintaan user: bug label
+     "Nama ekspor (opsional)" tumpang tindih dengan teks isi TERUS
+     MUNCUL LAGI walau sudah dua kali ditambal di TextInputLayout-nya) —
+     drawable ini dipakai sebagai background kotak field POLOS
+     (LinearLayout pembungkus EditText biasa, lihat
+     [ConfigActivity.buildStaticExportField]), BUKAN lagi lewat
+     TextInputLayout sama sekali. Root cause bug sebelumnya adalah
+     animasi "label mengambang naik/turun" bawaan TextInputLayout yang
+     rapuh terhadap timing pengisian teks lewat kode (bukan diketik user)
+     — solusinya bukan menambal animasinya lagi, tapi membuang total
+     mekanisme mengambangnya: label sekarang TextView statis TERPISAH
+     yang SELALU ada di atas kotak, tidak pernah animasi/collapse, tidak
+     mungkin tumpang tindih dengan isi apa pun kondisinya.
+     Kotak ini sendiri cuma menangani status FOKUS lewat dua state warna
+     garis tepi (sama seperti export_field_stroke_selector yang dipakai
+     TextInputLayout dulu) — parent LinearLayout-nya dipasang
+     `addStatesFromChildren = true` di kode supaya status fokus EditText
+     di dalamnya ikut terbaca sebagai state_focused kotak ini. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/export_glass_input_bg" />
+            <corners android:radius="14dp" />
+            <stroke android:width="2dp" android:color="@color/export_glass_input_stroke_focused" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/export_glass_input_bg" />
+            <corners android:radius="14dp" />
+            <stroke android:width="1dp" android:color="@color/export_glass_input_stroke_idle" />
+        </shape>
+    </item>
+</selector>

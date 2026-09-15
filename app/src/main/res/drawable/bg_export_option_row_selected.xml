@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- REDESIGN dialog "Kunci konfigurasi?" (permintaan user: tampilan
-     profesional & modern) -- varian "terpilih" dari bg_export_option_row,
+     profesional & modern) — varian "terpilih" dari bg_export_option_row,
      dipakai [ConfigActivity.buildLockModeRow] untuk baris mode kunci yang
      SEDANG dipilih user. Sama-sama kotak "kaca" bulat, tapi isi sedikit
      lebih solid & garis tepi memakai warna teal terang
