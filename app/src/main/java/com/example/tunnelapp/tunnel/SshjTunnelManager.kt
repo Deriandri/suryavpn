@@ -438,6 +438,17 @@ class SshjTunnelManager : SshEngineHandle {
                 }
                 onUnexpectedDisconnect("koneksi SSH (sshj) terputus")
             } catch (_: InterruptedException) {
+                // Normal: thread ini sengaja di-interrupt dari thread LAIN
+                // (lihat stopDisconnectWatchThread()) karena teardown/stop
+                // sengaja (bukan disconnect tak terduga) sudah berjalan.
+            } catch (e: Exception) {
+                // JANGAN pakai catch generik yang menelan semua Exception di
+                // atas -- kalau onUnexpectedDisconnect() (yang menembus jauh
+                // ke handleTunnelDeath() di MyVpnService) melempar error lain
+                // di luar InterruptedException, itu HARUS kelihatan di log,
+                // bukan hilang diam-diam seperti bug self-interrupt yang
+                // sudah diperbaiki di stopDisconnectWatchThread().
+                Log.e(TAG, "Error saat memproses deteksi disconnect (sshj)", e)
             }
         }, "sshj-disconnect-watch").apply { isDaemon = true; start() }
 
@@ -454,12 +465,40 @@ class SshjTunnelManager : SshEngineHandle {
             "Proxy/Enhanced) di Konfigurasi. ($rawDetail)"
     }
 
+    // BUG NYATA (laporan user, "terdeteksi putus, tapi sshj tidak reconnect
+    // otomatis"): disconnectForReconnect()/disconnect() DULU langsung panggil
+    // disconnectWatchThread?.interrupt() tanpa syarat. Kalau yang MEMICU
+    // teardown ini justru disconnectWatchThread itu sendiri (lewat
+    // onUnexpectedDisconnect() -> handleTunnelDeath() di MyVpnService ->
+    // runBlockingWithTimeout { ...disconnectForReconnect() } yang membuat
+    // disconnectWatchThread ikut MENUNGGU di latch.await() sampai teardown di
+    // thread lain selesai), maka interrupt() di atas MENGENAI DIRINYA SENDIRI
+    // yang sedang nunggu itu -- latch.await() langsung melempar
+    // InterruptedException, menembus runBlockingWithTimeout() &
+    // handleTunnelDeath() SEBELUM sempat sampai ke scheduleReconnectOrGiveUp(),
+    // lalu ketangkep diam-diam oleh catch(InterruptedException) kosong milik
+    // disconnectWatchThread sendiri di connect(). Efeknya: proses reconnect
+    // batal total, tanpa log error apa pun.
+    // FIX: skip interrupt() kalau target-nya adalah thread yang sedang
+    // berjalan sekarang (self). Untuk kasus normal (teardown dipicu dari
+    // thread LAIN, misal network-watcher OS-level di MyVpnService),
+    // interrupt() tetap jalan seperti biasa -- masih perlu, supaya
+    // disconnectWatchThread yang lagi Thread.sleep(2000) tidak nyangkut lalu
+    // memanggil onUnexpectedDisconnect() KEDUA KALINYA untuk koneksi yang
+    // sudah sengaja ditutup.
+    private fun stopDisconnectWatchThread() {
+        val watch = disconnectWatchThread
+        disconnectWatchThread = null
+        if (watch != null && watch !== Thread.currentThread()) {
+            watch.interrupt()
+        }
+    }
+
     override fun disconnectForReconnect() {
         synchronized(teardownLock) {
             socks5Server?.detachConnection()
             udpgwClient?.detachConnection()
-            disconnectWatchThread?.interrupt()
-            disconnectWatchThread = null
+            stopDisconnectWatchThread()
             try {
                 sshClient?.disconnect()
             } catch (e: Exception) {
@@ -487,8 +526,7 @@ class SshjTunnelManager : SshEngineHandle {
             } catch (e: Exception) {
                 Log.e(TAG, "Error stop udpgw client", e)
             }
-            disconnectWatchThread?.interrupt()
-            disconnectWatchThread = null
+            stopDisconnectWatchThread()
             try {
                 sshClient?.disconnect()
             } catch (e: Exception) {
