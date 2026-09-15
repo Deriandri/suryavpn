@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Pasangan [nav_fade_in.xml] -- animasi KELUAR activity asal. Durasi
+<!-- Pasangan [nav_fade_in.xml], animasi KELUAR activity asal. Durasi
      dibikin lebih pendek (150ms) & TANPA scale, kurva fastOutLinearIn:
      activity lama cukup lenyap cepat sambil yang baru sudah mulai
      fade-in+scale di atasnya, supaya tidak ada jeda "layar kosong" di

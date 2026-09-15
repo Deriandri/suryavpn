@@ -1,6 +1,87 @@
 package com.example.tunnelapp.model
 
 /**
+ * Placeholder umum (non-EOL-berulang-tunggal-saja... lihat detail per
+ * fungsi) yang dipakai SEKALIGUS oleh [ServerConfig.payload] (lewat
+ * [com.example.tunnelapp.tunnel.ConnectRelay]) dan [ServerConfig.customHeaders]
+ * (lewat [ServerConfig.parsedCustomHeaders]) -- sengaja dipisah ke satu
+ * tempat di sini (bukan diduplikasi manual di dua tempat) supaya kalau salah
+ * satu diubah, yang lain otomatis ikut sinkron, tidak ada risiko dua
+ * implementasi placeholder yang diam-diam beda perilaku.
+ *
+ * Placeholder split ([split]/[delay]/dkk), rotasi ([rotate=]/[rotation_method=]),
+ * dan [repeat]/[random] SENGAJA TIDAK ada di sini -- itu cuma masuk akal untuk
+ * payload TCP penuh yang dikirim bertahap (lihat
+ * [com.example.tunnelapp.tunnel.ConnectRelay.buildAndSendPayload]), bukan
+ * untuk satu baris nilai header HTTP tunggal seperti [ServerConfig.customHeaders].
+ */
+object PayloadPlaceholders {
+    const val DEFAULT_METHOD = "CONNECT"
+    const val DEFAULT_PROTOCOL = "HTTP/1.0"
+    const val DEFAULT_USER_AGENT =
+        "Mozilla/5.0 (Android; Mobile; rv:35.0) Gecko/35.0 Firefox/35.0"
+
+    private val NUMERIC_EOL_REGEX = Regex("""\[(crlf|lfcr|cr|lf)\*(\d+)\]""")
+
+    /**
+     * [host_port] & alias, [host]/[ip] & alias, [port] & alias, [protocol],
+     * [method] & alias, [raw]/[real_raw], [realData]/[netData], [ua], [auth].
+     * Urutan replace() SENGAJA begini: placeholder gabungan/majemuk ([host_port],
+     * [raw], dst -- yang isinya SENDIRI memuat host/port/protocol/method) WAJIB
+     * diproses SEBELUM placeholder tunggal ([host]/[port]/dst) supaya tidak ada
+     * risiko tabrakan substitusi.
+     */
+    fun applyCommon(text: String, host: String, port: Int): String {
+        val portStr = port.toString()
+        val hostPort = "$host:$portStr"
+        val realData = "$DEFAULT_METHOD $hostPort $DEFAULT_PROTOCOL"
+        val raw = "$realData\r\n\r\n"
+        return text
+            .replace("[SSH]", hostPort).replace("[ssh]", hostPort)
+            .replace("[VPN]", hostPort).replace("[vpn]", hostPort)
+            .replace("[IP_PORT]", hostPort).replace("[ip_port]", hostPort)
+            .replace("[HOST_PORT]", hostPort).replace("[host_port]", hostPort)
+            .replace("[raw]", raw).replace("[real_raw]", raw)
+            .replace("[realData]", realData).replace("[netData]", realData)
+            .replace("[METHOD]", DEFAULT_METHOD).replace("[method]", DEFAULT_METHOD)
+            .replace("[protocol]", DEFAULT_PROTOCOL)
+            .replace("[HOST]", host).replace("[host]", host)
+            .replace("[IP]", host).replace("[ip]", host)
+            .replace("[PORT]", portStr).replace("[port]", portStr)
+            .replace("[ua]", DEFAULT_USER_AGENT)
+            // Belum ada field kredensial proxy terpisah (username/password) di
+            // ServerConfig -- diganti string kosong dulu, bukan dibiarkan
+            // literal "[auth]" ikut terkirim, sampai field itu ditambahkan.
+            .replace("[auth]", "")
+    }
+
+    /**
+     * EOL: bentuk berulang ([cr*x]/[lf*x]/[crlf*x]/[lfcr*x]) WAJIB diproses
+     * dulu lewat regex SEBELUM bentuk polos ([crlf]/[lfcr]/[cr]/[lf]) -- kalau
+     * dibalik, "[crlf*2]" akan keburu rusak jadi "\r\nlf*2]" oleh replace
+     * literal "[cr]" yang keliru mengira "[cr" di awal token itu placeholder
+     * [cr] utuh.
+     */
+    fun applyEol(text: String): String {
+        val afterNumeric = NUMERIC_EOL_REGEX.replace(text) { m ->
+            val unit = when (m.groupValues[1]) {
+                "cr" -> "\r"
+                "lf" -> "\n"
+                "crlf" -> "\r\n"
+                "lfcr" -> "\n\r"
+                else -> ""
+            }
+            unit.repeat((m.groupValues[2].toIntOrNull() ?: 1).coerceAtLeast(0))
+        }
+        return afterNumeric
+            .replace("[crlf]", "\r\n")
+            .replace("[lfcr]", "\n\r")
+            .replace("[cr]", "\r")
+            .replace("[lf]", "\n")
+    }
+}
+
+/**
  * Metode koneksi yang didukung.
  *
  *  - SSH:             TCP langsung ke server, protokol SSH mentah (tanpa bungkus apa pun).
@@ -76,9 +157,32 @@ enum class ConnectionMode {
  *
  * @param mode metode koneksi, lihat [ConnectionMode]
  * @param sslSni SNI palsu untuk mode yang memakai TLS (opsional, kosongkan untuk pakai host asli)
- * @param payload template payload custom (opsional). Placeholder yang didukung:
- *                [host], [port], [crlf], [cr], [lf]
- *                Contoh: "GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]"
+ * @param payload template payload custom (opsional). Lihat implementasi lengkap di
+ *                [com.example.tunnelapp.tunnel.ConnectRelay.buildAndSendPayload] dan
+ *                fungsi-fungsi private di sekitarnya. Placeholder yang didukung:
+ *                  - Host/port gabungan: [host_port], [HOST_PORT], [ssh], [SSH],
+ *                    [vpn], [VPN], [ip_port], [IP_PORT] (semua sama artinya, ex. "1.2.3.4:22")
+ *                  - Host saja: [host], [HOST], [ip], [IP] (ex. "1.2.3.4")
+ *                  - Port saja: [port], [PORT] (ex. "22")
+ *                  - [method], [METHOD] = method default "CONNECT"
+ *                  - [protocol] = protokol default "HTTP/1.0"
+ *                  - [raw], [real_raw] = "CONNECT [host_port] HTTP/1.0[crlf][crlf]" jadi
+ *                  - [realData], [netData] = sama seperti [raw] tapi TANPA EOL di akhir
+ *                  - [ua] = default User-Agent (string Firefox mobile generik)
+ *                  - [auth] = SELALU string kosong -- ServerConfig belum punya field
+ *                    kredensial proxy (username/password) terpisah
+ *                  - EOL: [cr]=\r, [lf]=\n, [crlf]=\r\n, [lfcr]=\n\r, plus bentuk
+ *                    berulang [cr*x]/[lf*x]/[crlf*x]/[lfcr*x] (x angka, ex. [cr*2])
+ *                  - Rotasi (round-robin per percobaan koneksi): [rotation_method=x;y;z]
+ *                    untuk method HTTP, [rotate=x;y;z]/[rotation=x;y;z] untuk host/SNI
+ *                  - Split jadi beberapa potongan TCP terpisah: [split]/[splitNoDelay]/
+ *                    [instant_split] (tanpa jeda), [delay]/[delay_split]/[split_delay]
+ *                    (jeda 1000ms antar potongan)
+ *                  - [repeat]/[random] = pilih satu dari beberapa varian payload lengkap
+ *                    yang dipisah delimiter "[or]" -- [repeat] round-robin berurutan
+ *                    antar percobaan, [random] pilih acak tiap percobaan. Contoh:
+ *                    "CONNECT [host_port] [protocol][crlf][crlf][repeat][or]GET / HTTP/1.1[crlf][crlf]"
+ *                Contoh sederhana: "GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]"
  * @param proxyHost host/IP proxy HTTP (wajib untuk mode REMOTE_PROXY, opsional untuk
  *                  SSH_SSL_PAYLOAD & ENHANCED)
  * @param proxyPort port proxy HTTP; kalau null memakai [port] yang sama dengan server SSH
@@ -118,7 +222,13 @@ enum class ConnectionMode {
  *                        [com.example.tunnelapp.tunnel.WebSocketHandshake.perform]) --
  *                        berguna untuk header semacam "Origin" atau "User-Agent"
  *                        yang kadang diperlukan CDN/reverse-proxy tujuan.
- *                   Mendukung placeholder yang sama seperti [payload]: [host], [port].
+ *                   Mendukung placeholder umum yang sama seperti [payload] (lihat
+ *                   [PayloadPlaceholders]): [host_port] & alias, [host]/[ip] & alias,
+ *                   [port] & alias, [protocol], [method] & alias, [raw]/[real_raw],
+ *                   [realData]/[netData], [ua], [auth], serta EOL ([cr]/[lf]/[crlf]/
+ *                   [lfcr] + bentuk berulang [cr*x] dkk). Placeholder split/rotasi/
+ *                   [repeat]/[random] TIDAK berlaku di sini (tidak relevan untuk satu
+ *                   baris nilai header tunggal).
  *                   Baris kosong atau tanpa ":" diabaikan. Header dengan nama yang
  *                   sama seperti yang sudah dikirim bawaan (mis. "Host") akan
  *                   membuat header itu terkirim DUA KALI apa adanya -- ini sengaja
@@ -178,9 +288,13 @@ data class ServerConfig(
 ) {
     /**
      * Parse [customHeaders] jadi daftar pasangan (nama, nilai) siap pakai,
-     * dengan placeholder [host]/[port] sudah disubstitusi. Baris kosong atau
-     * yang tidak mengandung ":" diabaikan diam-diam (bukan error) supaya user
-     * tidak perlu khawatir soal baris kosong sisa di textarea.
+     * dengan placeholder umum (lihat [PayloadPlaceholders]) sudah
+     * disubstitusi -- BUKAN cuma [host]/[port] lagi, sekarang [host_port],
+     * [protocol], [method], [ua], EOL, dst juga ikut berlaku di sini (kecuali
+     * split/rotasi/repeat/random yang memang tidak relevan untuk satu baris
+     * nilai header). Baris kosong atau yang tidak mengandung ":" diabaikan
+     * diam-diam (bukan error) supaya user tidak perlu khawatir soal baris
+     * kosong sisa di textarea.
      */
     fun parsedCustomHeaders(): List<Pair<String, String>> {
         val raw = customHeaders ?: return emptyList()
@@ -191,9 +305,9 @@ data class ServerConfig(
                 val idx = line.indexOf(':')
                 if (idx <= 0) return@mapNotNull null
                 val name = line.substring(0, idx).trim()
-                val value = line.substring(idx + 1).trim()
-                    .replace("[host]", host)
-                    .replace("[port]", port.toString())
+                val value = PayloadPlaceholders.applyEol(
+                    PayloadPlaceholders.applyCommon(line.substring(idx + 1).trim(), host, port)
+                )
                 if (name.isEmpty()) null else name to value
             }
             .toList()

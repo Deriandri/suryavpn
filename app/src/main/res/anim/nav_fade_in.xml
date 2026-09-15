@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- BARU (permintaan user, "bikin smooth untuk perpindahan menu"): dipakai
      sebagai animasi MASUK activity tujuan tiap tap item bottom nav
-     (Dashboard/Config/Settings/Tools) -- lihat NavTransitions.kt. Pola
+     (Dashboard/Config/Settings/Tools), lihat NavTransitions.kt. Pola
      "fade through" Material Design: activity baru fade-in SEKALIGUS
      sedikit membesar dari 96% -> 100% (bukan cuma alpha polos) supaya
      transisinya terasa hidup, bukan cuma dim/terang. Durasi 220ms & kurva

@@ -1,6 +1,7 @@
 package com.example.tunnelapp.tunnel
 
 import android.util.Log
+import com.example.tunnelapp.model.PayloadPlaceholders
 import com.example.tunnelapp.model.ServerConfig
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -14,12 +15,14 @@ import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
+import java.util.concurrent.atomic.AtomicInteger
 import javax.net.ssl.SNIHostName
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
+import kotlin.random.Random
 
 /**
  * Relay lokal satu-koneksi di 127.0.0.1.
@@ -43,6 +46,40 @@ class ConnectRelay(
         // pegang 1 koneksi TCP utama ke server, jadi aman dinaikkan).
         private const val SOCKET_BUFFER_SIZE_BYTES = 262_144
         private const val MAX_PROXY_RESPONSE_BYTES = 8192
+
+        // --- Placeholder payload custom (lihat KDoc ServerConfig.payload &
+        // fungsi buildAndSendPayload/applyCommonPlaceholders/dst di bawah) ---
+        private const val SPLIT_DELAY_MS = 1000L
+        // Delimiter antar varian payload lengkap, dipakai bareng [repeat]/
+        // [random] (lihat pickPayloadVariant) -- konvensi ini yang kita pilih
+        // sendiri karena ServerConfig.payload cuma SATU field String tunggal,
+        // bukan daftar payload asli, jadi butuh cara "memuat beberapa payload"
+        // di dalam satu field yang sama.
+        private const val ALT_PAYLOAD_DELIMITER = "[or]"
+        // Dinaikkan tiap kali buildAndSendPayload dipanggil (tiap percobaan
+        // koneksi baru, termasuk fallback WebSocket->raw & reconnect) -- dipakai
+        // sebagai indeks round-robin untuk [repeat] serta [rotation_method=]/
+        // [rotate=]/[rotation=]. Companion (bukan per-instance) SENGAJA supaya
+        // rotasi tetap jalan lintas percobaan walau ConnectRelay dibuat ulang
+        // dari nol tiap reconnect (lihat MyVpnService).
+        private val payloadAttemptCounter = AtomicInteger(0)
+
+        // NUMERIC_EOL_REGEX, DEFAULT_METHOD/PROTOCOL/USER_AGENT pindah ke
+        // com.example.tunnelapp.model.PayloadPlaceholders (shared dengan
+        // ServerConfig.parsedCustomHeaders, lihat applyCommonPlaceholders &
+        // applyEolPlaceholders di bawah).
+        private val ROTATION_METHOD_REGEX = Regex("""\[rotation_method=([^\]]*)\]""")
+        // "[rotate=...]" & "[rotation=...]" (BUKAN "rotation_method=") --
+        // dipisah dari regex di atas karena maknanya beda (host/SNI, bukan
+        // method HTTP), meski nama placeholder mirip.
+        private val ROTATION_HOST_REGEX = Regex("""\[(?:rotate|rotation)=([^\]]*)\]""")
+        // Semua varian placeholder split, ditangkap dalam SATU regex supaya
+        // urutan kemunculannya di teks tetap terjaga (lihat splitIntoChunks).
+        // "delay"/"delay_split"/"split_delay" = beri jeda SPLIT_DELAY_MS
+        // sesudah potongan sebelumnya terkirim; "split"/"splitNoDelay"/
+        // "instant_split" = potong tanpa jeda sama sekali.
+        private val SPLIT_MARKER_REGEX =
+            Regex("""\[(splitNoDelay|instant_split|delay_split|split_delay|delay|split)\]""")
 
         // PENTING (bug fix "freeze"/SSH tidak jalan): tanpa timeout ini, socket
         // yang dipakai untuk proxy CONNECT dan/atau percobaan handshake WebSocket
@@ -308,33 +345,15 @@ class ConnectRelay(
         if (!payload.isNullOrEmpty()) {
             StatusBus.start(StepId.PAYLOAD)
             try {
-                val substituted = payload
-                    .replace("[host]", config.host)
-                    .replace("[port]", config.port.toString())
-                    .replace("[crlf]", "\r\n")
-                    .replace("[cr]", "\r")
-                    .replace("[lf]", "\n")
-                // PENTING (bug fix, ditemukan dari perbandingan langsung dengan payload
-                // DarkTunnel yang berhasil): placeholder "[split]" sebelumnya TIDAK
-                // dikenali sama sekali di sini -- ikut terkirim APA ADANYA sebagai 7
-                // byte ASCII literal "[split]" yang nyempil di tengah body HTTP,
-                // padahal di konvensi HTTP Injector/DarkTunnel/HTTP Custom placeholder
-                // ini artinya "kirim sebagai request/tulisan socket TERPISAH di titik
-                // ini" (dipakai buat memecah payload jadi beberapa potongan TCP,
-                // bukan satu blok). Sekarang setiap potongan ditulis+flush satu per
-                // satu, TANPA sisa teks "[split]" ikut terkirim.
-                val out = socket.getOutputStream()
-                val chunks = substituted.split("[split]")
-                for (chunk in chunks) {
-                    if (chunk.isEmpty()) continue
-                    // Log baris ini APA ADANYA (isi payload yang betul-betul dikirim ke
-                    // socket, cuma \r\n ditulis balik jadi "[crlf]" biar kebaca di layar
-                    // -- sama seperti tampilan DarkTunnel), bukan teks pura-pura.
-                    StatusBus.log("Sending Payload: ${chunk.replace("\r\n", "[crlf]")}")
-                    out.write(chunk.toByteArray(StandardCharsets.UTF_8))
-                    out.flush()
-                }
-                Log.i(TAG, "Payload custom terkirim (${chunks.size} bagian, ${substituted.length - "[split]".length * (chunks.size - 1)} bytes)")
+                // Semua placeholder didukung sekarang (lihat KDoc buildAndSendPayload
+                // & KDoc ServerConfig.payload): [host_port] & alias, [host]/[ip] &
+                // alias, [port] & alias, [protocol], [method] & alias, [raw]/
+                // [real_raw], [realData]/[netData], [ua], [auth], EOL ([cr]/[lf]/
+                // [crlf]/[lfcr] + varian berulang [cr*x] dkk), rotasi ([rotate=]/
+                // [rotation=]/[rotation_method=]), split dengan/tanpa jeda ([split]/
+                // [splitNoDelay]/[instant_split]/[delay]/[delay_split]/[split_delay]),
+                // dan [repeat]/[random] untuk beberapa varian payload sekaligus.
+                buildAndSendPayload(payload, socket)
                 StatusBus.success(StepId.PAYLOAD)
             } catch (e: Exception) {
                 StatusBus.fail(StepId.PAYLOAD, e.message ?: e.javaClass.simpleName)
@@ -581,6 +600,164 @@ class ConnectRelay(
                 throw IOException("Respons proxy terlalu besar atau tidak valid")
             }
         }
+    }
+
+    // ================= Mesin placeholder payload custom =================
+    // Lihat KDoc [ServerConfig.payload] untuk daftar lengkap placeholder yang
+    // didukung. Semua fungsi di bawah ini SENGAJA dipecah per kategori
+    // placeholder (bukan satu fungsi raksasa) supaya urutan penerapannya
+    // gampang diaudit -- urutan itu PENTING, lihat penjelasan di
+    // [buildAndSendPayload].
+
+    private data class PayloadChunk(val text: String, val delayAfterMs: Long)
+
+    /**
+     * Titik masuk utama: proses [template] payload lewat SEMUA tahap
+     * placeholder (urutan di bawah ini WAJIB, jangan diacak):
+     *
+     *  1. [pickPayloadVariant] -- [repeat]/[random]: kalau template memuat
+     *     beberapa varian payload lengkap (dipisah [ALT_PAYLOAD_DELIMITER]),
+     *     pilih SATU dulu sebelum lanjut ke tahap berikutnya. Kalau tidak ada
+     *     varian ganda, tidak berefek (selain membuang teks "[repeat]"/
+     *     "[random]" itu sendiri).
+     *  2. [applyRotationPlaceholders] -- [rotation_method=x;y;z] &
+     *     [rotate=x;y;z]/[rotation=x;y;z]: masing-masing occurrence diganti
+     *     SATU nilai hasil rotasi (round-robin berbasis [payloadAttemptCounter]).
+     *  3. [applyCommonPlaceholders] -- [host_port] & alias, [host]/[ip] &
+     *     alias, [port] & alias, [protocol], [method] & alias, [raw]/
+     *     [real_raw], [realData]/[netData], [ua], [auth].
+     *  4. [applyEolPlaceholders] -- EOL polos & bentuk berulang ([cr*x] dkk).
+     *  5. [splitIntoChunks] -- pisah jadi potongan TCP terpisah berdasar
+     *     placeholder split, lalu kirim satu-satu ke [socket] dengan jeda
+     *     [SPLIT_DELAY_MS] ms kalau placeholder yang dipakai di titik itu
+     *     varian "delay" ([delay]/[delay_split]/[split_delay]) -- tanpa jeda
+     *     kalau varian "instant" ([split]/[splitNoDelay]/[instant_split]).
+     */
+    private fun buildAndSendPayload(template: String, socket: Socket) {
+        val attemptIndex = payloadAttemptCounter.getAndIncrement()
+
+        var text = pickPayloadVariant(template, attemptIndex)
+        text = applyRotationPlaceholders(text, attemptIndex)
+        text = applyCommonPlaceholders(text)
+        text = applyEolPlaceholders(text)
+
+        val out = socket.getOutputStream()
+        val chunks = splitIntoChunks(text)
+        var totalBytes = 0
+        for ((index, chunk) in chunks.withIndex()) {
+            if (chunk.text.isNotEmpty()) {
+                // Log APA ADANYA (isi payload yang betul-betul dikirim ke socket,
+                // cuma \r\n ditulis balik jadi "[crlf]" biar kebaca di layar --
+                // sama seperti tampilan DarkTunnel), bukan teks pura-pura.
+                StatusBus.log("Sending Payload: ${chunk.text.replace("\r\n", "[crlf]")}")
+                val bytes = chunk.text.toByteArray(StandardCharsets.UTF_8)
+                out.write(bytes)
+                out.flush()
+                totalBytes += bytes.size
+            }
+            if (chunk.delayAfterMs > 0 && index != chunks.lastIndex) {
+                try {
+                    Thread.sleep(chunk.delayAfterMs)
+                } catch (e: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw IOException("Payload split delay diinterupsi", e)
+                }
+            }
+        }
+        Log.i(TAG, "Payload custom terkirim (${chunks.size} bagian, $totalBytes bytes)")
+    }
+
+    /**
+     * [repeat]/[random] -- perlakukan [template] sebagai BEBERAPA varian
+     * payload lengkap yang dipisah [ALT_PAYLOAD_DELIMITER] ("[or]"), lalu
+     * pilih satu:
+     *  - [repeat] = round-robin berurutan antar percobaan koneksi (varian
+     *    ke-0, 1, 2, ... lalu ulang dari 0), pakai [attemptIndex] modulo
+     *    jumlah varian.
+     *  - [random] = pilih acak setiap percobaan. Kalau template memuat
+     *    KEDUANYA sekaligus, [random] yang dipakai (lebih spesifik).
+     * Placeholder [repeat]/[random] itu sendiri dibuang dari hasil akhir.
+     *
+     * Kalau tidak ada [ALT_PAYLOAD_DELIMITER] di teks (cuma satu varian) atau
+     * tidak ada placeholder [repeat]/[random] sama sekali, [template]
+     * dikembalikan (nyaris) apa adanya -- fungsi ini tidak berefek.
+     */
+    private fun pickPayloadVariant(template: String, attemptIndex: Int): String {
+        val hasRepeat = template.contains("[repeat]")
+        val hasRandom = template.contains("[random]")
+        if (!hasRepeat && !hasRandom) return template
+
+        val cleaned = template.replace("[repeat]", "").replace("[random]", "")
+        val variants = cleaned.split(ALT_PAYLOAD_DELIMITER)
+        if (variants.size <= 1) return cleaned
+
+        val chosenIndex = if (hasRandom) {
+            Random.nextInt(variants.size)
+        } else {
+            attemptIndex.mod(variants.size)
+        }
+        return variants[chosenIndex]
+    }
+
+    /**
+     * [rotation_method=x;y;z] (rotasi method HTTP) dan [rotate=x;y;z]/
+     * [rotation=x;y;z] (rotasi host/SNI) -- tiap occurrence diganti SATU
+     * nilai dari daftar `x;y;z` berdasar rotasi round-robin [attemptIndex].
+     * Placeholder dengan daftar kosong diganti string kosong (dibuang).
+     */
+    private fun applyRotationPlaceholders(text: String, attemptIndex: Int): String {
+        fun pick(options: String): String {
+            val list = options.split(";").map { it.trim() }.filter { it.isNotEmpty() }
+            return if (list.isEmpty()) "" else list[attemptIndex.mod(list.size)]
+        }
+        var result = ROTATION_METHOD_REGEX.replace(text) { pick(it.groupValues[1]) }
+        result = ROTATION_HOST_REGEX.replace(result) { pick(it.groupValues[1]) }
+        return result
+    }
+
+    /**
+     * Placeholder umum non-EOL/non-split/non-rotasi -- didelegasikan ke
+     * [PayloadPlaceholders.applyCommon] (shared dengan [ServerConfig.parsedCustomHeaders])
+     * supaya tidak ada dua implementasi placeholder yang bisa diam-diam beda
+     * perilaku antara payload TCP dan custom header.
+     */
+    private fun applyCommonPlaceholders(text: String): String =
+        PayloadPlaceholders.applyCommon(text, config.host, config.port)
+
+    /**
+     * EOL ([cr]/[lf]/[crlf]/[lfcr] + varian berulang [cr*x] dkk) --
+     * didelegasikan ke [PayloadPlaceholders.applyEol] (shared dengan
+     * [ServerConfig.parsedCustomHeaders]).
+     */
+    private fun applyEolPlaceholders(text: String): String = PayloadPlaceholders.applyEol(text)
+
+    /**
+     * Pisah [text] jadi beberapa [PayloadChunk] berdasar SEMUA placeholder
+     * split ([split]/[splitNoDelay]/[instant_split]/[delay]/[delay_split]/
+     * [split_delay]) -- tiap chunk membawa info jeda (ms) yang harus
+     * ditunggu SESUDAH chunk itu dikirim (0 kalau placeholder di titik itu
+     * varian "instant", [SPLIT_DELAY_MS] kalau varian "delay"). Tidak ada
+     * placeholder split sama sekali -> satu chunk utuh, delay 0.
+     */
+    private fun splitIntoChunks(text: String): List<PayloadChunk> {
+        val matches = SPLIT_MARKER_REGEX.findAll(text).toList()
+        if (matches.isEmpty()) return listOf(PayloadChunk(text, 0L))
+
+        val chunks = mutableListOf<PayloadChunk>()
+        var lastEnd = 0
+        for (m in matches) {
+            val chunkText = text.substring(lastEnd, m.range.first)
+            val marker = m.groupValues[1]
+            val delay = if (marker == "delay" || marker == "delay_split" || marker == "split_delay") {
+                SPLIT_DELAY_MS
+            } else {
+                0L
+            }
+            chunks.add(PayloadChunk(chunkText, delay))
+            lastEnd = m.range.last + 1
+        }
+        chunks.add(PayloadChunk(text.substring(lastEnd), 0L))
+        return chunks
     }
 
     fun stop() {

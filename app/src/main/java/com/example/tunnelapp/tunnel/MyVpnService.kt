@@ -45,6 +45,9 @@ import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import javax.net.ssl.SNIHostName
+import javax.net.ssl.SSLSocket
+import javax.net.ssl.SSLSocketFactory
 
 /**
  * VpnService lengkap: SSH/Xray + bridging TUN<->SOCKS5 lewat [HevSocks5Engine]
@@ -1778,7 +1781,36 @@ class MyVpnService : VpnService() {
         return false
     }
 
-    private fun verifyTunnelReallyWorksOnce(socksPort: Int): Boolean = try {
+    /**
+     * FIX (laporan user: akun VLESS "bug host" gagal terverifikasi padahal
+     * valid & lancar dipakai di app lain seperti HTTP Custom, sementara akun
+     * SSH normal lancar-lancar saja di app ini): versi lama fungsi ini CUMA
+     * mencoba SATU metode -- HTTP polos ke port 80 ([verifyViaPlainHttp]).
+     * Banyak provider VLESS/Vmess/Trojan skema "bug host"/kuota gratis
+     * SENGAJA membatasi outbound sisi SERVER cuma untuk port 443 (HTTPS) ke
+     * domain tertentu -- trafik HTTP POLOS port 80 ke domain acak seperti
+     * connectivitycheck.gstatic.com DIAM-DIAM di-drop di sisi server/ISP,
+     * padahal akunnya sendiri valid dan tunnel VLESS-nya sendiri benar-benar
+     * tersambung. Akibatnya akun valid keliru dianggap invalid/expired (FALSE
+     * NEGATIVE) -- persis gejala yang dilaporkan user.
+     *
+     * Sekarang dicoba DUA metode berurutan, SALAH SATU berhasil sudah cukup
+     * dianggap "tunnel benar-benar tembus & akun valid":
+     *   1. [verifyViaPlainHttp] (port 80) -- tetap dicoba dulu, lebih murah &
+     *      tetap valid untuk server yang tidak membatasi port apa pun (mis.
+     *      SSH VPS biasa).
+     *   2. [verifyViaTlsHandshake] (port 443, BARU) -- kompatibel dengan
+     *      provider yang cuma buka port 443. TETAP membuktikan trafik dua
+     *      arah nyata lewat tunnel: handshake TLS (ClientHello -> ServerHello
+     *      -> ... -> Finished) TIDAK MUNGKIN selesai kalau akun invalid &
+     *      payload di-drop sisi server -- sama seperti alasan HTTP dipilih
+     *      di [verifyViaPlainHttp] ketimbang cuma handshake SOCKS5 CONNECT
+     *      kosong (lihat KDoc [keepAliveThroughTunnel]).
+     */
+    private fun verifyTunnelReallyWorksOnce(socksPort: Int): Boolean =
+        verifyViaPlainHttp(socksPort) || verifyViaTlsHandshake(socksPort)
+
+    private fun verifyViaPlainHttp(socksPort: Int): Boolean = try {
         Socket().use { socket ->
             socket.connect(InetSocketAddress("127.0.0.1", socksPort), KEEP_ALIVE_TIMEOUT_MS)
             socket.soTimeout = KEEP_ALIVE_TIMEOUT_MS
@@ -1835,6 +1867,77 @@ class MyVpnService : VpnService() {
             val line = statusLine.toByteArray().toString(Charsets.US_ASCII)
             Regex("""^HTTP/1\.\d\s+(\d{3})""").find(line)
                 ?.groupValues?.get(1)?.toIntOrNull()?.let { it in 200..399 } == true
+        }
+    } catch (e: Exception) {
+        false
+    }
+
+    /**
+     * Sama seperti [verifyViaPlainHttp] tapi lewat port 443 -- SOCKS5 CONNECT
+     * dulu ke [host]:443 lewat tunnel, lalu socket hasilnya dibungkus TLS asli
+     * (ClientHello/ServerHello sungguhan, dengan SNI) dan handshake-nya
+     * ditunggu sampai selesai. Tidak perlu mengirim/membaca data APLIKASI
+     * apa pun sesudah handshake -- selesainya handshake TLS itu sendiri SUDAH
+     * cukup membuktikan ada balasan nyata dari server tujuan lewat tunnel,
+     * karena ServerHello+Certificate+Finished server tidak mungkin sampai ke
+     * kita kalau payload SOCKS5/tunnel-nya di-drop diam-diam di tengah jalan.
+     */
+    private fun verifyViaTlsHandshake(socksPort: Int): Boolean = try {
+        Socket().use { rawSocket ->
+            rawSocket.connect(InetSocketAddress("127.0.0.1", socksPort), KEEP_ALIVE_TIMEOUT_MS)
+            rawSocket.soTimeout = KEEP_ALIVE_TIMEOUT_MS
+            val out = rawSocket.getOutputStream()
+            val din = DataInputStream(rawSocket.getInputStream())
+
+            out.write(byteArrayOf(0x05, 0x01, 0x00))
+            out.flush()
+            val greeting = ByteArray(2)
+            din.readFully(greeting)
+            if (greeting[0] != 0x05.toByte() || greeting[1] != 0x00.toByte()) {
+                return@use false
+            }
+
+            val host = "www.gstatic.com"
+            val port = 443
+            val hostBytes = host.toByteArray(Charsets.US_ASCII)
+            val request = ByteArrayOutputStream().apply {
+                write(byteArrayOf(0x05, 0x01, 0x00, 0x03))
+                write(hostBytes.size)
+                write(hostBytes)
+                write((port shr 8) and 0xFF)
+                write(port and 0xFF)
+            }
+            out.write(request.toByteArray())
+            out.flush()
+
+            val replyHeader = ByteArray(4)
+            din.readFully(replyHeader)
+            if (replyHeader[1] != 0x00.toByte()) return@use false
+            val addrLen = when (replyHeader[3].toInt()) {
+                0x01 -> 4
+                0x04 -> 16
+                0x03 -> din.readUnsignedByte()
+                else -> 0
+            }
+            if (addrLen > 0) din.skipBytes(addrLen)
+            din.skipBytes(2)
+
+            // Bungkus socket SOCKS5 yang sudah tersambung dengan TLS ASLI --
+            // autoClose=true supaya menutup sslSocket ikut menutup rawSocket
+            // (tidak perlu dobel-tutup manual, rawSocket.use{} di luar tetap
+            // aman walau ikut memanggil close() lagi sesudahnya, no-op).
+            val sslSocket = (SSLSocketFactory.getDefault() as SSLSocketFactory)
+                .createSocket(rawSocket, host, port, true) as SSLSocket
+            try {
+                sslSocket.soTimeout = KEEP_ALIVE_TIMEOUT_MS
+                val sniParams = sslSocket.sslParameters
+                sniParams.serverNames = listOf(SNIHostName(host))
+                sslSocket.sslParameters = sniParams
+                sslSocket.startHandshake()
+                true
+            } finally {
+                sslSocket.close()
+            }
         }
     } catch (e: Exception) {
         false
