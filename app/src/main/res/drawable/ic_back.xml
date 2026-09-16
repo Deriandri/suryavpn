@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FITUR BARU: ikon panah kembali untuk Toolbar layar baru (AppFilterActivity,
+     RoutingSettingsActivity) — dibuat baru (bukan pakai style ic_chevron_forward
+     yang memang untuk arah maju) supaya arahnya benar (kiri, "back"). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?attr/colorControlNormal">
+    <path
+        android:fillColor="#111827"
+        android:pathData="M15.41,7.41L14,6l-6,6l6,6l1.41,-1.41L10.83,12z"/>
+</vector>

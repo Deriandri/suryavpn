@@ -647,8 +647,14 @@ class ConfigActivity : AppCompatActivity() {
                 row.tvRowSubtitle.text = "🔒 ${config.lockMode.label}"
                 row.tvRowSubtitle.visibility = View.VISIBLE
             } else {
-                val parsed = runCatching { XrayLinkParser.parse(config.xrayLink) }.getOrNull()
-                val detail = if (parsed != null) "${parsed.address}:${parsed.port}" else "Link belum valid"
+                // FITUR BARU: akun editor JSON manual -- lihat catatan sama
+                // di DashboardMainFragment.accountLabel.
+                val detail = if (config.useRawXrayJson) {
+                    "JSON manual"
+                } else {
+                    val parsed = runCatching { XrayLinkParser.parse(config.xrayLink) }.getOrNull()
+                    if (parsed != null) "${parsed.address}:${parsed.port}" else "Link belum valid"
+                }
                 row.tvRowTitle.text = if (hasCustomName) config.accountName else detail
                 if (hasCustomName) {
                     row.tvRowSubtitle.text = detail

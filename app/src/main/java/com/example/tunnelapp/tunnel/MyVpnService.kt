@@ -104,6 +104,10 @@ class MyVpnService : VpnService() {
         const val EXTRA_WS_PATH = "extra_ws_path"
         const val EXTRA_PROXY_RAW_MODE = "extra_proxy_raw_mode"
         const val EXTRA_XRAY_LINK = "extra_xray_link"
+        // FITUR BARU: editor JSON Xray manual -- lihat kdoc
+        // [com.example.tunnelapp.model.ServerConfig.useRawXrayJson]/[rawXrayJson].
+        const val EXTRA_XRAY_USE_RAW_JSON = "extra_xray_use_raw_json"
+        const val EXTRA_XRAY_RAW_JSON = "extra_xray_raw_json"
         const val EXTRA_CUSTOM_HEADERS = "extra_custom_headers"
         const val EXTRA_IGNORE_CERT_ERRORS = "extra_ignore_cert_errors"
         const val EXTRA_DNS1 = "extra_dns1"
@@ -120,6 +124,26 @@ class MyVpnService : VpnService() {
         private const val NOTIFICATION_ID = 1
         private const val TUN_ADDRESS = "10.10.0.2"
         private const val DEFAULT_DNS = "1.1.1.1"
+
+        // Dipakai applyTunRoutes() utk fitur "Bypass LAN": daftar blok CIDR
+        // IPv4 yang meng-cover SELURUH 0.0.0.0/0 KECUALI subnet privat
+        // (RFC1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) & link-local
+        // (169.254.0.0/16) -- dihitung sekali secara matematis (bukan
+        // ditulis manual satu-satu supaya tidak ada celah/tumpang tindih),
+        // lihat komentar applyTunRoutes() untuk kenapa ini perlu (Android
+        // VpnService tidak punya API "exclude route" langsung).
+        private val NON_PRIVATE_IPV4_BLOCKS = listOf(
+            "0.0.0.0" to 5, "8.0.0.0" to 7, "11.0.0.0" to 8, "12.0.0.0" to 6,
+            "16.0.0.0" to 4, "32.0.0.0" to 3, "64.0.0.0" to 2, "128.0.0.0" to 3,
+            "160.0.0.0" to 5, "168.0.0.0" to 8, "169.0.0.0" to 9, "169.128.0.0" to 10,
+            "169.192.0.0" to 11, "169.224.0.0" to 12, "169.240.0.0" to 13, "169.248.0.0" to 14,
+            "169.252.0.0" to 15, "169.255.0.0" to 16, "170.0.0.0" to 7, "172.0.0.0" to 12,
+            "172.32.0.0" to 11, "172.64.0.0" to 10, "172.128.0.0" to 9, "173.0.0.0" to 8,
+            "174.0.0.0" to 7, "176.0.0.0" to 4, "192.0.0.0" to 9, "192.128.0.0" to 11,
+            "192.160.0.0" to 13, "192.169.0.0" to 16, "192.170.0.0" to 15, "192.172.0.0" to 14,
+            "192.176.0.0" to 12, "192.192.0.0" to 10, "193.0.0.0" to 8, "194.0.0.0" to 7,
+            "196.0.0.0" to 6, "200.0.0.0" to 5, "208.0.0.0" to 4, "224.0.0.0" to 3
+        )
         private const val WAKE_LOCK_TAG = "TunnelApp:VpnKeepAwake"
 
         // --- Deteksi & reconnect otomatis kalau tunnel mati sendiri ---
@@ -638,7 +662,9 @@ class MyVpnService : VpnService() {
                     customHeaders = intent.getStringExtra(EXTRA_CUSTOM_HEADERS),
                     ignoreCertErrors = intent.getBooleanExtra(EXTRA_IGNORE_CERT_ERRORS, false),
                     dns1 = intent.getStringExtra(EXTRA_DNS1),
-                    dns2 = intent.getStringExtra(EXTRA_DNS2)
+                    dns2 = intent.getStringExtra(EXTRA_DNS2),
+                    useRawXrayJson = intent.getBooleanExtra(EXTRA_XRAY_USE_RAW_JSON, false),
+                    rawXrayJson = intent.getStringExtra(EXTRA_XRAY_RAW_JSON)
                 )
                 startVpn(config, intent.getStringExtra(EXTRA_PROFILE_ID))
                 return START_STICKY
@@ -703,6 +729,10 @@ class MyVpnService : VpnService() {
      */
     private fun displayHost(config: ServerConfig): String {
         if (config.host.isNotBlank()) return config.host
+        // FITUR BARU: mode JSON manual tidak punya xrayLink buat di-parse
+        // sama sekali -- label statis di sini supaya tidak jatuh ke fallback
+        // "server" generik yang kurang informatif.
+        if (config.useRawXrayJson) return "Xray (JSON manual)"
         val link = config.xrayLink
         if (!link.isNullOrBlank()) {
             try {
@@ -830,7 +860,8 @@ class MyVpnService : VpnService() {
             val builder = Builder()
                 .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
-                .addRoute("0.0.0.0", 0)
+                // FITUR BARU "Bypass LAN": addRoute("0.0.0.0", 0) polos diganti
+                // applyTunRoutes() di bawah -- lihat kdoc fungsi itu.
                 // REVERT (laporan user: server SSH yang dipakai TIDAK punya rute
                 // IPv6 sama sekali -- SEMUA percobaan CONNECT SOCKS5 ke tujuan
                 // IPv6 selalu gagal "Could not open channel (state:4)", terus
@@ -855,6 +886,8 @@ class MyVpnService : VpnService() {
                 // TERNYATA punya rute IPv6, addRoute("::", 0) bisa diaktifkan
                 // lagi khusus untuk server itu.
                 .setMtu(currentMtu)
+            applyTunRoutes(builder, vpnSettings)
+            applyAppFiltering(builder, vpnSettings)
             applyDnsServers(builder, config, vpnSettings)
 
             vpnInterface = try {
@@ -875,6 +908,75 @@ class MyVpnService : VpnService() {
             StatusBus.state.value = "Menghubungkan ke ${config.host}:${config.port}..."
 
             establishTunnel(config, isReconnect = false)
+        }
+    }
+
+    /**
+     * FITUR BARU (parity dengan V2RayNG "Per-app proxy"): pasang
+     * addAllowedApplication (mode allow-list: HANYA paket di [pkgs] yang
+     * trafiknya ditangkap TUN, sisanya lewat jaringan asli device) atau
+     * addDisallowedApplication (mode block-list: paket di [pkgs] TIDAK
+     * ditangkap TUN/tetap pakai jaringan asli, sisanya lewat tunnel seperti
+     * biasa) ke [builder] SEBELUM builder.establish() dipanggil -- API
+     * VpnService.Builder ini memang cuma bisa diisi sebelum establish().
+     *
+     * Aplikasi milik SuryaVPN sendiri (this.packageName) SENGAJA selalu
+     * dikecualikan dari mode allow-list (kalau tidak, UI app ini sendiri
+     * ikut "terjebak" hanya boleh akses tunnel, padahal beberapa panggilan
+     * jaringan app ini -- mis. import subscription -- semestinya tetap
+     * bisa jalan independen dari status tunnel).
+     *
+     * Paket yang sudah ter-uninstall (NameNotFoundException) diabaikan +
+     * dicatat ke log, tidak menggagalkan seluruh builder.establish().
+     */
+    private fun applyAppFiltering(builder: Builder, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
+        if (!vpnSettings.perAppProxyEnabled || vpnSettings.perAppProxyPackages.isEmpty()) return
+
+        var appliedCount = 0
+        for (pkg in vpnSettings.perAppProxyPackages) {
+            if (vpnSettings.perAppProxyIsAllowList && pkg == packageName) continue
+            try {
+                if (vpnSettings.perAppProxyIsAllowList) {
+                    builder.addAllowedApplication(pkg)
+                } else {
+                    builder.addDisallowedApplication(pkg)
+                }
+                appliedCount++
+            } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+                DebugLog.w(TAG, "Per-app proxy: paket \"$pkg\" tidak ditemukan (sudah di-uninstall?), dilewati", e)
+            }
+        }
+        val mode = if (vpnSettings.perAppProxyIsAllowList) "allow-list" else "block-list"
+        StatusBus.log("[Per-App] Mode $mode aktif untuk $appliedCount aplikasi")
+    }
+
+    /**
+     * FITUR BARU (parity dengan V2RayNG "Bypass LAN"): kalau
+     * [VpnSettings.bypassLan] mati (default), perilaku LAMA dipakai --
+     * satu addRoute("0.0.0.0", 0) menangkap SEMUA trafik IPv4 termasuk ke
+     * subnet privat.
+     *
+     * Kalau dinyalakan, addRoute("0.0.0.0", 0) TIDAK dipakai -- Android
+     * VpnService tidak punya API "exclude route" langsung, jadi trik
+     * standarnya (dipakai juga oleh V2RayNG & client sejenis) adalah
+     * addRoute() satu-satu untuk SEMUA blok IPv4 KECUALI subnet privat/
+     * link-local (RFC1918 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) dan
+     * link-local 169.254.0.0/16 -- device jadi otomatis pakai jalur asli
+     * (di luar tunnel) untuk mengakses perangkat di jaringan lokal (mis.
+     * printer/NAS/router admin page), sisanya tetap lewat tunnel.
+     */
+    private fun applyTunRoutes(builder: Builder, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
+        if (!vpnSettings.bypassLan) {
+            builder.addRoute("0.0.0.0", 0)
+            return
+        }
+        StatusBus.log("[Routing] Bypass LAN aktif -- subnet privat tidak lewat tunnel")
+        for ((network, prefix) in NON_PRIVATE_IPV4_BLOCKS) {
+            try {
+                builder.addRoute(network, prefix)
+            } catch (e: IllegalArgumentException) {
+                DebugLog.w(TAG, "Bypass LAN: gagal addRoute($network/$prefix)", e)
+            }
         }
     }
 
@@ -1445,8 +1547,9 @@ class MyVpnService : VpnService() {
             val builder = Builder()
                 .setSession("SuryaVPN")
                 .addAddress(TUN_ADDRESS, 32)
-                .addRoute("0.0.0.0", 0)
                 .setMtu(currentMtu)
+            applyTunRoutes(builder, vpnSettings)
+            applyAppFiltering(builder, vpnSettings)
             applyDnsServers(builder, config, vpnSettings)
 
             vpnInterface = try {
@@ -1865,10 +1968,22 @@ class MyVpnService : VpnService() {
                 if (b != '\r'.code) statusLine.write(b)
             }
             val line = statusLine.toByteArray().toString(Charsets.US_ASCII)
-            Regex("""^HTTP/1\.\d\s+(\d{3})""").find(line)
+            val ok = Regex("""^HTTP/1\.\d\s+(\d{3})""").find(line)
                 ?.groupValues?.get(1)?.toIntOrNull()?.let { it in 200..399 } == true
+            if (!ok) {
+                DebugLog.w(TAG, "verifyViaPlainHttp: balasan tidak dikenali/bukan 2xx-3xx dari $host:$port, baris status='$line'")
+            }
+            ok
         }
     } catch (e: Exception) {
+        // FIX (diagnosa): sebelumnya exception di sini langsung ditelan jadi
+        // `false` polos -- tidak ketahuan apakah gagalnya karena SOCKS5
+        // ditolak, koneksi timeout tanpa balasan sama sekali (indikasi kuat
+        // akun invalid/payload di-drop diam-diam server), connection reset,
+        // dst. Log ini SEKARANG selalu muncul (tag "MyVpnService") tiap
+        // verifikasi gagal, supaya penyebab pastinya kelihatan alih-alih
+        // cuma pesan generik "Tunnel nyala tapi tidak ada trafik nyata".
+        DebugLog.w(TAG, "verifyViaPlainHttp gagal: ${e.javaClass.simpleName}: ${e.message}")
         false
     }
 
@@ -1940,6 +2055,9 @@ class MyVpnService : VpnService() {
             }
         }
     } catch (e: Exception) {
+        // Lihat catatan diagnosa yang sama di verifyViaPlainHttp -- exception
+        // asli di sini SEKARANG dicatat, bukan cuma dijadikan false polos.
+        DebugLog.w(TAG, "verifyViaTlsHandshake gagal: ${e.javaClass.simpleName}: ${e.message}")
         false
     }
 

@@ -88,21 +88,59 @@ class XrayTunnelManager(private val context: Context) {
      */
     @Throws(Exception::class)
     fun connect(config: ServerConfig, protectFd: (Int) -> Boolean) {
-        val link = config.xrayLink?.trim()
-        if (link.isNullOrEmpty()) {
-            throw IllegalArgumentException("Link Xray (vmess://, vless://, atau trojan://) belum diisi")
-        }
+        // FITUR BARU (parity dengan V2RayNG "Edit config JSON manual"): kalau
+        // mode ini aktif, XrayLinkParser.parse(...) & XrayConfigBuilder.build(...)
+        // di-SKIP TOTAL -- config.rawXrayJson dipakai APA ADANYA sebagai
+        // config Xray-core. Konsekuensinya SEMUA fitur otomatis yang biasanya
+        // disuntikkan XrayConfigBuilder (mux, Fake DNS/DoH, bypass domain/IP,
+        // dst. dari VpnSettings) TIDAK ikut berlaku di sini sama sekali --
+        // user yang menulis sendiri semua bagian JSON-nya (termasuk
+        // inbound SOCKS lokal), sesuai namanya "manual". Validasi isinya
+        // sengaja MINIMAL (cuma dicek bisa di-parse sebagai JSONObject valid,
+        // lihat XrayConfigActivity.showRawJsonEditorDialog untuk validasi
+        // lebih ketat SAAT DISIMPAN) -- kesalahan skema JSON yang lolos di
+        // sini akan gagal lebih lanjut di libXray sendiri (Go), errornya
+        // ditangkap StatusBus seperti biasa lewat try/catch di bawah.
+        val xrayJson: String
+        if (config.useRawXrayJson) {
+            val raw = config.rawXrayJson?.trim()
+            if (raw.isNullOrEmpty()) {
+                throw IllegalArgumentException("JSON Xray manual belum diisi")
+            }
+            xrayJson = raw
+            StatusBus.log("[Xray] Memakai JSON manual (editor Advanced) -- fitur otomatis (mux/Fake DNS/routing) tidak berlaku")
+        } else {
+            val link = config.xrayLink?.trim()
+            if (link.isNullOrEmpty()) {
+                throw IllegalArgumentException("Link Xray (vmess://, vless://, atau trojan://) belum diisi")
+            }
 
-        StatusBus.start(StepId.XRAY_PARSE)
-        val outbound = try {
-            XrayLinkParser.parse(link)
-        } catch (e: Exception) {
-            StatusBus.fail(StepId.XRAY_PARSE, e.message ?: e.javaClass.simpleName)
-            throw e
-        }
-        StatusBus.success(StepId.XRAY_PARSE, "Server: ${outbound.address}:${outbound.port} (${outbound.protocol})")
+            StatusBus.start(StepId.XRAY_PARSE)
+            val outbound = try {
+                XrayLinkParser.parse(link)
+            } catch (e: Exception) {
+                StatusBus.fail(StepId.XRAY_PARSE, e.message ?: e.javaClass.simpleName)
+                throw e
+            }
+            StatusBus.success(StepId.XRAY_PARSE, "Server: ${outbound.address}:${outbound.port} (${outbound.protocol})")
 
-        val xrayJson = XrayConfigBuilder.build(outbound, config.socksPort)
+            // FITUR BARU: mux on/off+concurrency dan bypass domain/IP (routing)
+            // sekarang datang dari VpnSettings (kartu Routing di Tools) alih-alih
+            // hardcoded -- lihat kdoc XrayConfigBuilder.build().
+            val vpnSettings = com.example.tunnelapp.model.VpnSettingsStore.load(context)
+            val bypassDomains = vpnSettings.routingBypassDomains.lines()
+            val bypassIps = vpnSettings.routingBypassIps.lines()
+            xrayJson = XrayConfigBuilder.build(
+                outbound,
+                config.socksPort,
+                muxEnabled = vpnSettings.muxEnabled,
+                muxConcurrency = vpnSettings.muxConcurrency,
+                bypassDomains = bypassDomains,
+                bypassIps = bypassIps,
+                fakeDnsEnabled = vpnSettings.fakeDnsEnabled,
+                dohUrl = vpnSettings.dohUrl
+            )
+        }
 
         // Simpan salinan ke disk cuma untuk keperluan debug manual (bukan dibaca
         // oleh libXray -- lihat catatan di atas, versi AAR ini butuh isi JSON-nya

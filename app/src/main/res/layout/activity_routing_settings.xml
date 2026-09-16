@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FITUR BARU (parity dasar dengan V2RayNG "Routing"): bypass LAN, bypass
+     domain/IP manual (tanpa geosite.dat/geoip.dat), dan kontrol mux.cool
+     on/off + concurrency. Lihat RoutingSettingsActivity.kt,
+     MyVpnService.applyTunRoutes(), dan XrayConfigBuilder.build(). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/app_background">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/card_background"
+        app:titleTextColor="@color/text_primary"
+        app:title="Routing &amp; Performa"
+        app:navigationIcon="@drawable/ic_back" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Bypass LAN -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Card.Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Bypass LAN"
+                            android:textColor="@color/text_primary"
+                            android:textStyle="bold"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                            android:id="@+id/swBypassLan"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Trafik ke jaringan lokal (192.168.x.x, 10.x.x.x, dst.) tidak lewat tunnel."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Mux -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Card.Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Mux (multiplexing) — mode Xray"
+                            android:textColor="@color/text_primary"
+                            android:textStyle="bold"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                            android:id="@+id/swMux"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="8dp"
+                        android:text="Matikan kalau server bermasalah dengan multiplexing. Tidak berpengaruh untuk transport KCP/XHTTP (memang tidak didukung Xray-core)."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Concurrency (1-1024, default 8)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp" />
+
+                    <EditText
+                        android:id="@+id/etMuxConcurrency"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:inputType="number"
+                        android:padding="10dp"
+                        android:textColor="@color/text_primary"
+                        android:background="@drawable/bg_export_option_row" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Fake DNS + DoH -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Card.Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Fake DNS — mode Xray"
+                            android:textColor="@color/text_primary"
+                            android:textStyle="bold"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.switchmaterial.SwitchMaterial
+                            android:id="@+id/swFakeDns"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="Resolusi domain terjadi lokal, tidak lewat DNS device — mengurangi risiko kebocoran DNS."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Server DoH (DNS-over-HTTPS) custom, opsional"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp" />
+
+                    <EditText
+                        android:id="@+id/etDohUrl"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:hint="https://1.1.1.1/dns-query"
+                        android:inputType="textUri"
+                        android:singleLine="true"
+                        android:padding="10dp"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:background="@drawable/bg_export_option_row" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Routing manual: bypass domain/IP -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Card.Section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Bypass Domain (mode Xray)"
+                        android:textColor="@color/text_primary"
+                        android:textStyle="bold"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:layout_marginBottom="8dp"
+                        android:text="Satu domain per baris. Tanpa geosite.dat — dicocokkan sebagai teks polos (mis. example.com)."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <EditText
+                        android:id="@+id/etBypassDomains"
+                        android:layout_width="match_parent"
+                        android:layout_height="100dp"
+                        android:gravity="top|start"
+                        android:inputType="textMultiLine"
+                        android:padding="10dp"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp"
+                        android:background="@drawable/bg_export_option_row"
+                        android:layout_marginBottom="16dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Bypass IP/CIDR (mode Xray)"
+                        android:textColor="@color/text_primary"
+                        android:textStyle="bold"
+                        android:textSize="14sp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:layout_marginBottom="8dp"
+                        android:text="Satu IP/CIDR per baris. Tanpa geoip.dat (mis. 8.8.8.8 atau 203.0.113.0/24)."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <EditText
+                        android:id="@+id/etBypassIps"
+                        android:layout_width="match_parent"
+                        android:layout_height="100dp"
+                        android:gravity="top|start"
+                        android:inputType="textMultiLine"
+                        android:padding="10dp"
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp"
+                        android:background="@drawable/bg_export_option_row" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnSave"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:text="Simpan" />
+
+</LinearLayout>

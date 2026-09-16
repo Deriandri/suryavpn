@@ -1,7 +1,11 @@
 package com.example.tunnelapp
 
 import android.os.Bundle
+import android.text.InputType
 import android.view.View
+import android.widget.EditText
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.widget.doOnTextChanged
 import com.example.tunnelapp.databinding.ActivityXrayConfigBinding
@@ -12,6 +16,8 @@ import com.example.tunnelapp.tunnel.XrayLinkBuilder
 import com.example.tunnelapp.tunnel.XrayLinkParser
 import com.example.tunnelapp.tunnel.XrayOutboundConfig
 import com.example.tunnelapp.tunnel.XrayProtocol
+import org.json.JSONException
+import org.json.JSONObject
 
 /**
  * Layar konfigurasi khusus Xray (VMess/VLESS/Trojan), terpisah dari jalur SSH
@@ -66,6 +72,19 @@ class XrayConfigActivity : AppCompatActivity() {
      *  yang tidak ada di form (headerType, seed, xhttpMode, dst) tidak hilang. */
     private var lastParsedConfig: XrayOutboundConfig? = null
 
+    /**
+     * FITUR BARU (parity dengan V2RayNG "Edit config JSON manual"): non-null
+     * = mode JSON manual AKTIF untuk profil ini, isinya JSON Xray-core
+     * lengkap yang ditulis/ditempel user sendiri lewat
+     * [showRawJsonEditorDialog] -- SAAT DISIMPAN ([onSaveClicked]), field ini
+     * yang menentukan (bukan [binding.etXrayLink]/[lastParsedConfig] lagi):
+     * kalau terisi, xrayLink diabaikan TOTAL & disimpan sebagai
+     * [SavedConfig.rawXrayJson] dengan [SavedConfig.useRawXrayJson] = true.
+     * null = perilaku lama sama sekali tidak berubah (link-based, seperti
+     * sebelum fitur ini ada).
+     */
+    private var pendingRawXrayJson: String? = null
+
     /** Jeda debounce sebelum auto-urai jalan, supaya tidak mengurai tiap 1 huruf diketik. */
     private val autoParseRunnable = Runnable { autoParseSilently() }
     private val autoParseDelayMs = 500L
@@ -85,12 +104,19 @@ class XrayConfigActivity : AppCompatActivity() {
             originalLockMode = saved.lockMode
             originalIsLocked = saved.isLocked
             originalNote = saved.note
+            // FITUR BARU: pulihkan mode JSON manual kalau akun ini memang
+            // disimpan dalam mode itu -- lihat kdoc pendingRawXrayJson di atas.
+            if (saved.useRawXrayJson && saved.rawXrayJson.isNotBlank()) {
+                pendingRawXrayJson = saved.rawXrayJson
+            }
             // Kalau sudah ada akun tersimpan sebelumnya, langsung urai saat layar
             // dibuka juga -- tidak perlu tunggu tempel/ketik baru dulu.
             autoParseSilently()
         }
 
         setupDetailFieldToggles()
+        updateRawJsonButtonUi()
+        binding.btnRawJsonEditor.setOnClickListener { showRawJsonEditorDialog() }
 
         // Auto-urai begitu isi link berubah (tempel atau diketik manual), dengan
         // jeda singkat supaya tidak mengurai di tengah-tengah ketikan/paste.
@@ -288,8 +314,124 @@ class XrayConfigActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * FITUR BARU: refleksikan status [pendingRawXrayJson] ke UI --
+     * saat aktif, field link/tombol urai/card detail dinonaktifkan (bukan
+     * disembunyikan -- biar user tetap sadar field itu ada, cuma sedang
+     * "dikalahkan" oleh JSON manual) supaya tidak ada dua sumber kebenaran
+     * yang kelihatan sama-sama bisa diedit padahal cuma satu yang benar2
+     * dipakai saat Simpan (lihat [onSaveClicked]).
+     */
+    private fun updateRawJsonButtonUi() {
+        val active = pendingRawXrayJson != null
+        binding.btnRawJsonEditor.text = if (active) {
+            "✓ JSON Manual aktif — Edit / Matikan"
+        } else {
+            "Advanced: Edit JSON Manual"
+        }
+        binding.etXrayLink.isEnabled = !active
+        binding.btnParseXray.isEnabled = !active
+        binding.tilXrayLink.alpha = if (active) 0.5f else 1f
+        binding.btnParseXray.alpha = if (active) 0.5f else 1f
+        if (active) {
+            binding.cardXrayDetails.visibility = View.GONE
+            binding.tvXrayParseError.visibility = View.GONE
+        }
+    }
+
+    /**
+     * Dialog editor JSON mentah -- textarea multiline diisi
+     * [pendingRawXrayJson] kalau sudah aktif, kosong kalau belum. Validasi
+     * SAAT INI cuma "bisa di-parse sebagai JSONObject" (sintaks JSON valid),
+     * SENGAJA TIDAK memvalidasi skema Xray-core-nya (inbound/outbound/dst
+     * wajib ada apa tidak) -- itu tanggung jawab user sepenuhnya sesuai
+     * namanya "manual"/"advanced"; kesalahan skema akan terlihat sendiri
+     * saat tunnel gagal connect nanti (pesan error dari libXray/Go apa
+     * adanya, lewat StatusBus seperti biasa).
+     */
+    private fun showRawJsonEditorDialog() {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 10
+            maxLines = 20
+            typeface = android.graphics.Typeface.MONOSPACE
+            textSize = 12f
+            setText(pendingRawXrayJson ?: "")
+        }
+        val paddingPx = (16 * resources.displayMetrics.density).toInt()
+        val container = android.widget.ScrollView(this).apply {
+            setPadding(paddingPx, paddingPx / 2, paddingPx, 0)
+            addView(input)
+        }
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle("Edit JSON Manual")
+            .setMessage("Config Xray-core LENGKAP (inbound, outbound, routing, dst) -- menggantikan link di atas sepenuhnya untuk akun ini. Fitur otomatis (mux/Fake DNS/bypass LAN) TIDAK ikut berlaku, harus ditulis sendiri di sini kalau dibutuhkan.")
+            .setView(container)
+            .setPositiveButton("Simpan JSON") { _, _ ->
+                val text = input.text.toString().trim()
+                if (text.isEmpty()) {
+                    Toast.makeText(this, "JSON belum diisi", Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                try {
+                    JSONObject(text)
+                } catch (e: JSONException) {
+                    Toast.makeText(this, "JSON tidak valid: ${e.message}", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                pendingRawXrayJson = text
+                updateRawJsonButtonUi()
+            }
+            .setNegativeButton("Batal", null)
+
+        if (pendingRawXrayJson != null) {
+            builder.setNeutralButton("Matikan JSON Manual") { _, _ ->
+                pendingRawXrayJson = null
+                updateRawJsonButtonUi()
+            }
+        }
+        builder.show()
+    }
+
     private fun onSaveClicked() {
         val accountName = binding.etAccountName.text.toString().trim()
+
+        // FITUR BARU: kalau mode JSON manual aktif, jalur link-based di
+        // bawah (urai/susun ulang/validasi link) DILEWATI TOTAL -- ini
+        // sengaja ditaruh PALING ATAS onSaveClicked() supaya tidak ada
+        // logika link yang sempat jalan dulu sebelum keputusan mode dibuat.
+        if (pendingRawXrayJson != null) {
+            editingProfileId = ProfileStore.upsert(
+                this,
+                editingProfileId,
+                SavedConfig(
+                    host = "",
+                    port = 22,
+                    username = "",
+                    password = "",
+                    modeIndex = 5,
+                    sni = "",
+                    payload = "",
+                    proxyHost = "",
+                    proxyPort = "",
+                    tlsVersion = "",
+                    useWebSocket = false,
+                    wsPath = "",
+                    proxyRawMode = false,
+                    xrayLink = "",
+                    accountName = accountName,
+                    isLocked = originalIsLocked,
+                    lockMode = originalLockMode,
+                    note = originalNote,
+                    useRawXrayJson = true,
+                    rawXrayJson = pendingRawXrayJson!!
+                )
+            )
+            finish()
+            return
+        }
+
         val xrayLink: String
 
         if (binding.cardXrayDetails.visibility == View.VISIBLE && lastParsedConfig != null) {

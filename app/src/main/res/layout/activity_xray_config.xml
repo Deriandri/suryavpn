@@ -122,6 +122,21 @@
                     android:text="Urai &amp; Edit Detail Akun"
                     android:textAllCaps="false" />
 
+                <!-- FITUR BARU (parity dengan V2RayNG "Edit config JSON
+                     manual"): tombol ke dialog editor JSON mentah, lihat
+                     XrayConfigActivity.showRawJsonEditorDialog(). Teks &
+                     warnanya berubah dinamis (lihat updateRawJsonButtonUi())
+                     tergantung apakah mode ini sedang aktif untuk profil ini. -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRawJsonEditor"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Advanced: Edit JSON Manual"
+                    android:textAllCaps="false"
+                    android:textSize="12sp" />
+
                 <TextView
                     android:id="@+id/tvXrayParseError"
                     android:layout_width="match_parent"

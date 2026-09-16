@@ -13,15 +13,60 @@ import org.json.JSONObject
  *    pipeline TUN->SOCKS5 TIDAK berubah sama sekali untuk mode XRAY.
  *  - SATU outbound: protokol dari link share (vmess/vless/trojan), transport tcp/ws/
  *    grpc/h2/httpupgrade/xhttp/kcp.
- *  - TIDAK ada objek "routing" (semua trafik yang masuk otomatis lewat outbound
- *    tunggal itu) -- konsekuensinya TIDAK butuh geoip.dat/geosite.dat sama sekali,
- *    karena file itu cuma dipakai kalau ada rule routing yang mereferensikannya
- *    (mis. "geosite:private", "geoip:cn"). Kalau nanti mau nambah split-tunneling
- *    berbasis domain/IP, geo asset itu baru wajib disiapkan.
+ *  - ROUTING (FITUR BARU, parity dasar dengan V2RayNG): sebelumnya TIDAK ada
+ *    objek "routing" sama sekali (semua trafik otomatis lewat satu outbound).
+ *    Sekarang, kalau [XrayConfigBuilder.build] dipanggil dengan bypassDomains/
+ *    bypassIps terisi (lewat kartu Routing di Tools), sebuah outbound kedua
+ *    "direct" (freedom, langsung ke internet TANPA lewat proxy) ditambahkan +
+ *    rule routing yang mencocokkan domain/IP tsb ke outbound "direct" itu.
+ *    SENGAJA TIDAK memakai prefix "geosite:"/"geoip:" (itu butuh file
+ *    geosite.dat/geoip.dat yang tidak disertakan project ini) -- domain/IP
+ *    dicocokkan sebagai teks polos/CIDR, sesuai dukungan native "field"
+ *    routing Xray-core yang tidak butuh geo asset apa pun untuk domain/IP
+ *    literal. Kalau bypassDomains/bypassIps kosong dua-duanya, TIDAK ada
+ *    objek "routing" yang ditambahkan sama sekali (perilaku lama, tanpa
+ *    split-tunneling, persis seperti sebelumnya).
+ *  - FAKE DNS + DoH (FITUR BARU, parity dengan V2RayNG): kalau
+ *    [fakeDnsEnabled] true, ditambahkan objek top-level "fakedns" (pool IP
+ *    lokal 198.18.0.0/15, tidak pernah bentrok dengan IP publik asli) +
+ *    "dns" (daftar server, dimulai dari tag "fakedns" itu sendiri, lalu
+ *    [dohUrl] kalau diisi, lalu "1.1.1.1" sebagai fallback paling akhir) +
+ *    "sniffing" dengan destOverride ["http","tls","fakedns"] di inbound
+ *    SOCKS -- kombinasi tiga ini yang membuat resolusi domain terjadi
+ *    LOKAL (ke IP palsu di pool, baru "dibongkar" balik ke domain asli pas
+ *    dikirim ke outbound proxy) alih-alih lewat DNS device yang normal,
+ *    mengurangi risiko kebocoran DNS. [dohUrl] SENDIRI (tanpa fakeDnsEnabled)
+ *    tetap bisa diisi untuk menambah satu server DoH ke daftar "dns" --
+ *    dua fitur ini independen satu sama lain.
  */
 object XrayConfigBuilder {
 
-    fun build(outbound: XrayOutboundConfig, socksPort: Int): String {
+    /**
+     * @param muxEnabled/[muxConcurrency] FITUR BARU: sebelumnya hardcoded
+     *   true/8 di [buildOutbound]. Sekarang dikontrol dari
+     *   [com.example.tunnelapp.model.VpnSettings] (kartu Routing di Tools)
+     *   supaya user bisa matikan mux sepenuhnya (mis. server yang bermasalah
+     *   dengan multiplexing) atau mengubah concurrency-nya sendiri.
+     * @param bypassDomains daftar domain plain-text (tanpa "geosite:") yang
+     *   di-bypass langsung tanpa proxy -- lihat catatan class-level di atas.
+     * @param bypassIps daftar IP/CIDR plain-text (tanpa "geoip:") yang
+     *   di-bypass langsung tanpa proxy.
+     * @param fakeDnsEnabled lihat catatan class-level "FAKE DNS + DoH" di atas.
+     * @param dohUrl URL server DoH custom (mis. "https://1.1.1.1/dns-query").
+     *   Kosong = tidak ditambahkan objek "dns" sama sekali kecuali
+     *   [fakeDnsEnabled] true (yang tetap butuh objek "dns" minimal berisi
+     *   tag "fakedns" + fallback "1.1.1.1").
+     */
+    fun build(
+        outbound: XrayOutboundConfig,
+        socksPort: Int,
+        muxEnabled: Boolean = true,
+        muxConcurrency: Int = 8,
+        bypassDomains: List<String> = emptyList(),
+        bypassIps: List<String> = emptyList(),
+        fakeDnsEnabled: Boolean = false,
+        dohUrl: String = ""
+    ): String {
         val root = JSONObject()
 
         root.put("log", JSONObject().put("loglevel", "warning"))
@@ -36,37 +81,97 @@ object XrayConfigBuilder {
                 put("udp", true)
                 put("ip", "127.0.0.1")
             })
+            // FITUR BARU: sniffing "destOverride" wajib mencakup "fakedns"
+            // supaya Xray-core tahu request yang masuk boleh di-resolve
+            // lewat fake DNS pool -- tanpa ini objek "fakedns"/"dns" di
+            // bawah TIDAK berefek apa-apa sama sekali.
+            if (fakeDnsEnabled) {
+                put("sniffing", JSONObject().apply {
+                    put("enabled", true)
+                    put("destOverride", JSONArray().put("http").put("tls").put("fakedns"))
+                })
+            }
         }
         root.put("inbounds", JSONArray().put(inbound))
 
-        root.put("outbounds", JSONArray().put(buildOutbound(outbound)))
+        val cleanDoh = dohUrl.trim()
+        if (fakeDnsEnabled || cleanDoh.isNotEmpty()) {
+            root.put("fakedns", JSONArray().put(JSONObject().apply {
+                put("ipPool", "198.18.0.0/15")
+                put("poolSize", 65535)
+            }))
+            val dnsServers = JSONArray()
+            if (fakeDnsEnabled) dnsServers.put("fakedns")
+            if (cleanDoh.isNotEmpty()) dnsServers.put(JSONObject().put("address", cleanDoh))
+            // Fallback terakhir -- server DNS "normal" biasa, dipakai kalau
+            // fake DNS/DoH di atas tidak bisa menjawab suatu query (mis.
+            // domain yang memang di-bypass, atau reverse lookup IP).
+            dnsServers.put("1.1.1.1")
+            root.put("dns", JSONObject().put("servers", dnsServers))
+        }
+
+        val outbounds = JSONArray().put(buildOutbound(outbound, muxEnabled, muxConcurrency))
+
+        val cleanDomains = bypassDomains.map { it.trim() }.filter { it.isNotEmpty() }
+        val cleanIps = bypassIps.map { it.trim() }.filter { it.isNotEmpty() }
+        if (cleanDomains.isNotEmpty() || cleanIps.isNotEmpty()) {
+            // Outbound "direct" (freedom): trafik yang match rule di bawah
+            // keluar langsung ke internet dari device, TIDAK lewat tunnel/
+            // proxy sama sekali -- ini yang bikin sebuah domain/IP "di-bypass".
+            outbounds.put(JSONObject().apply {
+                put("tag", "direct")
+                put("protocol", "freedom")
+                put("settings", JSONObject())
+            })
+
+            val rule = JSONObject().apply {
+                put("type", "field")
+                put("outboundTag", "direct")
+                if (cleanDomains.isNotEmpty()) {
+                    put("domain", JSONArray().apply { cleanDomains.forEach { put(it) } })
+                }
+                if (cleanIps.isNotEmpty()) {
+                    put("ip", JSONArray().apply { cleanIps.forEach { put(it) } })
+                }
+            }
+            root.put("routing", JSONObject().apply {
+                // "proxy" tetap outbound PERTAMA di array (default kalau
+                // tidak ada rule yang match) -- konsisten dengan perilaku
+                // Xray-core: unmatched traffic otomatis jatuh ke outbound
+                // pertama dalam daftar, jadi tidak perlu default eksplisit.
+                put("domainStrategy", "AsIs")
+                put("rules", JSONArray().put(rule))
+            })
+        }
+
+        root.put("outbounds", outbounds)
 
         return root.toString()
     }
 
-    private fun buildOutbound(cfg: XrayOutboundConfig): JSONObject {
+    private fun buildOutbound(cfg: XrayOutboundConfig, muxEnabled: Boolean, muxConcurrency: Int): JSONObject {
         val streamSettings = buildStreamSettings(cfg)
         val outboundObj = JSONObject().apply {
             put("tag", "proxy")
             put("streamSettings", streamSettings)
-            // FITUR BARU (permintaan user: maksimalkan kecepatan jaringan):
             // mux.cool -- menggabungkan beberapa koneksi TCP/stream kecil
             // (umum saat browsing web: banyak request paralel ke domain/CDN
             // berbeda) jadi satu koneksi fisik ke server, jadi tidak perlu
             // handshake TCP+TLS baru dari nol tiap kali browser buka
             // koneksi baru -- lumayan berarti di jaringan ber-RTT tinggi
             // (tiap handshake baru = minimal 1 RTT ekstra, kadang lebih
-            // untuk TLS). concurrency 8 adalah nilai default resmi yang
-            // direkomendasikan dokumentasi Xray-core sendiri (cukup besar
-            // untuk browsing normal, tidak berlebihan sampai membebani CPU).
-            // TIDAK diaktifkan untuk protokol/transport yang mux.cool
-            // resmi TIDAK didukung/direkomendasikan Xray-core (KCP -- based
-            // UDP, dan XHTTP -- sudah punya mekanisme multiplexing sendiri
-            // yang konflik kalau digabung mux.cool sekaligus).
-            if (cfg.network != "kcp" && cfg.network != "xhttp") {
+            // untuk TLS). [muxEnabled]/[muxConcurrency] FITUR BARU: dulu
+            // hardcoded true/8, sekarang diatur user lewat kartu Routing di
+            // Tools (mis. dimatikan kalau server bermasalah dengan
+            // multiplexing). TIDAK diaktifkan untuk protokol/transport yang
+            // mux.cool resmi TIDAK didukung/direkomendasikan Xray-core
+            // (KCP -- based UDP, dan XHTTP -- sudah punya mekanisme
+            // multiplexing sendiri yang konflik kalau digabung mux.cool
+            // sekaligus), TERLEPAS dari muxEnabled.
+            if (muxEnabled && cfg.network != "kcp" && cfg.network != "xhttp") {
                 put("mux", JSONObject().apply {
                     put("enabled", true)
-                    put("concurrency", 8)
+                    put("concurrency", muxConcurrency.coerceIn(1, 1024))
                 })
             }
         }

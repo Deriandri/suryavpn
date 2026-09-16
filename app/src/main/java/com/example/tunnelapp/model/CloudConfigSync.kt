@@ -69,7 +69,13 @@ object CloudConfigSync {
      * SAMA (di-update isinya), bukan dianggap akun baru yang berbeda.
      */
     private fun identityKey(c: SavedConfig): String = if (c.modeIndex == 5) {
-        "xray|${c.xrayLink}"
+        // FITUR BARU: akun editor JSON manual tidak punya xrayLink (kosong)
+        // -- tanpa ini, DUA akun JSON manual yang berbeda akan dianggap
+        // "akun yang sama" (identityKey sama-sama "xray|") dan saling
+        // menimpa saat sync. rawXrayJson ikut jadi bagian kunci HANYA kalau
+        // xrayLink kosong, supaya akun link-based yang sudah ada (mayoritas)
+        // identitasnya TIDAK berubah sama sekali dibanding sebelum fitur ini ada.
+        if (c.xrayLink.isNotBlank()) "xray|${c.xrayLink}" else "xray-json|${c.rawXrayJson}"
     } else {
         "ssh|${c.modeIndex}|${c.host}|${c.port}|${c.username}"
     }

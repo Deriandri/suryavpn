@@ -75,6 +75,10 @@ class DashboardMainFragment : Fragment() {
         val ignoreCertErrors: Boolean,
         val dns1: String,
         val dns2: String,
+        // FITUR BARU: editor JSON Xray manual -- lihat kdoc
+        // [ServerConfig.useRawXrayJson]/[ServerConfig.rawXrayJson].
+        val useRawXrayJson: Boolean = false,
+        val rawXrayJson: String = "",
         // FIX/FITUR BARU (fallback akun cadangan di MyVpnService): id profil
         // ProfileStore yang dipakai request Connect ini -- diteruskan ke
         // Service lewat EXTRA_PROFILE_ID supaya dia tahu profil mana yang
@@ -345,6 +349,11 @@ class DashboardMainFragment : Fragment() {
     private fun accountLabel(config: com.example.tunnelapp.model.SavedConfig): String {
         if (config.accountName.isNotBlank()) return config.accountName
         if (config.modeIndex == 5) {
+            // FITUR BARU: akun editor JSON manual tidak punya xrayLink buat
+            // di-parse sama sekali -- cek ini DULUAN supaya tidak jatuh ke
+            // "link belum valid" yang menyesatkan (link-nya memang sengaja
+            // kosong, bukan rusak).
+            if (config.useRawXrayJson) return "Xray — JSON manual"
             val parsed = runCatching { XrayLinkParser.parse(config.xrayLink) }.getOrNull()
             return if (parsed != null) "Xray — ${parsed.address}:${parsed.port}" else "Xray — link belum valid"
         }
@@ -429,8 +438,14 @@ class DashboardMainFragment : Fragment() {
         }
 
         if (saved.modeIndex == 5) {
-            if (saved.xrayLink.isBlank()) {
+            // FITUR BARU: editor JSON Xray manual -- valid kalau xrayLink
+            // ATAU rawXrayJson terisi (bukan cuma xrayLink lagi).
+            if (!saved.useRawXrayJson && saved.xrayLink.isBlank()) {
                 StatusBus.state.value = "Link Xray belum diisi, buka menu Xray dulu"
+                return
+            }
+            if (saved.useRawXrayJson && saved.rawXrayJson.isBlank()) {
+                StatusBus.state.value = "JSON Xray manual belum diisi, buka menu Xray dulu"
                 return
             }
             connectWith(
@@ -440,6 +455,7 @@ class DashboardMainFragment : Fragment() {
                     useWebSocket = false, wsPath = "", proxyRawMode = false, xrayLink = saved.xrayLink,
                     customHeaders = "", ignoreCertErrors = false,
                     dns1 = saved.dns1, dns2 = saved.dns2,
+                    useRawXrayJson = saved.useRawXrayJson, rawXrayJson = saved.rawXrayJson,
                     profileId = activeProfile.id
                 )
             )
@@ -539,6 +555,8 @@ class DashboardMainFragment : Fragment() {
             if (c.wsPath.isNotEmpty()) putExtra(MyVpnService.EXTRA_WS_PATH, c.wsPath)
             putExtra(MyVpnService.EXTRA_PROXY_RAW_MODE, c.proxyRawMode)
             if (c.xrayLink.isNotEmpty()) putExtra(MyVpnService.EXTRA_XRAY_LINK, c.xrayLink)
+            putExtra(MyVpnService.EXTRA_XRAY_USE_RAW_JSON, c.useRawXrayJson)
+            if (c.rawXrayJson.isNotEmpty()) putExtra(MyVpnService.EXTRA_XRAY_RAW_JSON, c.rawXrayJson)
             if (c.customHeaders.isNotEmpty()) putExtra(MyVpnService.EXTRA_CUSTOM_HEADERS, c.customHeaders)
             putExtra(MyVpnService.EXTRA_IGNORE_CERT_ERRORS, c.ignoreCertErrors)
             if (c.dns1.isNotEmpty()) putExtra(MyVpnService.EXTRA_DNS1, c.dns1)

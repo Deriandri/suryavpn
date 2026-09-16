@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FITUR BARU: satu baris aplikasi di layar Per-App Proxy (AppFilterActivity),
+     parity dengan daftar "Per-app proxy"/"Bypass apps" di V2RayNG. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
+    android:background="?attr/selectableItemBackground">
+
+    <ImageView
+        android:id="@+id/ivAppIcon"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:contentDescription="@null" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="12dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvAppName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/tvAppPackage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_hint"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <CheckBox
+        android:id="@+id/cbAppSelected"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:clickable="false"
+        android:focusable="false" />
+
+</LinearLayout>

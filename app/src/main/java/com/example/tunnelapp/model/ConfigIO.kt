@@ -96,6 +96,10 @@ fun SavedConfig.toConfigJson(exportLockMode: ConfigLockMode = lockMode, noteOver
         put("dns2", dns2)
         put("accountName", accountName)
         put("note", noteOverride ?: note)
+        // FITUR BARU: editor JSON Xray manual -- lihat kdoc
+        // [SavedConfig.useRawXrayJson]/[SavedConfig.rawXrayJson].
+        put("useRawXrayJson", useRawXrayJson)
+        put("rawXrayJson", rawXrayJson)
     }
     return applyLockMode(json, exportLockMode)
 }
@@ -120,9 +124,14 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
     val modeIndex = o.optInt("modeIndex", 0)
     val host = o.optString("host", "")
     val xrayLink = o.optString("xrayLink", "")
+    // FITUR BARU: editor JSON Xray manual -- akun mode Xray (modeIndex 5)
+    // sekarang VALID kalau SALAH SATU dari xrayLink ATAU rawXrayJson terisi,
+    // bukan cuma xrayLink lagi.
+    val useRawXrayJson = o.optBoolean("useRawXrayJson", false)
+    val rawXrayJson = o.optString("rawXrayJson", "")
 
     if (modeIndex == 5) {
-        if (xrayLink.isBlank()) return null
+        if (xrayLink.isBlank() && rawXrayJson.isBlank()) return null
     } else if (host.isBlank()) {
         return null
     }
@@ -154,6 +163,8 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
         // fitur ini sempat menulis catatan HANYA di level envelope/kode
         // bagikan sebagai "exportNote", belum di tiap akun).
         note = o.optString("note", o.optString("exportNote", "")),
+        useRawXrayJson = useRawXrayJson,
+        rawXrayJson = rawXrayJson,
         // Akun hasil impor cuma otomatis ikut isLocked=true (gembok
         // "proteksi tidak sengaja" biasa) kalau lockMode-nya LOCK_ALL --
         // lihat dokumentasi [SavedConfig.lockMode] soal beda isLocked

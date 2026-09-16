@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FITUR BARU (parity dengan V2RayNG "Per-app proxy"): pilih aplikasi mana
+     yang lewat tunnel (mode allow-list) atau dikecualikan dari tunnel (mode
+     block-list). Lihat AppFilterActivity.kt & MyVpnService.applyAppFiltering. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/app_background">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/card_background"
+        app:titleTextColor="@color/text_primary"
+        app:title="Per-App Proxy"
+        app:navigationIcon="@drawable/ic_back" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/card_background"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Aktifkan Per-App Proxy"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/swEnabled"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="10dp"
+            android:text="Batasi aplikasi mana yang trafiknya lewat tunnel."
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/toggleMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:singleSelection="true"
+            app:selectionRequired="true">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnModeAllow"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Hanya app ini" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnModeBlock"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Kecuali app ini" />
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+
+        <EditText
+            android:id="@+id/etSearch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:hint="Cari aplikasi..."
+            android:inputType="text"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_hint"
+            android:textSize="13sp"
+            android:padding="10dp"
+            android:background="@drawable/bg_export_option_row" />
+
+        <TextView
+            android:id="@+id/tvSelectedCount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="0 aplikasi dipilih"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <ListView
+        android:id="@+id/lvApps"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="@null"
+        android:dividerHeight="0dp" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnSave"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:text="Simpan" />
+
+</LinearLayout>
