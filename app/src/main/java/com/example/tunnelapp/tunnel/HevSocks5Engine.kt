@@ -1,6 +1,7 @@
 package com.example.tunnelapp.tunnel
 
 import android.util.Log
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * [TunEngine] berbasis hev-socks5-tunnel (heiher/hev-socks5-tunnel, native C,
@@ -17,6 +18,41 @@ class HevSocks5Engine : TunEngine {
 
     companion object {
         private const val TAG = "HevSocks5Engine"
+
+        // BUG FIX (crash native tak terduga saat reconnect lama/hard reset
+        // berulang -- laporan user: "matikan internet, tunggu reconnect,
+        // aplikasi crash total, tidak ada log error sama sekali"):
+        // HevSocks5Bridge adalah SATU library native GLOBAL per proses
+        // (System.loadLibrary sekali), TIDAK didesain multi-instance --
+        // hanya ada satu context/state internal di sisi native. Sebelumnya,
+        // kalau engine.stop() (dipanggil lewat
+        // MyVpnService.runBlockingWithTimeout, batas 5000ms) TIMEOUT karena
+        // thread native lama belum sempat benar-benar berhenti, caller di
+        // MyVpnService TETAP LANJUT ("melanjutkan tanpa menunggu") ke
+        // hardResetAndRetry()/reconnect berikutnya, yang lalu bikin
+        // HevSocks5Engine() instance BARU dan panggil start() lagi -- itu
+        // artinya HevSocks5Bridge.startTunnel() dipanggil DUA KALI hampir
+        // bersamaan di native code yang sama, dengan config/fd berbeda.
+        // Ini use-after-free/concurrent-global-state di sisi native ->
+        // SIGSEGV/abort yang membunuh proses SEKETIKA, TIDAK LEWAT
+        // Thread.UncaughtExceptionHandler (DebugLog) sama sekali -- makanya
+        // log debug berhenti mendadak tanpa baris error/fatal apa pun.
+        //
+        // Guard statis (bukan per-instance, karena native state-nya memang
+        // global) ini mencegahnya: start() BARU menunggu (polling, maksimal
+        // [NATIVE_STOP_WAIT_MS]) sampai berhasil mengambil "slot" native
+        // lewat [nativeThreadAlive].compareAndSet(false, true) -- slot itu
+        // cuma dilepas (di-set false) DARI DALAM thread native itu sendiri
+        // setelah startTunnel() benar-benar return. Kalau tetap tidak
+        // kebagian slot setelah menunggu, start() MENOLAK (throw biasa)
+        // daripada memaksa panggilan kedua yang berisiko crash -- exception
+        // ini otomatis ditangkap try/catch di
+        // MyVpnService.establishTunnel() dan diperlakukan sebagai percobaan
+        // gagal biasa lewat handleTunnelDeath()/scheduleReconnectOrGiveUp()
+        // yang sudah ada, BUKAN crash.
+        private val nativeThreadAlive = AtomicBoolean(false)
+        private const val NATIVE_STOP_WAIT_MS = 4000L
+        private const val NATIVE_STOP_POLL_MS = 100L
     }
 
     private var thread: Thread? = null
@@ -31,6 +67,24 @@ class HevSocks5Engine : TunEngine {
     private var stoppedByUs = false
 
     override fun start(tunFd: Int, tunAddress: String, mtu: Int, socksHost: String, socksPort: Int, onUnexpectedStop: (() -> Unit)?) {
+        // compareAndSet(false, true): kalau sukses, kita satu-satunya
+        // pemilik "slot" native saat ini. Kalau gagal (masih ada thread
+        // native sebelumnya yang belum set balik ke false di
+        // thread.apply{} bawah), tunggu sebentar (polling, TANPA memegang
+        // lock apa pun -- supaya thread native sebelumnya bebas
+        // menyelesaikan compareAndSet-nya sendiri) sampai [NATIVE_STOP_WAIT_MS],
+        // baru menyerah kalau tetap tidak dapat slot.
+        val deadline = System.currentTimeMillis() + NATIVE_STOP_WAIT_MS
+        while (!nativeThreadAlive.compareAndSet(false, true)) {
+            if (System.currentTimeMillis() >= deadline) {
+                throw IllegalStateException(
+                    "hev-socks5-tunnel sebelumnya belum benar-benar berhenti setelah " +
+                        "${NATIVE_STOP_WAIT_MS}ms -- menolak start baru untuk mencegah " +
+                        "crash native (dua startTunnel() jalan bersamaan)"
+                )
+            }
+            Thread.sleep(NATIVE_STOP_POLL_MS)
+        }
         stoppedByUs = false
         // CATATAN soal fitur kecepatan yang PERNAH dicoba di sini lalu
         // di-revert -- lihat blok komentar REVERT di bawah untuk detail:
@@ -70,6 +124,10 @@ class HevSocks5Engine : TunEngine {
 
         thread = Thread({
             val result = HevSocks5Bridge.startTunnel(yamlConfig, tunFd)
+            // Native thread ini BENAR-BENAR selesai sekarang -- baru di sini
+            // aman melepas slot & mengizinkan start() berikutnya (lihat
+            // guard compareAndSet di atas).
+            nativeThreadAlive.set(false)
             Log.i(TAG, "hev-socks5-tunnel berhenti, kode: $result")
             if (!stoppedByUs) {
                 // Engine berhenti sendiri (bukan diminta stop()) -- native lib exit
