@@ -95,26 +95,6 @@ class ConnectRelay(
         // asli, supaya tunnel yang sedang idle tidak ikut ke-timeout.
         private const val HANDSHAKE_READ_TIMEOUT_MS = 8000
 
-        // FIX (bug "reconnect gak jalan, status nyangkut Tunnel aktif" saat
-        // jaringan device mati-nyala): SEBELUMNYA soTimeout di-set ke 0 (tanpa
-        // batas) begitu fase handshake selesai, supaya sesi idle tidak salah
-        // dianggap putus. Efek sampingnya: kalau socket ini jadi "black hole"
-        // (jaringan fisik berpindah/putus-sambung sehingga rute TCP lama mati
-        // tanpa RST/FIN sama sekali -- umum terjadi di jaringan seluler saat
-        // pindah tower/WiFi<->data), read() di sini BLOCKING SELAMANYA, tidak
-        // pernah melempar exception apa pun -- akibatnya sshj (yang membaca
-        // lewat socket relay ini) juga tidak pernah sadar koneksinya mati,
-        // disconnectWatchThread di SshjTunnelManager pun tidak pernah terpicu.
-        // Nilai ini SENGAJA dipasang lebih besar dari
-        // SshjTunnelManager.keepAliveInterval (30 detik): selama tunnel benar-
-        // benar hidup, keepalive SSH ATAU trafik asli pasti membuat sesuatu
-        // terbaca dalam jendela ini, jadi sesi idle TETAP tidak akan ke-timeout
-        // salah. Kalau memang tidak ada apa pun terbaca sama sekali selama ini,
-        // itu tanda socket sudah mati -- SocketTimeoutException yang muncul
-        // ditangkap di reader thread sshj sebagai sinyal putus (lihat
-        // SshjTunnelManager: onUnexpectedDisconnect terpicu, bukan diam selamanya).
-        private const val TUNNEL_READ_TIMEOUT_MS = 45000
-
         // --- Dipakai HANYA kalau ServerConfig.ignoreCertErrors = true ---
         // TrustManager yang menerima SEMUA sertifikat server apa adanya (tanpa
         // validasi chain/tanggal/hostname sama sekali). Ini SENGAJA tidak aman
@@ -433,10 +413,10 @@ class ConnectRelay(
                 WebSocketHandshake.perform(socket, wsHost, wsPath, config.parsedCustomHeaders())
                 Log.i(TAG, "Handshake WebSocket sukses (host: $wsHost, path: $wsPath)")
                 StatusBus.success(StepId.WEBSOCKET)
-                // Fase handshake selesai -- pindah ke TUNNEL_READ_TIMEOUT_MS (BUKAN
-                // 0/tanpa batas lagi, lihat catatan di TUNNEL_READ_TIMEOUT_MS) supaya
-                // socket yang diam-diam mati tetap bisa terdeteksi.
-                socket.soTimeout = TUNNEL_READ_TIMEOUT_MS
+                // Fase handshake selesai -- kembalikan ke tanpa batas waktu supaya
+                // tunnel yang sedang idle tidak ikut ke-timeout (lihat komentar di
+                // HANDSHAKE_READ_TIMEOUT_MS).
+                socket.soTimeout = 0
                 return WebSocketSocket(socket)
             } catch (e: Exception) {
                 val reason = e.message ?: e.javaClass.simpleName
@@ -451,10 +431,9 @@ class ConnectRelay(
         }
 
         // Fase handshake selesai (tanpa WebSocket, atau attemptWebSocket=false) --
-        // sama seperti jalur sukses WebSocket di atas, pindah ke
-        // TUNNEL_READ_TIMEOUT_MS (bukan 0) supaya socket mati diam-diam tetap
-        // terdeteksi.
-        socket.soTimeout = TUNNEL_READ_TIMEOUT_MS
+        // kembalikan ke tanpa batas waktu, sama seperti alasan di jalur sukses
+        // WebSocket di atas.
+        socket.soTimeout = 0
         return socket
     }
 
@@ -824,15 +803,13 @@ private class PrefixedSocket(
     override fun isOutputShutdown(): Boolean = delegate.isOutputShutdown
 
     // PENTING: WAJIB didelegasikan juga -- tanpa override ini, pemanggilan
-    // "socket.soTimeout = TUNNEL_READ_TIMEOUT_MS" di akhir openRealConnection()
-    // (pindah dari timeout 8 detik yang cuma dipakai selama fase handshake,
-    // lihat HANDSHAKE_READ_TIMEOUT_MS, ke TUNNEL_READ_TIMEOUT_MS utk fase
-    // trafik tunnel asli) akan diam-diam MENGENAI socket dummy internal milik
-    // wrapper ini sendiri (bukan socket asli yang benar-benar dipakai untuk
-    // trafik tunnel lewat delegate.getInputStream()) -- akibatnya socket asli
-    // tetap punya timeout baca 8 detik selamanya, dan tunnel yang lagi idle
-    // sebentar saja (belum sampai kena TUNNEL_READ_TIMEOUT_MS) langsung
-    // dianggap putus (SocketTimeoutException) padahal masih hidup normal.
+    // "socket.soTimeout = 0" di akhir openRealConnection() (mematikan timeout
+    // 8 detik yang cuma dipakai selama fase handshake, lihat
+    // HANDSHAKE_READ_TIMEOUT_MS) akan diam-diam MENGENAI socket dummy internal
+    // milik wrapper ini sendiri (bukan socket asli yang benar-benar dipakai
+    // untuk trafik tunnel lewat delegate.getInputStream()) -- akibatnya socket
+    // asli tetap punya timeout baca 8 detik selamanya, dan tunnel yang lagi
+    // idle sebentar saja langsung dianggap putus (SocketTimeoutException).
     override fun setSoTimeout(timeout: Int) {
         delegate.soTimeout = timeout
     }
