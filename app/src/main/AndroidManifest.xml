@@ -1,31 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- FITUR BARU (per-app proxy, AppFilterActivity): package visibility
-         Android 11+ (API 30) — tanpa ini queryIntentActivities() di
-         AppFilterActivity cuma akan melihat app ini sendiri, app lain tidak
-         akan muncul di daftar pemilih. Dibatasi ke intent MAIN/LAUNCHER
-         saja (bukan QUERY_ALL_PACKAGES yang lebih invasif & butuh justifikasi
-         khusus ke Play Store) — cukup untuk enumerasi app yang punya
-         launcher icon, yang memang satu-satunya yang relevan untuk fitur ini. -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.MAIN" />
-            <category android:name="android.intent.category.LAUNCHER" />
-        </intent>
-    </queries>
-
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Diperlukan mulai Android 14 (API 34) untuk foreground service tipe khusus -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- FITUR BARU: dipakai BootCompletedReceiver untuk memasang ulang alarm
-         Subscription auto-update (lihat SubscriptionAutoUpdateScheduler)
-         setelah device reboot — AlarmManager membatalkan semua alarm
-         terjadwal setiap reboot, ini yang memasangnya lagi. -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Buat fitur "Keep CPU Awake" (VPN Setting) — MyVpnService pegang
          PowerManager.PARTIAL_WAKE_LOCK selama tunnel aktif kalau di-aktifkan. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -98,42 +79,6 @@
             android:exported="false"
             android:label="@string/nav_tools"
             android:launchMode="singleTop" />
-
-        <!-- FITUR BARU: layar Per-App Proxy, dibuka dari tab Tools. Bukan
-             singleTop/root nav — ini layar "anak" biasa (back = kembali ke
-             Tools), jadi tidak perlu masuk pola sibling 4-tab di atas. -->
-        <activity
-            android:name=".AppFilterActivity"
-            android:exported="false"
-            android:label="Per-App Proxy" />
-
-        <!-- FITUR BARU: layar Routing & Performa (bypass LAN, mux, bypass
-             domain/IP), dibuka dari tab Tools. -->
-        <activity
-            android:name=".RoutingSettingsActivity"
-            android:exported="false"
-            android:label="Routing &amp; Performa" />
-
-        <!-- FITUR BARU: penerima alarm Subscription auto-update. exported
-             false — HANYA dipicu PendingIntent milik app ini sendiri
-             (lihat SubscriptionAutoUpdateScheduler), tidak menerima intent
-             dari app lain sama sekali. -->
-        <receiver
-            android:name=".tunnel.SubscriptionAutoUpdateReceiver"
-            android:exported="false" />
-
-        <!-- FITUR BARU: memasang ulang alarm di atas setelah device reboot
-             (lihat kdoc BootCompletedReceiver). exported=true WAJIB karena
-             broadcast BOOT_COMPLETED memang dikirim sistem, bukan app ini
-             sendiri — tapi dibatasi lewat intent-filter jadi tetap hanya
-             bereaksi ke broadcast itu. -->
-        <receiver
-            android:name=".tunnel.BootCompletedReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
 
         <service
             android:name=".tunnel.MyVpnService"

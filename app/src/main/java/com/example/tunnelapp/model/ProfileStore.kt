@@ -257,10 +257,6 @@ object ProfileStore {
         editor.putBoolean(k(id, "isLocked"), c.isLocked)
         editor.putString(k(id, "lockMode"), c.lockMode.name)
         editor.putString(k(id, "note"), c.note)
-        // FITUR BARU: editor JSON Xray manual -- lihat kdoc
-        // [SavedConfig.useRawXrayJson]/[SavedConfig.rawXrayJson].
-        editor.putBoolean(k(id, "useRawXrayJson"), c.useRawXrayJson)
-        editor.putString(k(id, "rawXrayJson"), c.rawXrayJson)
     }
 
     private fun readConfig(prefs: android.content.SharedPreferences, id: String): SavedConfig? {
@@ -287,9 +283,7 @@ object ProfileStore {
             accountName = prefs.getString(k(id, "accountName"), "").orEmpty(),
             isLocked = prefs.getBoolean(k(id, "isLocked"), false),
             lockMode = ConfigLockMode.fromName(prefs.getString(k(id, "lockMode"), null)),
-            note = prefs.getString(k(id, "note"), "").orEmpty(),
-            useRawXrayJson = prefs.getBoolean(k(id, "useRawXrayJson"), false),
-            rawXrayJson = prefs.getString(k(id, "rawXrayJson"), "").orEmpty()
+            note = prefs.getString(k(id, "note"), "").orEmpty()
         )
     }
 
@@ -298,7 +292,7 @@ object ProfileStore {
             "host", "port", "username", "password", "modeIndex", "sni", "payload",
             "proxyHost", "proxyPort", "tlsVersion", "useWebSocket", "wsPath",
             "proxyRawMode", "xrayLink", "customHeaders", "ignoreCertErrors", "dns1", "dns2",
-            "accountName", "isLocked", "lockMode", "note", "useRawXrayJson", "rawXrayJson"
+            "accountName", "isLocked", "lockMode", "note"
         )) {
             editor.remove(k(id, field))
         }

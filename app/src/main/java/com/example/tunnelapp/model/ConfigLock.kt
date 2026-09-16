@@ -73,16 +73,7 @@ private fun lockedFieldsFor(mode: ConfigLockMode): Set<String> = when (mode) {
     ConfigLockMode.LOCK_ALL -> setOf(
         "host", "port", "username", "password", "sni", "payload",
         "proxyHost", "proxyPort", "tlsVersion", "wsPath", "proxyRawMode",
-        "xrayLink", "customHeaders", "dns1", "dns2",
-        // FITUR BARU: editor JSON Xray manual -- JSON mentah bisa memuat
-        // info server sama sensitifnya seperti xrayLink (address/port/UUID/
-        // password), jadi ikut disamarkan LOCK_ALL. useRawXrayJson (boolean
-        // penanda mode) SENGAJA TIDAK ikut dikunci -- kalau ikut disamarkan,
-        // konsumen hasil impor tidak akan tahu harus baca rawXrayJson atau
-        // xrayLink sebelum blob dibongkar, padahal keduanya sama-sama masih
-        // di dalam SATU blob yang sama & dibongkar bersamaan lewat
-        // resolveLockedFields -- flag boolean-nya sendiri tidak sensitif.
-        "rawXrayJson"
+        "xrayLink", "customHeaders", "dns1", "dns2"
     )
 
     ConfigLockMode.LOCK_PAYLOAD_PROXY -> setOf(

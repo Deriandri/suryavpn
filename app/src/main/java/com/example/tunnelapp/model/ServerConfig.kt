@@ -284,18 +284,7 @@ data class ServerConfig(
     val ignoreCertErrors: Boolean = false,
     val dns1: String? = null,
     val dns2: String? = null,
-    val udpgwPort: Int = 0,
-    // ==== FITUR BARU: Editor JSON Xray manual (parity dengan V2RayNG) ====
-    // Kalau true, XrayTunnelManager memakai [rawXrayJson] APA ADANYA sebagai
-    // config Xray-core, TIDAK memanggil XrayLinkParser.parse(xrayLink) atau
-    // XrayConfigBuilder.build(...) sama sekali -- user bertanggung jawab
-    // penuh atas isi JSON-nya sendiri (termasuk inbound SOCKS lokal, DNS,
-    // routing, dsb -- semua fitur otomatis seperti Fake DNS/Bypass LAN/Mux
-    // yang biasanya diisi XrayConfigBuilder TIDAK ikut ditambahkan lagi,
-    // supaya tidak diam-diam menimpa konfigurasi manual user). Lihat
-    // [com.example.tunnelapp.tunnel.XrayTunnelManager.connect].
-    val useRawXrayJson: Boolean = false,
-    val rawXrayJson: String? = null
+    val udpgwPort: Int = 0
 ) {
     /**
      * Parse [customHeaders] jadi daftar pasangan (nama, nilai) siap pakai,
@@ -423,18 +412,10 @@ data class ServerConfig(
  */
 fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
     if (modeIndex == 5) {
-        // FITUR BARU: kalau mode JSON manual aktif, xrayLink BOLEH kosong --
-        // syarat validnya sekarang "xrayLink ATAU rawXrayJson terisi",
-        // bukan "xrayLink wajib terisi" lagi.
-        if (useRawXrayJson) {
-            if (rawXrayJson.isBlank()) return null
-        } else if (xrayLink.isBlank()) {
-            return null
-        }
+        if (xrayLink.isBlank()) return null
         return ServerConfig(
             host = "", username = "", mode = ConnectionMode.XRAY,
-            xrayLink = xrayLink, dns1 = dns1, dns2 = dns2,
-            useRawXrayJson = useRawXrayJson, rawXrayJson = rawXrayJson
+            xrayLink = xrayLink, dns1 = dns1, dns2 = dns2
         )
     }
 

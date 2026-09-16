@@ -98,6 +98,11 @@
     <string name="port_http_label">HTTP Port</string>
     <string name="port_udpgw_label">UDPGW Port</string>
 
+    <!-- Kartu BARU: Xray (saklar Mux, permintaan user) -->
+    <string name="section_xray">Xray</string>
+    <string name="xray_mux_title">Mux (Multiplexing)</string>
+    <string name="xray_mux_desc">Gabungkan beberapa koneksi jadi satu (lebih cepat di jaringan RTT tinggi). Matikan kalau akun Xray/VLESS-Anda gagal konek atau "connect tapi tidak ada trafik" -- beberapa provider bug host/CDN tidak kompatibel dengan Mux.</string>
+
     <!-- Kartu: Tentang Aplikasi -->
     <string name="section_about">Tentang Aplikasi</string>
     <string name="app_version_format">SuryaVPN — versi %1$s</string>

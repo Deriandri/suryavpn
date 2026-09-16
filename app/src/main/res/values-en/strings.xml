@@ -98,6 +98,11 @@
     <string name="port_http_label">HTTP Port</string>
     <string name="port_udpgw_label">UDPGW Port</string>
 
+    <!-- New card: Xray (Mux switch, user request) -->
+    <string name="section_xray">Xray</string>
+    <string name="xray_mux_title">Mux (Multiplexing)</string>
+    <string name="xray_mux_desc">Combine multiple connections into one (faster on high-RTT networks). Turn off if your Xray/VLESS account fails to connect or "connects but no traffic flows" -- some bug-host/CDN providers aren\'t compatible with Mux.</string>
+
     <!-- Card: About the App -->
     <string name="section_about">About the App</string>
     <string name="app_version_format">SuryaVPN — version %1$s</string>

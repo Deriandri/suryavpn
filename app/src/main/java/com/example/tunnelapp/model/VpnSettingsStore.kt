@@ -99,78 +99,7 @@ data class VpnSettings(
     val performanceMode: Boolean = true,
     // Default false -- kompresi zlib SSH, lihat catatan compressionEnabled
     // di atas. User menyalakan sendiri lewat kartu "VPN Setting" kalau mau.
-    val compressionEnabled: Boolean = false,
-
-    // ==== FITUR BARU: Per-App Proxy (parity dengan V2RayNG) ====
-    // Kalau true, TUN builder akan memanggil addAllowedApplication (mode
-    // allow-list) ATAU addDisallowedApplication (mode block-list) untuk
-    // paket-paket di [perAppProxyPackages] -- lihat MyVpnService.applyAppFiltering.
-    // Default false = semua app lewat tunnel, perilaku lama TIDAK berubah.
-    val perAppProxyEnabled: Boolean = false,
-    // true = allow-list ("hanya app di daftar yang lewat tunnel, sisanya
-    // pakai jaringan asli"), false = block-list ("app di daftar TIDAK lewat
-    // tunnel, sisanya tetap lewat tunnel seperti biasa"). Sama seperti opsi
-    // "Bypass apps"/"Per-app proxy" di V2RayNG.
-    val perAppProxyIsAllowList: Boolean = true,
-    val perAppProxyPackages: Set<String> = emptySet(),
-
-    // ==== FITUR BARU: Routing dasar & bypass LAN (parity dengan V2RayNG) ====
-    // Kalau true, subnet IP privat (RFC1918 + link-local) TIDAK dimasukkan
-    // ke rute TUN (device mengakses LAN lewat jalur asli, bukan lewat
-    // tunnel) -- lihat MyVpnService.applyTunRoutes. Tidak butuh geoip.dat,
-    // daftar CIDR privat sudah pasti/statis.
-    val bypassLan: Boolean = false,
-    // Domain (plain-text, tanpa geosite.dat) yang di-bypass langsung (tidak
-    // lewat proxy) khusus mode Xray -- satu domain per baris. Cocok dipakai
-    // untuk situs lokal/CDN yang tidak perlu/tidak boleh lewat tunnel.
-    val routingBypassDomains: String = "",
-    // IP/CIDR (plain-text, tanpa geoip.dat) yang di-bypass langsung, satu
-    // per baris, khusus mode Xray.
-    val routingBypassIps: String = "",
-
-    // ==== FITUR BARU: Mux bisa diatur user (parity dengan V2RayNG) ====
-    // Sebelumnya hardcoded selalu true/8 di XrayConfigBuilder. Sekarang bisa
-    // dimatikan atau diubah concurrency-nya lewat UI (kartu Routing di Tools).
-    val muxEnabled: Boolean = true,
-    val muxConcurrency: Int = 8,
-
-    // ==== FITUR BARU: Fake DNS + DNS-over-HTTPS (parity dengan V2RayNG) ====
-    // Kalau true, XrayConfigBuilder menambahkan objek "fakedns" + "dns" +
-    // sniffing "destOverride" di inbound SOCKS -- domain yang diakses
-    // di-resolve ke IP palsu di pool lokal (198.18.0.0/15) SEBELUM sempat
-    // keluar device sama sekali, baru "dikembalikan" ke domain aslinya pas
-    // trafik itu benar-benar dikirim ke outbound proxy. Efeknya: request DNS
-    // untuk domain yang di-tunnel TIDAK PERNAH keluar lewat jalur DNS device
-    // yang normal -- mengurangi risiko kebocoran DNS (ISP/jaringan lokal
-    // bisa lihat kamu resolve suatu domain walau trafiknya sendiri sudah
-    // di-enkripsi). Default false = perilaku lama (resolusi apa adanya lewat
-    // SOCKS5 ATYP domain ke server). Khusus mode Xray.
-    val fakeDnsEnabled: Boolean = false,
-    // URL server DoH (DNS-over-HTTPS) custom, mis. "https://1.1.1.1/dns-query"
-    // atau "https://dns.google/dns-query" -- dipakai Xray-core untuk resolusi
-    // DNS fallback (domain yang TIDAK di-bypass/tidak masuk fake DNS pool,
-    // atau saat fake DNS sendiri butuh cari tahu IP asli untuk logging/rule
-    // IP-based). Kosong = Xray pakai DNS sistem/default bawaannya sendiri,
-    // TIDAK menambahkan server DoH custom sama sekali (perilaku lama).
-    val dohUrl: String = "",
-
-    // ==== FITUR BARU: Subscription auto-update (parity dengan V2RayNG) ====
-    // URL subscription TERAKHIR yang diimpor lewat ToolsActivity/
-    // SubscriptionImporter -- disimpan otomatis setiap kali import manual
-    // berhasil, supaya SubscriptionAutoUpdateReceiver tahu URL mana yang
-    // harus di-refresh ulang secara berkala tanpa user perlu tempel URL-nya
-    // lagi. Kosong = belum pernah import sama sekali (auto-update tidak
-    // akan pernah jalan walau [subscriptionAutoUpdateEnabled] true, karena
-    // tidak ada URL yang bisa di-refresh).
-    val lastSubscriptionUrl: String = "",
-    // Default false -- auto-update TIDAK pernah menyala sendiri, harus
-    // dinyalakan manual user lewat kartu Subscription di Tools (sama pola
-    // "opt-in" seperti fitur-fitur lain di app ini).
-    val subscriptionAutoUpdateEnabled: Boolean = false,
-    // Jarak refresh dalam jam. Default 12 jam -- cukup sering untuk provider
-    // yang sering ganti server, tidak terlalu boros kuota/baterai untuk
-    // sekadar re-fetch teks subscription (biasanya cuma beberapa KB).
-    val subscriptionUpdateIntervalHours: Int = 12
+    val compressionEnabled: Boolean = false
 ) {
     companion object {
         const val DEFAULT_MTU = 1500
@@ -207,19 +136,6 @@ object VpnSettingsStore {
     private const val KEY_UDPGW_PORT = "vpn_udpgw_port"
     private const val KEY_PERFORMANCE_MODE = "vpn_performance_mode"
     private const val KEY_COMPRESSION_ENABLED = "vpn_compression_enabled"
-    private const val KEY_PER_APP_ENABLED = "vpn_per_app_enabled"
-    private const val KEY_PER_APP_IS_ALLOW_LIST = "vpn_per_app_is_allow_list"
-    private const val KEY_PER_APP_PACKAGES = "vpn_per_app_packages"
-    private const val KEY_BYPASS_LAN = "vpn_bypass_lan"
-    private const val KEY_ROUTING_BYPASS_DOMAINS = "vpn_routing_bypass_domains"
-    private const val KEY_ROUTING_BYPASS_IPS = "vpn_routing_bypass_ips"
-    private const val KEY_MUX_ENABLED = "vpn_mux_enabled"
-    private const val KEY_MUX_CONCURRENCY = "vpn_mux_concurrency"
-    private const val KEY_FAKE_DNS_ENABLED = "vpn_fake_dns_enabled"
-    private const val KEY_DOH_URL = "vpn_doh_url"
-    private const val KEY_SUBSCRIPTION_URL = "vpn_subscription_url"
-    private const val KEY_SUBSCRIPTION_AUTO_UPDATE = "vpn_subscription_auto_update"
-    private const val KEY_SUBSCRIPTION_INTERVAL_HOURS = "vpn_subscription_interval_hours"
 
     fun load(context: Context): VpnSettings {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -234,20 +150,7 @@ object VpnSettingsStore {
             httpPort = prefs.getInt(KEY_HTTP_PORT, VpnSettings.DEFAULT_HTTP_PORT),
             udpgwPort = prefs.getInt(KEY_UDPGW_PORT, VpnSettings.DEFAULT_UDPGW_PORT),
             performanceMode = prefs.getBoolean(KEY_PERFORMANCE_MODE, true),
-            compressionEnabled = prefs.getBoolean(KEY_COMPRESSION_ENABLED, false),
-            perAppProxyEnabled = prefs.getBoolean(KEY_PER_APP_ENABLED, false),
-            perAppProxyIsAllowList = prefs.getBoolean(KEY_PER_APP_IS_ALLOW_LIST, true),
-            perAppProxyPackages = prefs.getStringSet(KEY_PER_APP_PACKAGES, emptySet()) ?: emptySet(),
-            bypassLan = prefs.getBoolean(KEY_BYPASS_LAN, false),
-            routingBypassDomains = prefs.getString(KEY_ROUTING_BYPASS_DOMAINS, "") ?: "",
-            routingBypassIps = prefs.getString(KEY_ROUTING_BYPASS_IPS, "") ?: "",
-            muxEnabled = prefs.getBoolean(KEY_MUX_ENABLED, true),
-            muxConcurrency = prefs.getInt(KEY_MUX_CONCURRENCY, 8),
-            fakeDnsEnabled = prefs.getBoolean(KEY_FAKE_DNS_ENABLED, false),
-            dohUrl = prefs.getString(KEY_DOH_URL, "") ?: "",
-            lastSubscriptionUrl = prefs.getString(KEY_SUBSCRIPTION_URL, "") ?: "",
-            subscriptionAutoUpdateEnabled = prefs.getBoolean(KEY_SUBSCRIPTION_AUTO_UPDATE, false),
-            subscriptionUpdateIntervalHours = prefs.getInt(KEY_SUBSCRIPTION_INTERVAL_HOURS, 12)
+            compressionEnabled = prefs.getBoolean(KEY_COMPRESSION_ENABLED, false)
         )
     }
 
@@ -263,29 +166,6 @@ object VpnSettingsStore {
             .putInt(KEY_UDPGW_PORT, settings.udpgwPort)
             .putBoolean(KEY_PERFORMANCE_MODE, settings.performanceMode)
             .putBoolean(KEY_COMPRESSION_ENABLED, settings.compressionEnabled)
-            .putBoolean(KEY_PER_APP_ENABLED, settings.perAppProxyEnabled)
-            .putBoolean(KEY_PER_APP_IS_ALLOW_LIST, settings.perAppProxyIsAllowList)
-            .putStringSet(KEY_PER_APP_PACKAGES, settings.perAppProxyPackages)
-            .putBoolean(KEY_BYPASS_LAN, settings.bypassLan)
-            .putString(KEY_ROUTING_BYPASS_DOMAINS, settings.routingBypassDomains)
-            .putString(KEY_ROUTING_BYPASS_IPS, settings.routingBypassIps)
-            .putBoolean(KEY_MUX_ENABLED, settings.muxEnabled)
-            .putInt(KEY_MUX_CONCURRENCY, settings.muxConcurrency)
-            .putBoolean(KEY_FAKE_DNS_ENABLED, settings.fakeDnsEnabled)
-            .putString(KEY_DOH_URL, settings.dohUrl)
-            .putString(KEY_SUBSCRIPTION_URL, settings.lastSubscriptionUrl)
-            .putBoolean(KEY_SUBSCRIPTION_AUTO_UPDATE, settings.subscriptionAutoUpdateEnabled)
-            .putInt(KEY_SUBSCRIPTION_INTERVAL_HOURS, settings.subscriptionUpdateIntervalHours)
             .apply()
-    }
-
-    /** Helper ringan dipakai AppFilterActivity: baca/tulis cuma bagian per-app proxy. */
-    fun savePerAppProxy(context: Context, enabled: Boolean, isAllowList: Boolean, packages: Set<String>) {
-        val current = load(context)
-        save(context, current.copy(
-            perAppProxyEnabled = enabled,
-            perAppProxyIsAllowList = isAllowList,
-            perAppProxyPackages = packages
-        ))
     }
 }

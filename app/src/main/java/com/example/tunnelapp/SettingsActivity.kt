@@ -23,6 +23,8 @@ import com.example.tunnelapp.model.ThemeMode
 import com.example.tunnelapp.model.ThemeStore
 import com.example.tunnelapp.model.VpnSettings
 import com.example.tunnelapp.model.VpnSettingsStore
+import com.example.tunnelapp.model.XraySettings
+import com.example.tunnelapp.model.XraySettingsStore
 import com.example.tunnelapp.tunnel.DebugLog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 
@@ -61,6 +63,8 @@ class SettingsActivity : AppCompatActivity() {
 
         loadGeneralSettingsIntoForm()
         binding.btnSaveGeneralSetting.setOnClickListener { saveGeneralSettingsFromForm() }
+
+        loadXraySettingsIntoForm()
 
         loadDebugLogIntoForm()
 
@@ -164,6 +168,25 @@ class SettingsActivity : AppCompatActivity() {
             getString(R.string.keep_alive_target_hint_http)
         } else {
             getString(R.string.keep_alive_target_hint_tcp)
+        }
+    }
+
+    /**
+     * FITUR BARU (permintaan user, "tambahkan fungsi untuk mematikan mux,
+     * bikin menu baru di pengaturan tepat di atas about, menu X-ray"): isi
+     * switch Mux dari [XraySettingsStore], lalu terapkan LANGSUNG begitu
+     * user menekannya -- sama seperti [loadThemeIntoForm]/[loadLanguageIntoForm]
+     * di atas, tidak perlu tombol "Simpan" terpisah karena cuma satu switch
+     * on/off (beda dari kartu Pengaturan Dasar/VPN Setting yang punya banyak
+     * field & butuh validasi sebelum disimpan). Dibaca oleh
+     * [com.example.tunnelapp.tunnel.XrayTunnelManager] tiap kali tunnel mode
+     * Xray dinyalakan -- lihat KDoc [XraySettings.muxEnabled] untuk detail
+     * perilakunya.
+     */
+    private fun loadXraySettingsIntoForm() {
+        binding.switchXrayMux.isChecked = XraySettingsStore.load(this).muxEnabled
+        binding.switchXrayMux.setOnCheckedChangeListener { _, isChecked ->
+            XraySettingsStore.save(this, XraySettings(muxEnabled = isChecked))
         }
     }
 

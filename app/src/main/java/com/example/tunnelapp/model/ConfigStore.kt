@@ -82,16 +82,7 @@ data class SavedConfig(
     // koneksi -- tapi HANYA kalau field ini terisi; kosong = kartu
     // Catatan tetap menampilkan log koneksi seperti biasa. Kosong = akun
     // biasa yang belum pernah diberi catatan saat ekspor.
-    val note: String = "",
-    // ==== FITUR BARU: Editor JSON Xray manual (parity dengan V2RayNG) ====
-    // Lihat dokumentasi lengkap di [ServerConfig.useRawXrayJson]/[ServerConfig.rawXrayJson]
-    // -- dua field ini murni cerminan penyimpanannya di [SavedConfig], TIDAK
-    // ada logika tambahan di sini (logikanya semua di
-    // [com.example.tunnelapp.tunnel.XrayTunnelManager] & [toServerConfigOrNull]).
-    // Kosong/false = perilaku lama sama sekali tidak berubah (akun Xray
-    // biasa tetap dibangun dari [xrayLink] seperti sebelumnya).
-    val useRawXrayJson: Boolean = false,
-    val rawXrayJson: String = ""
+    val note: String = ""
 )
 
 object ConfigStore {
