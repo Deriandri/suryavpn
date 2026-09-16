@@ -135,7 +135,18 @@ class MyVpnService : VpnService() {
         // terus coba nyambung ulang sampai user sendiri menekan Disconnect.
         // Delay antar percobaan naik terus (3000ms * reconnectAttempt) tapi
         // di-cap di sini supaya tidak makin lama makin jarang tanpa batas.
+        // UPDATE: siklus 3x-ini boleh berulang-ulang (ganti akun cadangan,
+        // dst), TAPI totalnya tetap dibatasi -- lihat MAX_TOTAL_RECONNECT_ATTEMPTS.
         private const val RECONNECT_BACKOFF_CAP_MS = 30_000L
+        // PEMBATASAN TOTAL (permintaan user): biarpun siklus 3x-reconnect +
+        // hard-reset + ganti akun cadangan di atas bisa berulang tanpa henti,
+        // total SELURUH percobaan reconnect (lintas semua siklus, sejak
+        // startVpn() terakhir atau sejak reconnect terakhir yang BENAR-BENAR
+        // berhasil) dibatasi [MAX_TOTAL_RECONNECT_ATTEMPTS] kali. Begitu
+        // tercapai, app berhenti total (stopVpn()) -- tidak diulang lagi,
+        // user harus pencet Connect manual. Lihat totalReconnectAttempts &
+        // scheduleReconnectOrGiveUp().
+        private const val MAX_TOTAL_RECONNECT_ATTEMPTS = 10
         // FIX (laporan user: "koneksi suka putus sendiri" dibanding app lain
         // dengan metode sama): interval lama (10s) + threshold lama (2x) makin
         // KEEP_ALIVE_TIMEOUT_MS 5s berarti tunnel bisa dianggap "mati" cuma
@@ -383,6 +394,11 @@ class MyVpnService : VpnService() {
     @Volatile
     private var customDnsConfigured: Boolean = false
     private var reconnectAttempt = 0
+    // Hitungan TOTAL percobaan reconnect lintas semua siklus (beda dari
+    // [reconnectAttempt] yang di-reset ke 1 tiap siklus baru/ganti akun
+    // cadangan) -- lihat MAX_TOTAL_RECONNECT_ATTEMPTS. Direset ke 0 di
+    // startVpn() (koneksi baru) dan begitu reconnect BENAR-BENAR berhasil.
+    private var totalReconnectAttempts = 0
     // --- FITUR BARU: fallback otomatis ke akun cadangan ---
     // Kalau akun yang lagi aktif gagal terus (reconnect ringan + reset penuh
     // sudah dicoba semua, lihat scheduleReconnectOrGiveUp), dan user punya
@@ -482,7 +498,7 @@ class MyVpnService : VpnService() {
                 // handleTunnelDeath() -> reconnect lewat jaringan baru ini,
                 // bukan diam-diam dianggap "sudah pulih" sementara socket
                 // lama masih terikat ke rute yang sudah mati.
-                DebugLog.i(TAG, "Jaringan fisik baru tersedia (${network})")
+                DebugLog.d(TAG, "Jaringan fisik baru tersedia (${network})")
             }
         }
         try {
@@ -773,6 +789,7 @@ class MyVpnService : VpnService() {
             .filter { profileId == null || it.id != profileId }
         fallbackIndex = 0
         reconnectAttempt = 0
+        totalReconnectAttempts = 0
         hardResetAttempted = false
         stoppingIntentionally = false
         handlingDeath.set(false)
@@ -1178,6 +1195,7 @@ class MyVpnService : VpnService() {
                 // Reconnect (kalau ada) sukses -- reset hitungan percobaan &
                 // nyalakan ulang watchdog buat siklus berikutnya.
                 reconnectAttempt = 0
+                totalReconnectAttempts = 0
                 hardResetAttempted = false
                 handlingDeath.set(false)
                 startWatchdog(config)
@@ -1333,6 +1351,15 @@ class MyVpnService : VpnService() {
         if (!currentAutoReconnect) {
             StatusBus.log("Tunnel terputus ($reason) -- auto reconnect nonaktif (VPN Setting), tidak mencoba nyambung ulang")
             StatusBus.state.value = "Terputus: tunnel mati ($reason), auto reconnect nonaktif"
+            stopVpn()
+            return
+        }
+
+        totalReconnectAttempts++
+        if (totalReconnectAttempts > MAX_TOTAL_RECONNECT_ATTEMPTS) {
+            StatusBus.log("Tunnel terputus ($reason) -- sudah $MAX_TOTAL_RECONNECT_ATTEMPTS kali percobaan reconnect total, menyerah & berhenti total")
+            StatusBus.state.value = "Terputus: reconnect gagal $MAX_TOTAL_RECONNECT_ATTEMPTS kali, dihentikan"
+            updateNotification("Reconnect gagal $MAX_TOTAL_RECONNECT_ATTEMPTS kali -- dihentikan")
             stopVpn()
             return
         }
