@@ -897,13 +897,35 @@ class MyVpnService : VpnService() {
      * [DEFAULT_DNS] cuma fallback kalau field itu sendiri kosong) dipasang
      * sebagai gantinya -- KECUALI switch "DNS Default Otomatis"
      * ([VpnSettings.dnsFallbackEnabled], kartu VPN Setting) dimatikan user
-     * sendiri. Default switch ini NYALA. Kalau
+     * sendiri, ATAU profilnya mode Xray (lihat catatan [ConnectionMode.XRAY]
+     * di bawah). Default switch ini NYALA. Kalau
      * dimatikan dan DNS1/DNS2 kosong, TIDAK ADA addDnsServer() dipanggil
      * sama sekali -- perlu diingat addRoute("0.0.0.0", 0) tetap menangkap
      * SEMUA trafik ke TUN termasuk DNS bawaan operator/wifi (yang sering
      * berupa IP privat, tidak bisa dicapai server SSH), jadi resolusi
      * domain kemungkinan besar gagal total buat profil yang tidak diisi
      * DNS1/DNS2 manual selama switch ini mati.
+     *
+     * FIX (laporan user: "DNS default diaktifkan -> internet mode Xray
+     * hilang total, dimatikan -> jalan lagi"): untuk profil [ConnectionMode.XRAY]
+     * ([ServerConfig.usesXray]), fallback DNS default DI SINI (level TUN
+     * Android) SENGAJA DILEWATI -- Xray-core sudah punya jalur DNS default-
+     * nya SENDIRI yang SEPENUHNYA TERPISAH (lihat XrayTunnelManager.resolveDnsAddr/
+     * LibXray.setDNS, dipanggil lewat registerProtect() SEBELUM runXray). Dugaan
+     * kuat akar masalahnya: hev-socks5-tunnel (TUN->SOCKS5, dipakai KEDUA
+     * engine) meneruskan paket UDP:53 device ke alamat DNS yang TUN
+     * iklankan lewat SOCKS5 UDP ASSOCIATE ke inbound SOCKS5 Xray-core --
+     * beda dari Socks5Server (SSH) yang PUNYA workaround DNS-over-TCP khusus,
+     * inbound SOCKS5 Xray-core TIDAK PUNYA workaround itu, jadi UDP ASSOCIATE
+     * ke alamat DNS "asing" (1.1.1.1 dari sini) yang TIDAK dikenal resolver
+     * internal Xray sendiri kemungkinan besar gagal diteruskan lewat outbound
+     * VLESS/VMess-nya (UDP relay lewat proxy tidak seandal TCP), sedangkan
+     * kalau TUN kosong, hev-socks5-tunnel meneruskan alamat DNS ASLI device
+     * (WWAN/WiFi) yang KEBETULAN sama dengan yang dipakai resolver internal
+     * Xray sendiri lewat physicalNetworkDns() -- match, makanya jalan. INI
+     * MASIH DUGAAN berbasis pembacaan kode/arsitektur (hev-socks5-tunnel &
+     * Xray-core adalah library pihak ketiga, tidak bisa dites langsung dari
+     * sini) -- WAJIB dites ulang di device asli, lihat catatan di percakapan.
      */
     private fun applyDnsServers(builder: Builder, config: ServerConfig, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
         val dnsCandidates = listOf("DNS1" to config.dns1, "DNS2" to config.dns2)
@@ -920,7 +942,14 @@ class MyVpnService : VpnService() {
             }
         }
         if (!addedAny) {
-            if (vpnSettings.dnsFallbackEnabled) {
+            if (config.usesXray()) {
+                // Lihat FIX di kdoc applyDnsServers() -- mode Xray SENGAJA
+                // tidak dikasih fallback DNS default di level TUN Android;
+                // Xray-core sudah resolve DNS default-nya sendiri secara
+                // internal (XrayTunnelManager.resolveDnsAddr), independen
+                // dari builder ini.
+                StatusBus.log("[DNS] DNS1/DNS2 kosong -- mode Xray pakai resolver DNS internal Xray sendiri (bukan TUN)")
+            } else if (vpnSettings.dnsFallbackEnabled) {
                 // DNS1/DNS2 per-server kosong -- pasang DNS default supaya
                 // resolusi domain tidak gagal total ("connect tapi internet
                 // tidak jalan"). Bisa dimatikan lewat switch "DNS Default
