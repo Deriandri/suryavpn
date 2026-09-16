@@ -230,6 +230,12 @@ class UdpgwClient(private val remotePort: Int) {
             StatusBus.log("[UDPGW] Gagal kirim paket ke $destAddrStr:$destPort: ${e.message ?: e.javaClass.simpleName}")
             // Channel kemungkinan sudah rusak -- tutup supaya paket BERIKUTNYA
             // memicu buka ulang dari nol, bukan terus-menerus gagal di channel yang sama.
+            // FIX (sama seperti cabang readLoop() di atas): tanpa cooldown di sini,
+            // paket UDP berikutnya (datang hampir seketika, trafik background
+            // device tidak pernah benar-benar berhenti) langsung memicu buka
+            // ulang channel baru ke sesi SSH yang sama-sama masih rusak -- loop
+            // rapat gagal-kirim/tutup/buka-lagi tanpa jeda.
+            openFailedUntilMs = System.currentTimeMillis() + OPEN_FAIL_COOLDOWN_MS
             closeChannelAndFlows()
         }
     }
@@ -450,9 +456,26 @@ class UdpgwClient(private val remotePort: Int) {
             }
         } catch (e: EOFException) {
             Log.i(TAG, "Channel udpgw ditutup (EOF)")
+            // FIX (bug "stuck" -- log spam "terbuka" / "Connection reset" tanpa
+            // henti, laporan user setelah jaringan mati-hidup): dulu EOF/error di
+            // sini cuma memanggil closeChannelAndFlows() TANPA cooldown -- beda
+            // dengan cabang gagal-buka di openChannelIfNeeded() yang MEMASANG
+            // openFailedUntilMs. Channel yang sempat "terbuka" lalu langsung mati
+            // (khas kejadian pas jaringan flap: sesi SSH lama masih dianggap
+            // hidup oleh disconnectWatchThread/isConnected() -- lihat
+            // SshjTunnelManager -- padahal socket-nya sudah putus) jadi memicu
+            // paket UDP BERIKUTNYA langsung buka ulang channel baru tanpa jeda
+            // sama sekali, yang juga langsung mati lagi (sesi SSH di baliknya
+            // memang masih yang sama/rusak) -- loop rapat "terbuka"/"terputus"
+            // persis pola di log yang dilaporkan, tanpa pernah kasih waktu ke
+            // keepalive/watchdog SSH utk sadar & memicu reconnect SSH yang
+            // sesungguhnya. Sekarang cooldown yang sama dipasang di sini juga.
+            openFailedUntilMs = System.currentTimeMillis() + OPEN_FAIL_COOLDOWN_MS
         } catch (e: Exception) {
             Log.w(TAG, "Channel udpgw berhenti karena error", e)
             StatusBus.log("[UDPGW] Channel terputus: ${e.message ?: e.javaClass.simpleName}")
+            // Sama seperti cabang EOF di atas -- cegah loop buka-ulang rapat.
+            openFailedUntilMs = System.currentTimeMillis() + OPEN_FAIL_COOLDOWN_MS
         } finally {
             closeChannelAndFlows()
         }

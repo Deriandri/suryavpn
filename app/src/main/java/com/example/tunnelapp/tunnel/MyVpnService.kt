@@ -506,6 +506,68 @@ class MyVpnService : VpnService() {
         }
     }
 
+    /**
+     * FITUR BARU (permintaan user: samakan gaya reconnect dengan
+     * DarkTunnel/HTTP Custom): sebelum benar-benar mencoba establishTunnel()
+     * lagi saat reconnect, tunggu dulu sampai ADA koneksi internet fisik yang
+     * aktif -- bukan cuma delay buta seperti sebelumnya. Kalau jaringan masih
+     * mati, log "Waiting internet connection" ditampilkan berulang tiap detik
+     * (persis pola log DarkTunnel yang muncul beberapa kali berturut-turut)
+     * sampai jaringan pulih, batas waktu tercapai, atau proses reconnect
+     * dibatalkan (user pencet Disconnect / tunnel sudah tidak aktif lagi).
+     *
+     * Return true kalau boleh lanjut ke establishTunnel() (baik karena
+     * internet sudah ada, ATAU maxWaitMs sudah habis -- di titik itu tetap
+     * dicoba connect sekali, biar establishTunnel() sendiri yang gagal &
+     * memicu siklus reconnect berikutnya kalau memang belum ada internet).
+     * Return false HANYA kalau proses reconnect ini sendiri sudah tidak
+     * relevan lagi (stopping/vpnInterface sudah null).
+     */
+    private suspend fun waitForInternetConnection(maxWaitMs: Long = 60_000L): Boolean {
+        val start = System.currentTimeMillis()
+        while (true) {
+            if (stoppingIntentionally || vpnInterface == null) return false
+            val active = connectivityManager.activeNetwork
+            val caps = active?.let { connectivityManager.getNetworkCapabilities(it) }
+            val hasInternet = caps != null &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            if (hasInternet) return true
+            if (System.currentTimeMillis() - start >= maxWaitMs) {
+                // Sudah nunggu cukup lama tapi internet belum juga pulih --
+                // tetap kasih kesempatan establishTunnel() mencoba (siapa tahu
+                // baru pulih persis di detik-detik ini), gagalnya nanti akan
+                // memicu scheduleReconnectOrGiveUp() lagi seperti biasa.
+                return true
+            }
+            StatusBus.log("Waiting internet connection")
+            delay(1000L)
+        }
+    }
+
+    /**
+     * FITUR BARU (gaya DarkTunnel): log IP lokal device di halaman Log tiap
+     * kali mau reconnect, mis. "Local ip, 10.45.208.216" -- murni informasi
+     * buat user, tidak mempengaruhi alur connect sama sekali. Diam-diam
+     * di-skip (tanpa error ke user) kalau linkProperties/alamat tidak
+     * tersedia untuk alasan apa pun.
+     */
+    private fun logLocalIp() {
+        try {
+            val active = connectivityManager.activeNetwork ?: return
+            val linkProperties = connectivityManager.getLinkProperties(active) ?: return
+            val ip = linkProperties.linkAddresses
+                .map { it.address }
+                .firstOrNull { !it.isLoopbackAddress }
+                ?.hostAddress
+            if (ip != null) {
+                StatusBus.log("Local ip, $ip")
+            }
+        } catch (e: Exception) {
+            DebugLog.w(TAG, "Gagal ambil local ip untuk log reconnect", e)
+        }
+    }
+
     private fun unregisterNetworkWatcher() {
         networkLossJob?.cancel()
         networkLossJob = null
@@ -997,6 +1059,11 @@ class MyVpnService : VpnService() {
                 acquire()
             }
             Log.i(TAG, "Keep CPU Awake aktif: wake lock dipegang")
+            // FITUR BARU (permintaan user, gaya DarkTunnel): tampilkan juga di
+            // halaman Log ("Wakelock acquired"), bukan cuma di Logcat internal
+            // -- supaya user awam bisa lihat progress reconnect step-by-step
+            // persis seperti app tunnel sejenis.
+            StatusBus.log("Wakelock acquired")
         } catch (e: Exception) {
             DebugLog.e(TAG, "Gagal memegang wake lock (Keep CPU Awake)", e)
         }
@@ -1392,6 +1459,24 @@ class MyVpnService : VpnService() {
         serviceScope.launch {
             delay(delayMs)
             if (stoppingIntentionally || vpnInterface == null) return@launch
+
+            // FITUR BARU (permintaan user, gaya DarkTunnel): urutan log +
+            // pengecekan sebelum benar-benar connect ulang. "Reconnecting"
+            // dulu, baru tunggu internet (bisa nge-log "Waiting internet
+            // connection" berkali-kali kalau jaringan belum pulih), baru
+            // pastikan wake lock masih dipegang, baru log info lokal (Local
+            // ip) & tujuan server -- SEMUA cuma informasi/urutan tampilan,
+            // tidak mengubah logika reconnect yang sudah ada di atas
+            // (backoff/fallback/hard-reset tetap sama persis).
+            StatusBus.log("Reconnecting")
+            val shouldProceed = waitForInternetConnection()
+            if (!shouldProceed) return@launch
+            if (stoppingIntentionally || vpnInterface == null) return@launch
+
+            acquireWakeLockIfNeeded(VpnSettingsStore.load(this@MyVpnService).keepCpuAwake)
+            logLocalIp()
+            StatusBus.log("Connecting to server ${configToUse.host} port ${configToUse.port}")
+
             handlingDeath.set(false)
             establishTunnel(configToUse, isReconnect = true)
         }
