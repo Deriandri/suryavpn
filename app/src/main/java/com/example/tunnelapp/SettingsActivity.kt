@@ -496,6 +496,14 @@ class SettingsActivity : AppCompatActivity() {
     private fun loadVpnSettingsIntoForm() {
         val settings = VpnSettingsStore.load(this)
         binding.switchDnsFallback.isChecked = settings.dnsFallbackEnabled
+        // Sama seperti dnsFallbackEnabled: kosong == belum diisi (perilaku
+        // lama "1.1.1.1" tetap dipakai di belakang layar lewat
+        // VpnSettings.DEFAULT_DNS_FALLBACK), tampilkan apa adanya dari
+        // penyimpanan -- kalau user belum pernah simpan field ini,
+        // VpnSettingsStore.load() sudah mengembalikan "1.1.1.1" persis,
+        // jadi field TIDAK kosong di layar (beda dari socksPort/httpPort/
+        // udpgwPort yang default-nya memang "aktif dengan port standar").
+        binding.etVpnDefaultDns.setText(settings.defaultDns)
         binding.etVpnMtu.setText(settings.mtu.toString())
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
         binding.switchAutoReconnect.isChecked = settings.autoReconnect
@@ -530,11 +538,27 @@ class SettingsActivity : AppCompatActivity() {
     /**
      * Validasi ringan lalu simpan ke [VpnSettingsStore]. DNS per-server
      * (validasi format IP-nya) ada di SshConfigActivity, bukan di sini --
-     * kartu VPN Setting cuma punya switch on/off DNS default (lihat
-     * MyVpnService.applyDnsServers/VpnSettings.dnsFallbackEnabled).
+     * kartu VPN Setting cuma punya switch on/off DNS default plus NILAI-nya
+     * sendiri (field "Default DNS", lihat MyVpnService.applyDnsServers/
+     * XrayTunnelManager.resolveDnsAddr/VpnSettings.dnsFallbackEnabled/
+     * VpnSettings.defaultDns).
      */
     private fun saveVpnSettingsFromForm() {
         val dnsFallbackEnabled = binding.switchDnsFallback.isChecked
+
+        // Validasi format sama seperti DNS1/DNS2 per-profil di
+        // SshConfigActivity (literal IPv4 lewat Patterns.IP_ADDRESS) --
+        // kosong DIPERBOLEHKAN (dianggap "reset ke default", ditangani
+        // sebagai VpnSettings.DEFAULT_DNS_FALLBACK di VpnSettingsStore.load()
+        // & di titik pemakaiannya di MyVpnService/XrayTunnelManager), cuma
+        // yang diisi tapi bukan IP valid yang ditolak.
+        val defaultDnsText = binding.etVpnDefaultDns.text.toString().trim()
+        if (defaultDnsText.isNotEmpty() && !android.util.Patterns.IP_ADDRESS.matcher(defaultDnsText).matches()) {
+            binding.etVpnDefaultDns.error = getString(R.string.error_default_dns)
+            return
+        }
+        val defaultDns = defaultDnsText.ifEmpty { VpnSettings.DEFAULT_DNS_FALLBACK }
+
         val mtuText = binding.etVpnMtu.text.toString().trim()
 
         val mtu = mtuText.toIntOrNull()
@@ -551,6 +575,7 @@ class SettingsActivity : AppCompatActivity() {
             this,
             VpnSettings(
                 dnsFallbackEnabled = dnsFallbackEnabled,
+                defaultDns = defaultDns,
                 mtu = mtu,
                 keepCpuAwake = binding.switchKeepAwake.isChecked,
                 autoReconnect = binding.switchAutoReconnect.isChecked,

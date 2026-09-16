@@ -119,7 +119,11 @@ class MyVpnService : VpnService() {
         private const val NOTIFICATION_CHANNEL_ID = "vpn_service_channel"
         private const val NOTIFICATION_ID = 1
         private const val TUN_ADDRESS = "10.10.0.2"
-        private const val DEFAULT_DNS = "1.1.1.1"
+        // Fallback TERAKHIR kalau VpnSettings.defaultDns kosong/belum pernah
+        // diisi user (data lama) -- nilai aktif yang dipakai sehari-hari ada
+        // di VpnSettings.defaultDns (bisa diubah lewat field "Default DNS"
+        // di kartu VPN Setting), lihat applyDnsServers() di bawah.
+        private const val DEFAULT_DNS = com.example.tunnelapp.model.VpnSettings.DEFAULT_DNS_FALLBACK
         private const val WAKE_LOCK_TAG = "TunnelApp:VpnKeepAwake"
 
         // --- Deteksi & reconnect otomatis kalau tunnel mati sendiri ---
@@ -889,9 +893,11 @@ class MyVpnService : VpnService() {
      * diisi di layar Konfigurasi SSH/Xray masing-masing profil).
      *
      * Kalau DNS1/DNS2 per-server kosong dua-duanya, DNS default
-     * ([DEFAULT_DNS]) dipasang sebagai gantinya -- KECUALI switch
-     * "DNS Default Otomatis" ([VpnSettings.dnsFallbackEnabled], kartu VPN
-     * Setting) dimatikan user sendiri. Default switch ini NYALA. Kalau
+     * ([VpnSettings.defaultDns], field "Default DNS" di kartu VPN Setting --
+     * [DEFAULT_DNS] cuma fallback kalau field itu sendiri kosong) dipasang
+     * sebagai gantinya -- KECUALI switch "DNS Default Otomatis"
+     * ([VpnSettings.dnsFallbackEnabled], kartu VPN Setting) dimatikan user
+     * sendiri. Default switch ini NYALA. Kalau
      * dimatikan dan DNS1/DNS2 kosong, TIDAK ADA addDnsServer() dipanggil
      * sama sekali -- perlu diingat addRoute("0.0.0.0", 0) tetap menangkap
      * SEMUA trafik ke TUN termasuk DNS bawaan operator/wifi (yang sering
@@ -919,13 +925,16 @@ class MyVpnService : VpnService() {
                 // resolusi domain tidak gagal total ("connect tapi internet
                 // tidak jalan"). Bisa dimatikan lewat switch "DNS Default
                 // Otomatis" di kartu VPN Setting kalau user memang tidak mau
-                // ada DNS default sama sekali.
+                // ada DNS default sama sekali. Nilainya sendiri dari field
+                // "Default DNS" (VpnSettings.defaultDns, bisa diubah user) --
+                // blank berarti belum pernah diisi, fallback ke DEFAULT_DNS.
+                val effectiveDefaultDns = vpnSettings.defaultDns.trim().ifEmpty { DEFAULT_DNS }
                 try {
-                    builder.addDnsServer(DEFAULT_DNS)
-                    StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $DEFAULT_DNS")
+                    builder.addDnsServer(effectiveDefaultDns)
+                    StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $effectiveDefaultDns")
                 } catch (e: IllegalArgumentException) {
-                    DebugLog.w(TAG, "DEFAULT_DNS \"$DEFAULT_DNS\" gagal dipasang ke TUN", e)
-                    StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $DEFAULT_DNS gagal dipasang -- TIDAK ada DNS di TUN")
+                    DebugLog.w(TAG, "DNS default \"$effectiveDefaultDns\" gagal dipasang ke TUN", e)
+                    StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $effectiveDefaultDns gagal dipasang -- TIDAK ada DNS di TUN")
                 }
             } else {
                 // User mematikan switch "DNS Default Otomatis" -- TIDAK ADA

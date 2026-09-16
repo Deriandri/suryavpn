@@ -210,9 +210,12 @@ class XrayTunnelManager(private val context: Context) {
      *   2. DNS asli dari jaringan fisik device (WWAN/WiFi, BUKAN network VPN milik
      *      app sendiri) -- inilah yang bikin trik bug-SNI berbasis DNS operator tetap
      *      jalan, karena precise resolver yang dipakai persis DNS bawaan SIM/operator.
-     *   3. 1.1.1.1 cuma sebagai fallback TERAKHIR kalau device gagal dideteksi (mis.
-     *      WiFi tanpa DNS custom & API di bawah minSdk) -- perilaku lama, tidak hilang
-     *      total, cuma diturunkan prioritasnya.
+     *   3. Field "Default DNS" (VpnSettings.defaultDns, kartu VPN Setting -- SAMA
+     *      persis yang dipakai jalur SSH di MyVpnService.applyDnsServers) cuma sebagai
+     *      fallback TERAKHIR kalau device gagal dideteksi (mis. WiFi tanpa DNS custom
+     *      & API di bawah minSdk) -- dulu hardcode "1.1.1.1", sekarang bisa diganti
+     *      user, tapi defaultnya tetap "1.1.1.1" (DEFAULT_DNS_FALLBACK) kalau field
+     *      itu tidak disentuh, jadi perilaku lama tidak hilang, cuma jadi bisa diatur.
      */
     private fun resolveDnsAddr(config: ServerConfig): String {
         val manual = config.dns1?.trim()?.takeIf { it.isNotEmpty() }
@@ -226,9 +229,20 @@ class XrayTunnelManager(private val context: Context) {
             Log.i(TAG, "DNS internal Xray pakai DNS jaringan fisik device (WWAN/WiFi): $physicalDns")
             return formatDnsAddr(physicalDns)
         }
-        Log.w(TAG, "Gagal deteksi DNS jaringan fisik device, fallback ke 1.1.1.1 -- akun berbasis " +
-            "bug-SNI/domain-fronting kemungkinan TIDAK akan jalan dengan DNS ini")
-        return "1.1.1.1:53"
+        // Fallback TERAKHIR: field "Default DNS" (kartu VPN Setting, nilai
+        // yang sama dipakai jalur SSH di MyVpnService.applyDnsServers) --
+        // SEBELUMNYA hardcode "1.1.1.1:53" di sini, sekarang ikut nilai yang
+        // user atur sendiri. Kosong/belum pernah diisi -> DEFAULT_DNS_FALLBACK
+        // ("1.1.1.1", perilaku lama, tidak berubah kalau user tidak
+        // menyentuh field itu). Tetap lewat formatDnsAddr() supaya kalau user
+        // isi field itu pakai port/format IPv6, tetap diformat benar sama
+        // seperti dijelaskan di kdoc formatDnsAddr() di atas.
+        val globalDefaultDns = com.example.tunnelapp.model.VpnSettingsStore.load(context).defaultDns
+            .trim().ifEmpty { com.example.tunnelapp.model.VpnSettings.DEFAULT_DNS_FALLBACK }
+        Log.w(TAG, "Gagal deteksi DNS jaringan fisik device, fallback ke DNS default " +
+            "\"$globalDefaultDns\" -- akun berbasis bug-SNI/domain-fronting kemungkinan " +
+            "TIDAK akan jalan dengan DNS ini")
+        return formatDnsAddr(globalDefaultDns)
     }
 
     /**
@@ -239,9 +253,68 @@ class XrayTunnelManager(private val context: Context) {
      * net.Dial -- "ip:port" polos cuma valid untuk IPv4. Tanpa ini, setiap titik
      * dua di alamat IPv6 dihitung sebagai pemisah host:port oleh Go, makanya
      * errornya "too many colons".
+     *
+     * FIX LAGI (laporan user: "aktifkan DNS = connect tapi TIDAK ada internet
+     * sama sekali, matikan DNS = internet lancar"): [ip] di sini SEHARUSNYA
+     * cuma IP polos TANPA port (persis field DNS1/DNS2 di jalur SSH, yang
+     * memang divalidasi lewat VpnService.Builder.addDnsServer() -- fungsi itu
+     * MELEMPAR IllegalArgumentException kalau ada ":port" ikut, jadi salah
+     * ketik semacam ini otomatis KETAHUAN & ditolak di jalur SSH). Jalur Xray
+     * di sini TIDAK PERNAH divalidasi seperti itu -- kalau user mengetik DNS1
+     * SUDAH DENGAN port (wajar banget, kebiasaan umum menulis DNS ya
+     * "1.1.1.1:53", bukan cuma "1.1.1.1"), versi LAMA fungsi ini melihat ':'
+     * lalu SALAH mengira itu IPv6 -> dibungkus "[1.1.1.1:53]:53" -- alamat
+     * rusak total dengan DUA port sekaligus. Xray-core lalu GAGAL memakai
+     * resolver ini untuk MENERESOLUSI domain apa pun yang diakses lewat
+     * tunnel (bukan gagal connect ke server VLESS itu sendiri, makanya step
+     * XRAY_START tetap kelihatan sukses) -- persis gejala "connect tapi
+     * internet mati total" yang dilaporkan.
+     *
+     * Sekarang [ip] dibersihkan dulu lewat [stripExistingPort] SEBELUM
+     * ditempeli ":53" -- port yang SUDAH ada di teks yang diketik user
+     * (IPv4:port ATAU [IPv6]:port/IPv6:port) dibuang dulu, supaya hasil
+     * akhirnya SELALU "ip:53"/"[ipv6]:53" yang valid, apa pun bentuk asli
+     * yang diketik user.
      */
-    private fun formatDnsAddr(ip: String): String =
-        if (ip.contains(':')) "[$ip]:53" else "$ip:53"
+    private fun formatDnsAddr(ip: String): String {
+        val bareIp = stripExistingPort(ip)
+        return if (bareIp.contains(':')) "[$bareIp]:53" else "$bareIp:53"
+    }
+
+    /**
+     * Buang ":<port>" yang MUNGKIN sudah ikut ditulis user, tanpa merusak IPv6
+     * polos (yang WAJAR mengandung banyak titik dua tanpa itu berarti "port").
+     * Pola yang ditangani:
+     *  - "1.1.1.1:53"        -> "1.1.1.1"        (IPv4 + port)
+     *  - "1.1.1.1"           -> "1.1.1.1"        (IPv4 polos, tidak berubah)
+     *  - "[2400:9800::245]:53" -> "2400:9800::245" (IPv6 dibungkus kurung + port)
+     *  - "2400:9800::245"    -> "2400:9800::245" (IPv6 polos TANPA kurung/port,
+     *    dibiarkan APA ADANYA -- tidak ada cara aman membedakan "IPv6 polos"
+     *    dari "IPv6 + port nempel" tanpa kurung, jadi SENGAJA tidak disentuh)
+     */
+    private fun stripExistingPort(raw: String): String {
+        val trimmed = raw.trim()
+        // Bentuk "[ipv6]:port" atau "[ipv6]" -- ambil isi dalam kurung saja,
+        // buang apa pun sesudah "]" (baik ":port" atau tidak ada apa-apa).
+        if (trimmed.startsWith("[")) {
+            val closingBracket = trimmed.indexOf(']')
+            if (closingBracket > 0) return trimmed.substring(1, closingBracket)
+        }
+        // Bentuk IPv4 polos + port ("1.1.1.1:53") -- TEPAT SATU titik dua &
+        // bagian sebelum titik dua itu valid pola IPv4 (4 kelompok angka
+        // dipisah titik). IPv6 polos SELALU punya LEBIH dari satu titik dua,
+        // jadi tidak akan pernah salah kena aturan ini.
+        val singleColonIdx = trimmed.indexOf(':')
+        if (singleColonIdx > 0 && trimmed.indexOf(':', singleColonIdx + 1) == -1) {
+            val hostPart = trimmed.substring(0, singleColonIdx)
+            if (hostPart.matches(Regex("""^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"""))) {
+                return hostPart
+            }
+        }
+        // Selain pola-pola di atas (IPv4 polos tanpa port, ATAU IPv6 polos
+        // tanpa kurung) -- kembalikan apa adanya, TIDAK disentuh.
+        return trimmed
+    }
 
     /**
      * Cari IP DNS dari network FISIK aktif (WWAN seluler/WiFi), BUKAN network VPN

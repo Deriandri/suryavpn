@@ -12,13 +12,28 @@ import android.content.Context
  * dengan data akun.
  *
  * dnsFallbackEnabled MENGONTROL apakah MyVpnService boleh memasang DNS
- * default (1.1.1.1) ke TUN interface waktu DNS1/DNS2 per-server
+ * default ([defaultDns]) ke TUN interface waktu DNS1/DNS2 per-server
  * ([ServerConfig.dns1]/[ServerConfig.dns2], diisi di layar Konfigurasi SSH)
  * kosong dua-duanya. Default TRUE (nyala) -- kalau DNS per-server kosong,
  * DNS default tetap dipasang supaya resolusi domain tidak gagal total.
  * Matikan switch ini kalau user MEMANG tidak mau ada DNS default sama
  * sekali (lihat MyVpnService.applyDnsServers) -- risikonya resolusi domain
- * bisa gagal total buat profil yang tidak diisi DNS1/DNS2 manual. mtu
+ * bisa gagal total buat profil yang tidak diisi DNS1/DNS2 manual.
+ *
+ * [defaultDns] adalah alamat IP yang dipakai sebagai DNS default itu --
+ * SEBELUMNYA hardcode "1.1.1.1" di MyVpnService.DEFAULT_DNS &
+ * XrayTunnelManager.resolveDnsAddr(), SEKARANG bisa diganti user sendiri
+ * lewat field "Default DNS" di kartu VPN Setting (dipakai di KEDUA jalur,
+ * SSH maupun Xray/VLESS -- lihat catatan resolveDnsAddr di
+ * XrayTunnelManager utk kenapa jalur Xray juga butuh nilai ini sebagai
+ * fallback TERAKHIR-nya). Kosong/blank dianggap "belum diisi" dan balik ke
+ * [DEFAULT_DNS_FALLBACK] ("1.1.1.1", perilaku lama) -- baik di sini waktu
+ * load() maupun di titik pemakaiannya, jadi data lama yang belum pernah
+ * simpan field ini otomatis dapat 1.1.1.1 persis seperti sebelum field ini
+ * ada. Tidak divalidasi format IPv6 di sini (layar Pengaturan cuma terima
+ * IPv4 lewat Patterns.IP_ADDRESS, sama seperti DNS1/DNS2 per-profil di
+ * SshConfigActivity) -- kalau butuh DNS default IPv6, isi manual lewat
+ * DNS1/DNS2 per-profil yang formatDnsAddr()-nya sudah dukung IPv6. mtu
  * menggantikan konstanta TUN_MTU yang
  * dulu hardcoded 1500 di MyVpnService. keepCpuAwake mengontrol apakah
  * MyVpnService memegang PowerManager.PARTIAL_WAKE_LOCK selama tunnel aktif.
@@ -79,6 +94,9 @@ data class VpnSettings(
     // memang tidak mau ada DNS default sama sekali. Lihat
     // MyVpnService.applyDnsServers.
     val dnsFallbackEnabled: Boolean = true,
+    // Lihat catatan [defaultDns] di kdoc atas. Kosong/blank == belum diisi,
+    // ditangani sebagai DEFAULT_DNS_FALLBACK di titik pemakaiannya.
+    val defaultDns: String = DEFAULT_DNS_FALLBACK,
     val mtu: Int = DEFAULT_MTU,
     // Default true: WakeLock aktif dari awal supaya tunnel tidak putus-putus
     // di background tanpa user harus menyalakannya manual.
@@ -102,6 +120,10 @@ data class VpnSettings(
     val compressionEnabled: Boolean = false
 ) {
     companion object {
+        // Nilai lama yang dulu hardcode di MyVpnService.DEFAULT_DNS &
+        // XrayTunnelManager.resolveDnsAddr() -- sekarang jadi fallback kalau
+        // [defaultDns] kosong/belum pernah diisi user (lihat kdoc di atas).
+        const val DEFAULT_DNS_FALLBACK = "1.1.1.1"
         const val DEFAULT_MTU = 1500
         // Batas wajar MTU untuk TUN VPN -- di luar rentang ini besar
         // kemungkinan tunnel gagal establish atau paket kepotong-potong.
@@ -128,6 +150,7 @@ data class VpnSettings(
 object VpnSettingsStore {
     private const val PREFS_NAME = "tunnelapp_vpn_settings"
     private const val KEY_DNS_FALLBACK_ENABLED = "vpn_dns_fallback_enabled"
+    private const val KEY_DEFAULT_DNS = "vpn_default_dns"
     private const val KEY_MTU = "vpn_mtu"
     private const val KEY_KEEP_CPU_AWAKE = "vpn_keep_cpu_awake"
     private const val KEY_AUTO_RECONNECT = "vpn_auto_reconnect"
@@ -143,6 +166,12 @@ object VpnSettingsStore {
             // Default true kalau belum pernah disimpan -- lihat catatan
             // dnsFallbackEnabled di atas.
             dnsFallbackEnabled = prefs.getBoolean(KEY_DNS_FALLBACK_ENABLED, true),
+            // Data lama (sebelum field ini ada) tidak punya key ini sama
+            // sekali -- default & blank dua-duanya jatuh ke
+            // DEFAULT_DNS_FALLBACK di titik pemakaiannya, jadi trim() di
+            // sini murni jaga-jaga (mis. user isi spasi doang lalu Simpan).
+            defaultDns = (prefs.getString(KEY_DEFAULT_DNS, VpnSettings.DEFAULT_DNS_FALLBACK)
+                ?: VpnSettings.DEFAULT_DNS_FALLBACK).trim().ifEmpty { VpnSettings.DEFAULT_DNS_FALLBACK },
             mtu = prefs.getInt(KEY_MTU, VpnSettings.DEFAULT_MTU),
             keepCpuAwake = prefs.getBoolean(KEY_KEEP_CPU_AWAKE, true),
             autoReconnect = prefs.getBoolean(KEY_AUTO_RECONNECT, true),
@@ -158,6 +187,7 @@ object VpnSettingsStore {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_DNS_FALLBACK_ENABLED, settings.dnsFallbackEnabled)
+            .putString(KEY_DEFAULT_DNS, settings.defaultDns)
             .putInt(KEY_MTU, settings.mtu)
             .putBoolean(KEY_KEEP_CPU_AWAKE, settings.keepCpuAwake)
             .putBoolean(KEY_AUTO_RECONNECT, settings.autoReconnect)
