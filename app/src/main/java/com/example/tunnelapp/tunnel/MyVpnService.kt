@@ -136,18 +136,6 @@ class MyVpnService : VpnService() {
         // Delay antar percobaan naik terus (3000ms * reconnectAttempt) tapi
         // di-cap di sini supaya tidak makin lama makin jarang tanpa batas.
         private const val RECONNECT_BACKOFF_CAP_MS = 30_000L
-        // FITUR BARU (permintaan user): jalur reconnect KHUSUS saat internet
-        // device hilang TOTAL (data seluler dimatikan / mode pesawat aktif) --
-        // lihat scheduleNetworkLossCheck()/handleTunnelDeath(dueToNetworkLoss)/
-        // scheduleNetworkReconnectOrGiveUp(). BEDA dari MAX_RECONNECT_ATTEMPTS
-        // di atas (yang dipakai untuk sebab lain, mis. SSH terputus/watchdog
-        // gagal, dan TIDAK PERNAH benar-benar menyerah -- terus berputar +
-        // pindah akun cadangan): di sini reconnect cuma dicoba dari awal
-        // maksimal segini kali. Kalau tetap gagal (wajar, karena memang tidak
-        // ada jaringan sama sekali), reconnect otomatis DIBATALKAN (bukan
-        // stopVpn() total) -- tunnel tetap menunggu lewat NetworkCallback,
-        // begitu jaringan fisik kembali normal langsung dicoba lagi seketika.
-        private const val NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS = 10
         // FIX (laporan user: "koneksi suka putus sendiri" dibanding app lain
         // dengan metode sama): interval lama (10s) + threshold lama (2x) makin
         // KEEP_ALIVE_TIMEOUT_MS 5s berarti tunnel bisa dianggap "mati" cuma
@@ -395,31 +383,6 @@ class MyVpnService : VpnService() {
     @Volatile
     private var customDnsConfigured: Boolean = false
     private var reconnectAttempt = 0
-    // FITUR BARU: hitungan percobaan KHUSUS siklus reconnect akibat internet
-    // device mati total -- terpisah dari [reconnectAttempt] di atas (yang
-    // dipakai jalur reconnect biasa/tidak pernah menyerah). Direset ke 0
-    // tiap kali siklus network-loss baru mulai (handleTunnelDeath) ATAU
-    // begitu berhasil konek lagi. Lihat scheduleNetworkReconnectOrGiveUp().
-    private var networkReconnectAttempt = 0
-    // Penanda siklus reconnect yang SEDANG BERJALAN sekarang ini dipicu oleh
-    // internet mati total (true) atau sebab lain (false, default) -- dibaca
-    // di catch block establishTunnel() buat memilih scheduler yang tepat
-    // (scheduleNetworkReconnectOrGiveUp vs scheduleReconnectOrGiveUp), dan di
-    // onAvailable() NetworkCallback buat tahu kapan boleh langsung nyoba
-    // sambung ulang begitu jaringan fisik pulih.
-    private var reconnectCycleIsNetworkLoss = false
-    // True kalau siklus network-loss SUDAH MENYERAH (percobaan ke-
-    // NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS tetap gagal) dan sekarang murni
-    // menunggu jaringan fisik device kembali normal -- dibaca di
-    // onAvailable() supaya begitu jaringan pulih, langsung dicoba lagi dari
-    // percobaan pertama tanpa perlu user buka app/pencet Connect manual.
-    private val awaitingNetworkReturn = AtomicBoolean(false)
-    // Job delay percobaan reconnect network-loss yang lagi terjadwal (kalau
-    // ada) -- dibatalkan & langsung diganti percobaan seketika oleh
-    // onAvailable() kalau jaringan fisik pulih SEBELUM jeda backoff ini
-    // habis, supaya tunnel tidak perlu menunggu sisa jeda yang sudah tidak
-    // relevan lagi.
-    private var networkReconnectJob: Job? = null
     // --- FITUR BARU: fallback otomatis ke akun cadangan ---
     // Kalau akun yang lagi aktif gagal terus (reconnect ringan + reset penuh
     // sudah dicoba semua, lihat scheduleReconnectOrGiveUp), dan user punya
@@ -466,23 +429,35 @@ class MyVpnService : VpnService() {
         getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
-    // FIX (laporan user: "koneksi suka putus sendiri" dibanding app lain
-    // dengan metode sama): dulu onLost()/onUnavailable() LANGSUNG memicu
-    // handleTunnelDeath() tanpa toleransi sama sekali. Di jaringan seluler,
-    // NetworkCallback ini bisa terpicu HANYA KARENA sinyal sempat drop
-    // sedetik, pindah tower BTS, atau device sebentar pindah radio
-    // WiFi<->data -- yang PADA AKHIRNYA tersambung lagi sendiri dalam
-    // hitungan detik tanpa tunnel benar-benar mati. Sebelum ini, kejadian
-    // seperti itu langsung membongkar & menyambung ulang SELURUH tunnel
-    // (SSH/Xray + TUN), padahal tidak perlu -- itulah rasanya app "suka
-    // putus sendiri" walau server & metode sama persis dengan app lain.
-    // Sekarang dikasih jeda: begitu onLost/onUnavailable kepanggil, TUNGGU
-    // dulu [NETWORK_LOSS_GRACE_MS], baru cek ULANG apakah jaringan fisik
-    // (NOT_VPN + INTERNET) BENAR-BENAR masih tidak ada -- kalau saat itu
-    // sudah pulih (mis. sudah pindah ke jaringan lain), batalkan, JANGAN
-    // putus tunnel sama sekali.
-    private var networkLossJob: kotlinx.coroutines.Job? = null
-    private val networkLossGraceMs = 6000L
+    // UPDATE (mengikuti model DarkTunnel: instan, tanpa grace period):
+    // Sebelumnya onLost()/onUnavailable() diberi jeda [networkLossGraceMs]
+    // sebelum memutus tunnel, dengan tujuan meredam "reconnect storm" saat
+    // sinyal seluler cuma drop sebentar (pindah tower BTS, WiFi<->data
+    // bolak-balik cepat).
+    //
+    // Tapi jeda itu justru jadi sumber bug lain (laporan: "WiFi mati pas
+    // seluler baru nyala" tunnel tidak pernah pulih): onAvailable() untuk
+    // jaringan baru bisa terpanggil HAMPIR BERSAMAAN dengan onLost() jaringan
+    // lama -- job penundaan langsung dibatalkan, app menganggap "sudah
+    // pulih", padahal socket SSH/Xray lama TETAP BASI (masih terikat ke rute
+    // jaringan yang sudah mati) dan tidak pernah dipaksa nyambung ulang lewat
+    // jaringan baru yang aktif.
+    //
+    // Sekarang: setiap transisi jaringan -- secepat apa pun -- langsung
+    // memicu handleTunnelDeath(), yang lalu reconnect lewat jaringan yang
+    // aktif saat itu. Reconnect di app ini relatif murah (TUN interface tetap
+    // hidup, SOCKS5 port dipakai ulang lewat disconnectForReconnect()), jadi
+    // tidak sebesar dulu waktu masih full teardown tiap reconnect. Guard
+    // [handlingDeath] tetap mencegah reconnect dobel kalau network callback &
+    // watchdog datang bersamaan. onAvailable() SENGAJA tidak melakukan
+    // apa-apa (tidak membatalkan reconnect yang sudah berjalan) -- transisi
+    // jaringan tetap harus memaksa refresh channel, bukan diam-diam dianggap
+    // "sudah pulih".
+    //
+    // Trade-off: di sinyal seluler yang sering ngedrop sedetik-dua detik,
+    // tunnel bisa "berkedip" reconnect berkali-kali -- kalau ini jadi masalah
+    // lagi, pertimbangkan debounce singkat (bukan grace period penuh) khusus
+    // di sisi network callback, bukan menunda handleTunnelDeath() itu sendiri.
 
     private fun registerNetworkWatcher() {
         if (networkCallback != null) return
@@ -492,49 +467,22 @@ class MyVpnService : VpnService() {
             .build()
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
-                DebugLog.w(TAG, "Jaringan fisik device hilang (data seluler/WiFi dimatikan) -- menunggu ${networkLossGraceMs}ms sebelum putus tunnel")
-                scheduleNetworkLossCheck("Jaringan device terputus (data/WiFi mati)")
+                DebugLog.w(TAG, "Jaringan fisik device hilang (data seluler/WiFi mati) -- putus tunnel instan (tanpa grace period)")
+                handleTunnelDeath("Jaringan device terputus (data/WiFi mati)")
             }
 
             override fun onUnavailable() {
-                DebugLog.w(TAG, "Tidak ada jaringan fisik yang tersedia -- menunggu ${networkLossGraceMs}ms sebelum putus tunnel")
-                scheduleNetworkLossCheck("Tidak ada jaringan aktif di device")
+                DebugLog.w(TAG, "Tidak ada jaringan fisik yang tersedia -- putus tunnel instan (tanpa grace period)")
+                handleTunnelDeath("Tidak ada jaringan aktif di device")
             }
 
             override fun onAvailable(network: Network) {
-                // Jaringan fisik (WiFi/data lain) sudah kembali tersedia --
-                // batalkan rencana putus tunnel dari onLost/onUnavailable
-                // sebelumnya kalau masih menunggu.
-                networkLossJob?.cancel()
-                networkLossJob = null
-
-                // FITUR BARU (permintaan user): kalau siklus reconnect yang
-                // sedang berjalan sekarang ini akibat internet mati total,
-                // begitu jaringan fisik kembali normal langsung coba sambung
-                // lagi SEKARANG JUGA -- baik itu masih di tengah menunggu
-                // jeda backoff percobaan berikutnya (networkReconnectJob
-                // != null) MAUPUN sudah menyerah setelah
-                // NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS kali gagal
-                // (awaitingNetworkReturn), tidak perlu menunggu apa pun lagi.
-                // Sengaja TIDAK dicek hanya reconnectCycleIsNetworkLoss saja:
-                // kalau job masih null DAN awaitingNetworkReturn masih false,
-                // berarti handleTunnelDeath() untuk siklus ini masih di
-                // tengah proses teardown (belum sampai ke
-                // scheduleNetworkReconnectOrGiveUp()) -- jangan ikut campur
-                // di titik itu, biarkan teardown-nya selesai dulu secara
-                // wajar supaya tidak balapan/reentrant.
-                if (reconnectCycleIsNetworkLoss && (awaitingNetworkReturn.get() || networkReconnectJob != null)) {
-                    val config = lastConfig
-                    if (!stoppingIntentionally && config != null && vpnInterface != null) {
-                        networkReconnectJob?.cancel()
-                        networkReconnectJob = null
-                        networkReconnectAttempt = 0
-                        awaitingNetworkReturn.set(false)
-                        handlingDeath.set(false)
-                        StatusBus.log("Jaringan internet sudah normal kembali -- mencoba menyambungkan VPN lagi")
-                        establishTunnel(config, isReconnect = true)
-                    }
-                }
+                // Sengaja TIDAK membatalkan apa pun di sini. Transisi
+                // jaringan (secepat apa pun) tetap harus memaksa
+                // handleTunnelDeath() -> reconnect lewat jaringan baru ini,
+                // bukan diam-diam dianggap "sudah pulih" sementara socket
+                // lama masih terikat ke rute yang sudah mati.
+                DebugLog.i(TAG, "Jaringan fisik baru tersedia (${network})")
             }
         }
         try {
@@ -545,35 +493,7 @@ class MyVpnService : VpnService() {
         }
     }
 
-    /**
-     * Dipanggil dari onLost()/onUnavailable(). TIDAK langsung memutus tunnel
-     * -- tunggu [networkLossGraceMs], lalu cek ulang lewat
-     * [connectivityManager.activeNetwork] apakah jaringan fisik benar-benar
-     * masih hilang. Kalau ternyata sudah pulih (atau ganti onAvailable()
-     * sempat membatalkan job ini duluan), tidak melakukan apa-apa.
-     */
-    private fun scheduleNetworkLossCheck(reason: String) {
-        networkLossJob?.cancel()
-        networkLossJob = serviceScope.launch {
-            delay(networkLossGraceMs)
-            if (stoppingIntentionally) return@launch
-            val active = connectivityManager.activeNetwork
-            val caps = active?.let { connectivityManager.getNetworkCapabilities(it) }
-            val stillHasPhysicalNetwork = caps != null &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
-                caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
-            if (stillHasPhysicalNetwork) {
-                Log.i(TAG, "Jaringan fisik sudah pulih dalam ${networkLossGraceMs}ms, batal putus tunnel")
-                return@launch
-            }
-            DebugLog.w(TAG, "Jaringan fisik tetap hilang setelah ${networkLossGraceMs}ms, putus tunnel")
-            handleTunnelDeath(reason, dueToNetworkLoss = true)
-        }
-    }
-
     private fun unregisterNetworkWatcher() {
-        networkLossJob?.cancel()
-        networkLossJob = null
         val callback = networkCallback ?: return
         networkCallback = null
         try {
@@ -854,11 +774,6 @@ class MyVpnService : VpnService() {
         fallbackIndex = 0
         reconnectAttempt = 0
         hardResetAttempted = false
-        networkReconnectAttempt = 0
-        reconnectCycleIsNetworkLoss = false
-        awaitingNetworkReturn.set(false)
-        networkReconnectJob?.cancel()
-        networkReconnectJob = null
         stoppingIntentionally = false
         handlingDeath.set(false)
         stopping.set(false)
@@ -1264,10 +1179,6 @@ class MyVpnService : VpnService() {
                 // nyalakan ulang watchdog buat siklus berikutnya.
                 reconnectAttempt = 0
                 hardResetAttempted = false
-                networkReconnectAttempt = 0
-                reconnectCycleIsNetworkLoss = false
-                awaitingNetworkReturn.set(false)
-                networkReconnectJob = null
                 handlingDeath.set(false)
                 startWatchdog(config)
                 startPingLoop(config)
@@ -1339,11 +1250,7 @@ class MyVpnService : VpnService() {
                 }
 
                 if (isReconnect) {
-                    if (reconnectCycleIsNetworkLoss) {
-                        scheduleNetworkReconnectOrGiveUp("Reconnect gagal: $reason")
-                    } else {
-                        scheduleReconnectOrGiveUp("Reconnect gagal: $reason")
-                    }
+                    scheduleReconnectOrGiveUp("Reconnect gagal: $reason")
                 } else {
                     // FIX (laporan user): sebelumnya kegagalan connect awal
                     // (bukan reconnect) cuma nge-update StatusBus.state, jadi
@@ -1369,7 +1276,7 @@ class MyVpnService : VpnService() {
      * itu semua state yang dibaca/ditulis di sini WAJIB aman dipanggil
      * berulang (idempotent), makanya pakai [handlingDeath] sebagai gerbang.
      */
-    private fun handleTunnelDeath(reason: String, dueToNetworkLoss: Boolean = false) {
+    private fun handleTunnelDeath(reason: String) {
         if (stoppingIntentionally) return
         if (!handlingDeath.compareAndSet(false, true)) return // sudah lagi ditangani sinyal lain
 
@@ -1378,13 +1285,6 @@ class MyVpnService : VpnService() {
             stopVpn()
             return
         }
-
-        // Tandai siklus reconnect kali ini apa penyebabnya -- dibaca di catch
-        // block establishTunnel() (pilih scheduler yang tepat) dan di
-        // onAvailable() NetworkCallback (tahu kapan boleh langsung nyoba
-        // sambung ulang begitu jaringan fisik pulih). Lihat deklarasi
-        // [reconnectCycleIsNetworkLoss] untuk detail lengkap.
-        reconnectCycleIsNetworkLoss = dueToNetworkLoss
 
         DebugLog.w(TAG, "Tunnel mati sendiri: $reason")
         watchdogJob?.cancel()
@@ -1420,71 +1320,7 @@ class MyVpnService : VpnService() {
         runBlockingWithTimeout("sshTunnelManager.disconnectForReconnect()") { sshTunnelManager.disconnectForReconnect() }
         runBlockingWithTimeout("xrayTunnelManager.disconnect()") { xrayTunnelManager.disconnect() }
 
-        if (dueToNetworkLoss) {
-            scheduleNetworkReconnectOrGiveUp(reason)
-        } else {
-            scheduleReconnectOrGiveUp(reason)
-        }
-    }
-
-    /**
-     * Jalur reconnect KHUSUS saat tunnel mati karena jaringan fisik device
-     * benar-benar hilang total (data seluler dimatikan / mode pesawat aktif
-     * -- lihat scheduleNetworkLossCheck()). BEDA dari scheduleReconnectOrGiveUp()
-     * biasa (dipakai untuk sebab lain, mis. SSH terputus/watchdog gagal, dan
-     * TIDAK PERNAH benar-benar menyerah -- hard reset lalu terus berputar +
-     * pindah akun cadangan): di sini TIDAK ADA hard reset ataupun pindah akun
-     * cadangan, reconnect cuma dicoba dari awal maksimal
-     * [NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS] (10) kali. Kalau 10 kali tetap
-     * gagal (wajar -- memang tidak ada jaringan sama sekali), reconnect
-     * otomatis LANGSUNG DIBATALKAN (set [awaitingNetworkReturn], BUKAN
-     * stopVpn() total -- service & NetworkCallback tetap hidup) sambil
-     * menunggu; begitu jaringan fisik device kembali normal,
-     * onAvailable() di [registerNetworkWatcher] langsung mencoba sambung
-     * ulang seketika dari percobaan pertama, tanpa perlu user buka app.
-     */
-    private fun scheduleNetworkReconnectOrGiveUp(reason: String) {
-        val config = lastConfig
-        if (config == null) {
-            stopVpn()
-            return
-        }
-
-        if (!currentAutoReconnect) {
-            StatusBus.log("Tunnel terputus ($reason) -- auto reconnect nonaktif (VPN Setting), tidak mencoba nyambung ulang")
-            StatusBus.state.value = "Terputus: tunnel mati ($reason), auto reconnect nonaktif"
-            stopVpn()
-            return
-        }
-
-        networkReconnectAttempt++
-        if (networkReconnectAttempt > NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS) {
-            DebugLog.w(TAG, "Internet mati total, reconnect otomatis gagal $NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS kali ($reason) -- dibatalkan, menunggu jaringan pulih")
-            StatusBus.log("Internet terputus total -- reconnect otomatis dibatalkan setelah $NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS kali percobaan, menunggu jaringan pulih")
-            StatusBus.state.value = "Terputus: internet mati, menunggu jaringan pulih..."
-            updateNotification("Terputus -- menunggu internet")
-            networkReconnectJob = null
-            awaitingNetworkReturn.set(true)
-            // SENGAJA handlingDeath TIDAK direset ke false di sini (beda dari
-            // jalur reconnect biasa) -- biar sinyal "tunnel mati" lain (mis.
-            // watchdog lokal) yang mungkin masih menyusul saat internet masih
-            // mati tidak ikut memicu siklus baru dobel. Baru direset di
-            // onAvailable() begitu benar-benar mau nyoba sambung ulang lagi.
-            return
-        }
-
-        val delayMs = (3000L * networkReconnectAttempt).coerceAtMost(RECONNECT_BACKOFF_CAP_MS)
-        StatusBus.log("Internet terputus total ($reason) -- reconnect otomatis percobaan $networkReconnectAttempt/$NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS dalam ${delayMs / 1000}s")
-        StatusBus.state.value = "Internet terputus — reconnect otomatis (percobaan $networkReconnectAttempt/$NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS)..."
-        updateNotification("Reconnect otomatis (percobaan $networkReconnectAttempt/$NETWORK_LOSS_MAX_RECONNECT_ATTEMPTS)...")
-
-        networkReconnectJob = serviceScope.launch {
-            delay(delayMs)
-            networkReconnectJob = null
-            if (stoppingIntentionally || vpnInterface == null) return@launch
-            handlingDeath.set(false)
-            establishTunnel(config, isReconnect = true)
-        }
+        scheduleReconnectOrGiveUp(reason)
     }
 
     private fun scheduleReconnectOrGiveUp(reason: String) {
