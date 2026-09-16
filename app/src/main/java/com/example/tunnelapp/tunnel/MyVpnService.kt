@@ -1651,30 +1651,23 @@ class MyVpnService : VpnService() {
                 // [pingHost] di bawah), TIDAK lewat tunnel & TIDAK keluar ke
                 // internet lagi.
                 //
-                // Sekarang dipisah lagi jadi DUA baris per siklus:
-                //  1. "Ping <host> (Xms)" -- [pingHost] langsung ke
-                //     [ServerConfig.host]:[ServerConfig.port] ASLI, bypass
-                //     tunnel (protect()-ed persis kayak socket kontrol
-                //     SSH/Xray) -- INI yang sebanding dengan angka HTTP
-                //     Custom/app sejenis.
-                //  2. "HTTP Ping <status> (Xms)" -- TETAP jalan seperti
-                //     sebelumnya, fungsinya keep-alive anti-idle BENERAN
-                //     lewat tunnel (bukan cuma diagnostik), jadi TIDAK
-                //     dihapus supaya koneksi tidak diputus paksa firewall/NAT
-                //     operator seluler.
+                // UPDATE LAGI (permintaan user: "hilangkan fungsi ping [baris
+                // 'Ping <host> (Xms)'], jadi tinggal HTTP Ping saja"): baris
+                // "Ping <host> (Xms)" DIHAPUS dari log -- [pingHost] TIDAK
+                // dipanggil lagi di sini sama sekali (fungsinya sendiri masih
+                // ada di bawah, cuma tidak dipakai loop ini lagi). Yang
+                // tersisa cuma "HTTP Ping <status> (Xms)" lewat
+                // [httpKeepAliveThroughTunnel] -- TETAP jalan seperti
+                // sebelumnya, fungsinya keep-alive anti-idle BENERAN lewat
+                // tunnel (bukan cuma diagnostik), jadi TIDAK ikut dihapus
+                // supaya koneksi tidak diputus paksa firewall/NAT operator
+                // seluler.
                 if (stoppingIntentionally) break
                 // Warna durasi "(...ms)" tergantung cepat/lambatnya (permintaan
                 // user): 1-80ms BIRU, 85ms ke atas MERAH -- lihat
                 // pingMsColorHex(). Ambil dari resource ping_ms_fast/slow
                 // supaya satu sumber kebenaran sama seperti warna lain di app.
                 fun redMs(ms: Long) = "<font color='${pingMsColorHex(ms)}'>${ms}ms</font>"
-
-                val rawPingMs = pingHost(config.host, config.port)
-                if (rawPingMs != null) {
-                    StatusBus.log("Ping ${config.host} (${redMs(rawPingMs)})")
-                } else {
-                    StatusBus.log("Ping ${config.host} timeout")
-                }
 
                 if (stoppingIntentionally) break
                 // FIX (laporan user): target keep-alive DULU ikut port yang
@@ -1691,7 +1684,11 @@ class MyVpnService : VpnService() {
                 if (result != null) {
                     StatusBus.log("HTTP Ping ${result.statusText} (${redMs(result.elapsedMs)})")
                 } else {
-                    StatusBus.log("Ping timeout")
+                    // Diberi awalan "HTTP" (dulu cuma "Ping timeout") supaya
+                    // tidak rancu -- sekarang ini SATU-SATUNYA baris ping di
+                    // log, jadi harus jelas ini kegagalan HTTP Ping, bukan
+                    // sisa baris "Ping <host>" yang sudah dihapus di atas.
+                    StatusBus.log("HTTP Ping timeout")
                 }
             }
         }
