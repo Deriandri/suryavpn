@@ -407,6 +407,25 @@ class MyVpnService : VpnService() {
     // cadangan) -- lihat MAX_TOTAL_RECONNECT_ATTEMPTS. Direset ke 0 di
     // startVpn() (koneksi baru) dan begitu reconnect BENAR-BENAR berhasil.
     private var totalReconnectAttempts = 0
+    // FITUR BARU (jawab pertanyaan user: "kenapa masih agak lama nyambung
+    // lagi walau data seluler sudah dinyalakan?"): scheduleReconnectOrGiveUp()
+    // di bawah selalu nunggu delayMs (3s/6s/9s/... backoff) SEBELUM benar-benar
+    // mencoba establishTunnel() lagi -- backoff itu penting buat mencegah
+    // "reconnect storm" kalau jaringan memang belum pulih. TAPI kalau jaringan
+    // fisik ternyata SUDAH pulih lebih cepat dari hitungan mundur itu (mis.
+    // user baru saja nyalakan lagi data selulernya), tidak ada alasan tetap
+    // nunggu sisa waktu itu habis -- job yang lagi delay(delayMs) ini disimpan
+    // di sini supaya onAvailable() (lihat registerNetworkWatcher()) bisa
+    // membatalkan SISA delay-nya & langsung memicu percobaan reconnect,
+    // TANPA membatalkan proses reconnect-nya sendiri (establishTunnel() yang
+    // dipanggil tetap full & fresh seperti biasa, bukan asumsi "sudah pulih"
+    // -- beda dari bug lama di onAvailable() yang pernah membatalkan deteksi
+    // kematian tunnel itu sendiri).
+    private var reconnectDelayJob: Job? = null
+    // Config yang lagi "antre" buat reconnect, dipasangkan dengan
+    // [reconnectDelayJob] di atas -- dibaca onAvailable() kalau mau
+    // mempercepat percobaan (lihat catatan di reconnectDelayJob).
+    private var pendingReconnectConfig: ServerConfig? = null
     // --- FITUR BARU: fallback otomatis ke akun cadangan ---
     // Kalau akun yang lagi aktif gagal terus (reconnect ringan + reset penuh
     // sudah dicoba semua, lihat scheduleReconnectOrGiveUp), dan user punya
@@ -501,12 +520,28 @@ class MyVpnService : VpnService() {
             }
 
             override fun onAvailable(network: Network) {
-                // Sengaja TIDAK membatalkan apa pun di sini. Transisi
-                // jaringan (secepat apa pun) tetap harus memaksa
-                // handleTunnelDeath() -> reconnect lewat jaringan baru ini,
-                // bukan diam-diam dianggap "sudah pulih" sementara socket
-                // lama masih terikat ke rute yang sudah mati.
+                // Sengaja TIDAK membatalkan job DETEKSI kematian tunnel apa
+                // pun (itu tetap jalan apa adanya lewat onLost/onUnavailable
+                // & watchdog). Yang dipercepat DI SINI cuma SISA WAKTU
+                // TUNGGU backoff kalau app KEBETULAN sedang di tengah jeda
+                // reconnect ([reconnectDelayJob] aktif, lihat
+                // scheduleReconnectOrGiveUp()) -- jaringan fisik sudah
+                // kembali, jadi tidak ada gunanya tetap menunggu sisa
+                // hitungan mundur 3s/6s/9s/... itu habis dulu. establishTunnel()
+                // yang dipicu tetap FULL & FRESH seperti biasa (percobaan
+                // reconnect biasa, bukan asumsi "sudah pulih tanpa cek") --
+                // beda dari bug lama yang MEMBATALKAN deteksi kematian itu
+                // sendiri.
                 DebugLog.d(TAG, "Jaringan fisik baru tersedia (${network})")
+                val job = reconnectDelayJob
+                val config = pendingReconnectConfig
+                if (job != null && job.isActive && config != null) {
+                    DebugLog.d(TAG, "Mempercepat reconnect -- tidak perlu nunggu sisa backoff, jaringan sudah kembali")
+                    job.cancel()
+                    reconnectDelayJob = null
+                    pendingReconnectConfig = null
+                    runScheduledReconnect(config)
+                }
             }
         }
         try {
@@ -1431,12 +1466,25 @@ class MyVpnService : VpnService() {
         StatusBus.state.value = "Tunnel terputus — reconnect otomatis (percobaan $reconnectAttempt)..."
         updateNotification("Reconnect otomatis (percobaan $reconnectAttempt)...")
 
-        serviceScope.launch {
+        pendingReconnectConfig = configToUse
+        reconnectDelayJob = serviceScope.launch {
             delay(delayMs)
-            if (stoppingIntentionally || vpnInterface == null) return@launch
-            handlingDeath.set(false)
-            establishTunnel(configToUse, isReconnect = true)
+            reconnectDelayJob = null
+            pendingReconnectConfig = null
+            runScheduledReconnect(configToUse)
         }
+    }
+
+    /**
+     * Isi asli badan job [reconnectDelayJob] -- dipisah jadi fungsi sendiri
+     * supaya bisa dipanggil lebih awal dari [registerNetworkWatcher]'s
+     * onAvailable() (fast-path "jaringan sudah pulih duluan, tidak perlu
+     * nunggu sisa backoff") TANPA duplikasi kode.
+     */
+    private fun runScheduledReconnect(configToUse: ServerConfig) {
+        if (stoppingIntentionally || vpnInterface == null) return
+        handlingDeath.set(false)
+        establishTunnel(configToUse, isReconnect = true)
     }
 
     /**
@@ -2254,6 +2302,9 @@ class MyVpnService : VpnService() {
         watchdogJob = null
         pingJob?.cancel()
         pingJob = null
+        reconnectDelayJob?.cancel()
+        reconnectDelayJob = null
+        pendingReconnectConfig = null
         releaseWakeLock()
         unregisterNetworkWatcher()
         // Batalkan proses connect/reconnect yang mungkin masih jalan di
