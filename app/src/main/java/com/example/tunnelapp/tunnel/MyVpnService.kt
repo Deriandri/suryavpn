@@ -21,11 +21,6 @@ import com.example.tunnelapp.R
 import com.example.tunnelapp.model.ServerConfig
 import com.example.tunnelapp.model.GeneralSettingsStore
 import com.example.tunnelapp.model.VpnSettingsStore
-// FIX build error "Unresolved reference: toServerConfigOrNull": fungsi
-// ekstensi di ServerConfig.kt (package model) ini dipakai di
-// pickNextFallbackConfig() tapi belum pernah di-import di sini -- fungsi
-// ekstensi Kotlin TIDAK otomatis ketemu hanya karena tipe datanya (SavedConfig)
-// diakses lewat nama lengkap (fully-qualified), harus di-import eksplisit.
 import com.example.tunnelapp.model.toServerConfigOrNull
 import com.example.tunnelapp.model.ProfileStore
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -127,25 +122,19 @@ class MyVpnService : VpnService() {
         private const val WAKE_LOCK_TAG = "TunnelApp:VpnKeepAwake"
 
         // --- Deteksi & reconnect otomatis kalau tunnel mati sendiri ---
-        private const val MAX_RECONNECT_ATTEMPTS = 3
-        // FIX (stabilitas, laporan user): dulu setelah MAX_RECONNECT_ATTEMPTS
-        // kali reconnect ringan + 1x reset penuh masih gagal juga, app
-        // BENAR-BENAR MENYERAH (stopVpn()) -- beda dari app tunnel established
-        // (DarkTunnel, HTTP Custom, dll) yang tidak pernah nyerah sendiri,
-        // terus coba nyambung ulang sampai user sendiri menekan Disconnect.
-        // Delay antar percobaan naik terus (3000ms * reconnectAttempt) tapi
-        // di-cap di sini supaya tidak makin lama makin jarang tanpa batas.
-        // UPDATE: siklus 3x-ini boleh berulang-ulang (ganti akun cadangan,
-        // dst), TAPI totalnya tetap dibatasi -- lihat MAX_TOTAL_RECONNECT_ATTEMPTS.
-        private const val RECONNECT_BACKOFF_CAP_MS = 30_000L
-        // PEMBATASAN TOTAL (permintaan user): biarpun siklus 3x-reconnect +
-        // hard-reset + ganti akun cadangan di atas bisa berulang tanpa henti,
-        // total SELURUH percobaan reconnect (lintas semua siklus, sejak
-        // startVpn() terakhir atau sejak reconnect terakhir yang BENAR-BENAR
-        // berhasil) dibatasi [MAX_TOTAL_RECONNECT_ATTEMPTS] kali. Begitu
-        // tercapai, app berhenti total (stopVpn()) -- tidak diulang lagi,
-        // user harus pencet Connect manual. Lihat totalReconnectAttempts &
-        // scheduleReconnectOrGiveUp().
+        // SEDERHANAKAN (permintaan user): dulu ada 2 tahap (3x reconnect
+        // "ringan" -> 1x "reset penuh" TUN+engine -> kalau masih gagal,
+        // ganti akun cadangan & ulangi siklus dari awal, terus-terusan
+        // sampai MAX_TOTAL_RECONNECT_ATTEMPTS). Sekarang cuma SATU tahap
+        // lurus: reconnect "ringan" (TUN interface & tun engine yang masih
+        // sehat TETAP DIBIARKAN HIDUP, cuma SSH/Xray yang disambung ulang --
+        // lihat handleTunnelDeath()) sebanyak MAX_TOTAL_RECONNECT_ATTEMPTS
+        // kali, jeda TETAP [RECONNECT_ATTEMPT_DELAY_MS] tiap percobaan
+        // (BUKAN backoff naik seperti sebelumnya). Begitu kelewat, app
+        // berhenti TOTAL (stopVpn()) -- tidak ada lagi reset penuh atau
+        // ganti akun cadangan otomatis, user harus pencet Connect manual
+        // lagi. Lihat totalReconnectAttempts & scheduleReconnectOrGiveUp().
+        private const val RECONNECT_ATTEMPT_DELAY_MS = 4000L
         private const val MAX_TOTAL_RECONNECT_ATTEMPTS = 10
         // FIX (laporan user: "koneksi suka putus sendiri" dibanding app lain
         // dengan metode sama): interval lama (10s) + threshold lama (2x) makin
@@ -307,8 +296,8 @@ class MyVpnService : VpnService() {
     // Diambil dari VpnSettingsStore.autoReconnect sekali di startVpn(),
     // dicek di scheduleReconnectOrGiveUp() -- kalau false, tunnel yang mati
     // sendiri LANGSUNG di-stopVpn() tanpa retry sama sekali (bukan cuma
-    // MAX_RECONNECT_ATTEMPTS diset 0, supaya pesan status ke user juga beda:
-    // "auto reconnect nonaktif" vs "reconnect otomatis gagal").
+    // MAX_TOTAL_RECONNECT_ATTEMPTS diset 0, supaya pesan status ke user juga
+    // beda: "auto reconnect nonaktif" vs "reconnect otomatis gagal").
     private var currentAutoReconnect: Boolean = true
     // CATATAN: dulu autoPingEnabled/pingIntervalSeconds di-cache ke sini
     // SEKALI di startVpn() -- akibatnya toggle Auto Ping atau ganti interval
@@ -366,12 +355,11 @@ class MyVpnService : VpnService() {
     private val xrayTunnelManager by lazy { XrayTunnelManager(this) }
     private var tunEngine: TunEngine? = null
     // Port SOCKS5 yang dipakai [tunEngine] YANG SEDANG JALAN saat ini --
-    // dipakai establishTunnel() untuk memutuskan aman/tidaknya SKIP
-    // startTunEngine() saat reconnect ringan (lihat catatan panjang di
-    // sana). Kalau akun cadangan (fallbackProfiles) punya socksPort
-    // BERBEDA dari akun sebelumnya, engine WAJIB tetap direstart walau
-    // masih [isAlive] -- makanya port-nya juga harus dicocokkan, bukan
-    // cuma cek hidup/mati.
+    // murni buat diagnostik/log, TIDAK dibandingkan di mana pun (skip
+    // startTunEngine() saat reconnect cuma dicek dari [tunEngine]?.isAlive,
+    // lihat catatan panjang di establishTunnel()). Port SOCKS5 memang selalu
+    // sama sepanjang siklus reconnect sekarang (tidak ada lagi pergantian
+    // akun cadangan di tengah jalan).
     private var tunEngineSocksPort: Int? = null
 
     // Proxy HTTP lokal opsional (lihat VpnSettings.httpPort) -- hanya
@@ -401,21 +389,20 @@ class MyVpnService : VpnService() {
     // establishTunnel() saat connect SSH.
     @Volatile
     private var customDnsConfigured: Boolean = false
-    private var reconnectAttempt = 0
-    // Hitungan TOTAL percobaan reconnect lintas semua siklus (beda dari
-    // [reconnectAttempt] yang di-reset ke 1 tiap siklus baru/ganti akun
-    // cadangan) -- lihat MAX_TOTAL_RECONNECT_ATTEMPTS. Direset ke 0 di
-    // startVpn() (koneksi baru) dan begitu reconnect BENAR-BENAR berhasil.
+    // Hitungan TOTAL percobaan reconnect (SATU-SATUNYA counter sekarang --
+    // dulu ada [reconnectAttempt] terpisah buat siklus 3x-ringan, sudah
+    // digabung jadi satu sejak model reconnect disederhanakan, lihat
+    // MAX_TOTAL_RECONNECT_ATTEMPTS). Direset ke 0 di startVpn() (koneksi
+    // baru) dan begitu reconnect BENAR-BENAR berhasil.
     private var totalReconnectAttempts = 0
     // FITUR BARU (jawab pertanyaan user: "kenapa masih agak lama nyambung
     // lagi walau data seluler sudah dinyalakan?"): scheduleReconnectOrGiveUp()
-    // di bawah selalu nunggu delayMs (3s/6s/9s/... backoff) SEBELUM benar-benar
-    // mencoba establishTunnel() lagi -- backoff itu penting buat mencegah
-    // "reconnect storm" kalau jaringan memang belum pulih. TAPI kalau jaringan
-    // fisik ternyata SUDAH pulih lebih cepat dari hitungan mundur itu (mis.
-    // user baru saja nyalakan lagi data selulernya), tidak ada alasan tetap
-    // nunggu sisa waktu itu habis -- job yang lagi delay(delayMs) ini disimpan
-    // di sini supaya onAvailable() (lihat registerNetworkWatcher()) bisa
+    // di bawah selalu nunggu RECONNECT_ATTEMPT_DELAY_MS SEBELUM benar-benar
+    // mencoba establishTunnel() lagi. TAPI kalau jaringan fisik ternyata
+    // SUDAH pulih lebih cepat dari itu (mis. user baru saja nyalakan lagi
+    // data selulernya), tidak ada alasan tetap nunggu sisa waktu itu habis
+    // -- job yang lagi delay() ini disimpan di sini supaya onAvailable()/
+    // onCapabilitiesChanged() (lihat registerNetworkWatcher()) bisa
     // membatalkan SISA delay-nya & langsung memicu percobaan reconnect,
     // TANPA membatalkan proses reconnect-nya sendiri (establishTunnel() yang
     // dipanggil tetap full & fresh seperti biasa, bukan asumsi "sudah pulih"
@@ -426,25 +413,6 @@ class MyVpnService : VpnService() {
     // [reconnectDelayJob] di atas -- dibaca onAvailable() kalau mau
     // mempercepat percobaan (lihat catatan di reconnectDelayJob).
     private var pendingReconnectConfig: ServerConfig? = null
-    // --- FITUR BARU: fallback otomatis ke akun cadangan ---
-    // Kalau akun yang lagi aktif gagal terus (reconnect ringan + reset penuh
-    // sudah dicoba semua, lihat scheduleReconnectOrGiveUp), dan user punya
-    // akun LAIN tersimpan di ProfileStore (mis. server cadangan), app
-    // sekarang otomatis coba akun itu bergantian -- alih-alih cuma
-    // mengulang-ulang akun yang sama yang sudah terbukti gagal terus,
-    // ATAUPUN nyerah total. Mirip perilaku DarkTunnel/HTTP Custom kalau user
-    // menyimpan beberapa server. Diisi sekali di startVpn(), dikonsumsi
-    // bergantian di scheduleReconnectOrGiveUp().
-    private var fallbackProfiles: List<com.example.tunnelapp.model.SavedProfile> = emptyList()
-    private var fallbackIndex = 0
-    // FIX (permintaan user): sebelum benar-benar menyerah setelah
-    // MAX_RECONNECT_ATTEMPTS kali reconnect "ringan" (yang sengaja
-    // mempertahankan TUN interface tetap hidup) gagal semua, coba SATU KALI
-    // reset total -- termasuk bongkar & bikin ulang TUN interface dari nol --
-    // sebagai upaya terakhir sebelum stopVpn(). Direset ke false tiap kali
-    // startVpn() baru ATAU reconnect/hard-reset berhasil, supaya siklus
-    // gagal berikutnya tetap dapat satu jatah hard reset lagi.
-    private var hardResetAttempted = false
     // true selama proses stop yang memang DIMINTA (user disconnect, atau kita
     // sendiri lagi membongkar tunnel di tengah reconnect) -- dicek di
     // handleTunnelDeath supaya penutupan socket yang kita sengaja tidak
@@ -520,21 +488,32 @@ class MyVpnService : VpnService() {
             }
 
             override fun onAvailable(network: Network) {
-                // Sengaja TIDAK melakukan apa pun selain log di sini.
-                // onAvailable() cuma berarti "radio/interface fisiknya
-                // hidup" -- BUKAN berarti internetnya sudah beneran bisa
-                // dipakai (DNS, rute IP dari operator, dll butuh beberapa
-                // detik lagi buat settle setelah radio nyala, khususnya
-                // abis toggle data seluler). Kalau reconnect dipaksa
-                // secepat ini, percobaannya cuma bakal nyangkut lama di
-                // verifyTunnelReallyWorks() (connect "berhasil" ke level
-                // socket tapi trafik beneran belum lewat) sebelum akhirnya
-                // gagal juga -- persis gejala "masih lumayan lama" yang
-                // dilaporkan user, walau reconnect sudah dipicu SECEPAT
-                // radio nyala. Sinyal yang lebih dapat dipercaya buat
-                // "sudah BENERAN bisa dipakai" ada di onCapabilitiesChanged()
-                // di bawah (NET_CAPABILITY_VALIDATED) -- lihat di sana.
+                // UPDATE (laporan user: NET_CAPABILITY_VALIDATED di
+                // onCapabilitiesChanged() ternyata TIDAK PERNAH muncul sama
+                // sekali di beberapa perangkat/operator -- fast-path yang
+                // cuma mengandalkan itu jadi tidak pernah kepakai, reconnect
+                // balik ke jalur delay normal biasa). onAvailable() memang
+                // kurang akurat (radio nyala != internet beneran siap,
+                // lihat catatan di onCapabilitiesChanged di bawah), TAPI
+                // jauh lebih SELALU terpicu -- jadi dipakai lagi sebagai
+                // percobaan pertama (boleh gagal, tidak masalah, sudah
+                // dibikin cepat gagalnya lewat verifyTunnelReallyWorks
+                // attempts=1 -- lihat establishTunnel()), sementara
+                // onCapabilitiesChanged(VALIDATED) tetap dipertahankan
+                // sebagai percobaan KEDUA yang lebih akurat kalau kebetulan
+                // muncul lebih dulu. Keduanya aman dipanggil bersamaan --
+                // begitu salah satu berhasil mempercepat (job jadi null),
+                // yang satunya otomatis no-op.
                 DebugLog.d(TAG, "Jaringan fisik baru tersedia (${network})")
+                val job = reconnectDelayJob
+                val config = pendingReconnectConfig
+                if (job != null && job.isActive && config != null) {
+                    DebugLog.d(TAG, "Mempercepat reconnect -- tidak perlu nunggu sisa backoff, jaringan sudah kembali")
+                    job.cancel()
+                    reconnectDelayJob = null
+                    pendingReconnectConfig = null
+                    runScheduledReconnect(config)
+                }
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
@@ -854,18 +833,7 @@ class MyVpnService : VpnService() {
         }).copy(udpgwPort = vpnSettings.udpgwPort) // udpgw SELALU global (VPN Setting), tidak ada per-profil -- lihat ServerConfig.udpgwPort
 
         lastConfig = config
-        // Susun daftar akun cadangan SEKALI di sini (bukan tiap kali dibutuhkan
-        // di scheduleReconnectOrGiveUp) -- akun aktif (profileId) dikecualikan
-        // supaya tidak "fallback" ke diri sendiri. Kalau user cuma punya satu
-        // akun tersimpan (atau profileId tidak dikirim, mis. dari kode lama),
-        // daftar ini kosong dan perilaku persis seperti sebelumnya (retry akun
-        // yang sama terus).
-        fallbackProfiles = com.example.tunnelapp.model.ProfileStore.getAll(this)
-            .filter { profileId == null || it.id != profileId }
-        fallbackIndex = 0
-        reconnectAttempt = 0
         totalReconnectAttempts = 0
-        hardResetAttempted = false
         stoppingIntentionally = false
         handlingDeath.set(false)
         stopping.set(false)
@@ -1237,7 +1205,31 @@ class MyVpnService : VpnService() {
                 // menunggu balasan HTTP asli lewat tunnel -- kalau akun
                 // invalid, server remote diam-diam DROP payloadnya (tidak ada
                 // balasan sama sekali), dan itu baru ketahuan dari sini.
-                val reachable = verifyTunnelReallyWorks(config.socksPort)
+                // FIX (laporan user: percobaan reconnect yang kebetulan
+                // dimulai SEBELUM jaringan device beneran siap butuh sampai
+                // ~38 DETIK sebelum akhirnya dinyatakan gagal, bikin
+                // reconnect kerasa lama banget): verifyTunnelReallyWorks()
+                // defaultnya attempts=2 (buat toleransi transient blip) --
+                // dikali 2 metode di dalamnya (plain HTTP + TLS handshake)
+                // dikali KEEP_ALIVE_TIMEOUT_MS (9 detik, SENGAJA segini biar
+                // tidak salah tangkap koneksi lambat-tapi-sehat di jaringan
+                // seluler Indonesia -- lihat catatan panjang di konstanta
+                // itu, JANGAN diturunkan) = worst-case 2x2x9s+jeda ≈ 37.5
+                // detik untuk SATU percobaan reconnect yang gagal. Di sini
+                // (khusus titik verifikasi saat CONNECT/RECONNECT) redundansi
+                // attempts=2 itu kurang berguna -- kalaupun verifikasi ini
+                // gagal, LOOP RECONNECT DI LUAR (scheduleReconnectOrGiveUp)
+                // sudah otomatis coba lagi lewat backoff -- jadi cukup
+                // attempts=1 di sini (worst-case turun ke ~18 detik, separuh
+                // dari sebelumnya) supaya percobaan yang gagal cepat
+                // dilepas & giliran percobaan BERIKUTNYA (yang kemungkinan
+                // jaringannya sudah lebih siap) bisa segera jalan. Beda
+                // dengan watchdog (lihat startWatchdog/keepAliveThroughTunnel
+                // di bawah) yang MEMANG sengaja tetap attempts=2 -- di situ
+                // yang dipertaruhkan salah beda: memutus tunnel yang
+                // sebenarnya SEHAT gara-gara satu blip transient jauh lebih
+                // mahal daripada di sini.
+                val reachable = verifyTunnelReallyWorks(config.socksPort, attempts = 1)
                 if (!reachable) {
                     val reason = "Tunnel nyala tapi tidak ada trafik nyata yang balik lewat tunnel " +
                         "-- kemungkinan jaringan device mati, ATAU akun/kredensial server " +
@@ -1281,9 +1273,7 @@ class MyVpnService : VpnService() {
 
                 // Reconnect (kalau ada) sukses -- reset hitungan percobaan &
                 // nyalakan ulang watchdog buat siklus berikutnya.
-                reconnectAttempt = 0
                 totalReconnectAttempts = 0
-                hardResetAttempted = false
                 handlingDeath.set(false)
                 startWatchdog(config)
                 startPingLoop(config)
@@ -1452,55 +1442,30 @@ class MyVpnService : VpnService() {
             return
         }
 
+        // SEDERHANAKAN (permintaan user): SATU tahap lurus -- reconnect
+        // "ringan" (TUN interface & tun engine yang masih sehat TETAP
+        // DIBIARKAN HIDUP, lihat handleTunnelDeath()) sebanyak
+        // MAX_TOTAL_RECONNECT_ATTEMPTS kali, jeda TETAP
+        // [RECONNECT_ATTEMPT_DELAY_MS] tiap percobaan (bukan backoff naik).
+        // Tidak ada lagi tahap "reset penuh" ataupun "ganti akun cadangan" --
+        // begitu kelewat MAX_TOTAL_RECONNECT_ATTEMPTS, app berhenti TOTAL.
         totalReconnectAttempts++
         if (totalReconnectAttempts > MAX_TOTAL_RECONNECT_ATTEMPTS) {
-            StatusBus.log("Tunnel terputus ($reason) -- sudah $MAX_TOTAL_RECONNECT_ATTEMPTS kali percobaan reconnect total, menyerah & berhenti total")
+            StatusBus.log("Tunnel terputus ($reason) -- sudah $MAX_TOTAL_RECONNECT_ATTEMPTS kali percobaan reconnect, menyerah & berhenti total")
             StatusBus.state.value = "Terputus: reconnect gagal $MAX_TOTAL_RECONNECT_ATTEMPTS kali, dihentikan"
             updateNotification("Reconnect gagal $MAX_TOTAL_RECONNECT_ATTEMPTS kali -- dihentikan")
             stopVpn()
             return
         }
 
-        reconnectAttempt++
-        if (reconnectAttempt > MAX_RECONNECT_ATTEMPTS) {
-            if (!hardResetAttempted) {
-                hardResetAndRetry(config, reason)
-                return
-            }
-            // FIX (stabilitas, laporan user): titik ini dulu = stopVpn()
-            // permanen, user harus buka app & pencet Connect manual lagi.
-            // Sekarang siklus reconnect diulang lagi dari awal (BUKAN
-            // stopVpn()) -- lihat catatan RECONNECT_BACKOFF_CAP_MS di atas.
-            //
-            // FITUR BARU: SEBELUM sekadar mengulang config yang sama (yang
-            // sudah terbukti gagal terus), coba dulu akun cadangan lain yang
-            // tersimpan di ProfileStore satu per satu (round-robin lewat
-            // fallbackIndex) -- baru kalau semua akun cadangan juga sudah
-            // dicoba habis (atau memang tidak ada sama sekali), balik lagi
-            // mengulang config semula seperti biasa.
-            val nextConfig = pickNextFallbackConfig()
-            if (nextConfig != null) {
-                StatusBus.log("Akun ini gagal terus ($reason) -- beralih coba akun cadangan lain yang tersimpan")
-                lastConfig = nextConfig
-            } else {
-                StatusBus.log("Reconnect otomatis + reset penuh masih gagal ($reason) -- tetap mencoba lagi, tidak menyerah")
-            }
-            reconnectAttempt = 1
-            hardResetAttempted = false
-        }
-
-        // PENTING: pakai lastConfig (bisa saja BARU SAJA diganti ke akun
-        // cadangan di atas), BUKAN val config lokal di awal fungsi ini yang
-        // merekam nilai SEBELUM kemungkinan pergantian itu terjadi.
         val configToUse = lastConfig ?: config
-        val delayMs = (3000L * reconnectAttempt).coerceAtMost(RECONNECT_BACKOFF_CAP_MS)
-        StatusBus.log("Tunnel terputus ($reason) -- reconnect otomatis percobaan $reconnectAttempt dalam ${delayMs / 1000}s")
-        StatusBus.state.value = "Tunnel terputus — reconnect otomatis (percobaan $reconnectAttempt)..."
-        updateNotification("Reconnect otomatis (percobaan $reconnectAttempt)...")
+        StatusBus.log("Tunnel terputus ($reason) -- reconnect otomatis percobaan $totalReconnectAttempts/$MAX_TOTAL_RECONNECT_ATTEMPTS dalam ${RECONNECT_ATTEMPT_DELAY_MS / 1000}s")
+        StatusBus.state.value = "Tunnel terputus — reconnect otomatis (percobaan $totalReconnectAttempts/$MAX_TOTAL_RECONNECT_ATTEMPTS)..."
+        updateNotification("Reconnect otomatis (percobaan $totalReconnectAttempts/$MAX_TOTAL_RECONNECT_ATTEMPTS)...")
 
         pendingReconnectConfig = configToUse
         reconnectDelayJob = serviceScope.launch {
-            delay(delayMs)
+            delay(RECONNECT_ATTEMPT_DELAY_MS)
             reconnectDelayJob = null
             pendingReconnectConfig = null
             runScheduledReconnect(configToUse)
@@ -1517,129 +1482,6 @@ class MyVpnService : VpnService() {
         if (stoppingIntentionally || vpnInterface == null) return
         handlingDeath.set(false)
         establishTunnel(configToUse, isReconnect = true)
-    }
-
-    /**
-     * Ambil kandidat [ServerConfig] akun cadangan BERIKUTNYA dari
-     * [fallbackProfiles] (round-robin lewat [fallbackIndex]), lewati akun
-     * yang konfigurasinya ternyata tidak valid (mis. link Xray kosong).
-     * Null kalau tidak ada akun cadangan sama sekali, atau semua yang ada
-     * ternyata tidak valid -- pemanggil lalu jatuh balik ke perilaku lama
-     * (mengulang config semula).
-     */
-    private fun pickNextFallbackConfig(): ServerConfig? {
-        if (fallbackProfiles.isEmpty()) return null
-        val vpnSettings = VpnSettingsStore.load(this)
-        repeat(fallbackProfiles.size) {
-            val candidate = fallbackProfiles[fallbackIndex % fallbackProfiles.size]
-            fallbackIndex++
-            val built = candidate.config.toServerConfigOrNull() ?: return@repeat
-            val withSocksOverride = if (vpnSettings.socksPort > 0) built.copy(socksPort = vpnSettings.socksPort) else built
-            return withSocksOverride.copy(udpgwPort = vpnSettings.udpgwPort)
-        }
-        return null
-    }
-
-    /**
-     * Upaya TERAKHIR sebelum benar-benar menyerah (dipanggil PERSIS SEKALI per
-     * siklus gagal, dijaga [hardResetAttempted]): beda dari reconnect biasa
-     * di [handleTunnelDeath] yang SENGAJA membiarkan TUN interface tetap
-     * hidup, di sini SEMUANYA dibongkar total termasuk TUN interface itu
-     * sendiri, lalu dibuat ulang dari nol dan dicoba connect sekali lagi.
-     *
-     * PENTING (trade-off yang harus disadari): selama TUN interface mati di
-     * sini (dari titik ini sampai builder.establish() baru selesai lagi di
-     * bawah), trafik device TIDAK lewat tunnel sama sekali (balik ke jalur
-     * normal device, sebentar) -- beda dari reconnect biasa yang TUN-nya
-     * tidak pernah turun. Makanya ini SENGAJA tidak dijadikan perilaku
-     * default tiap reconnect, cuma dipakai sebagai jalan terakhir kalau
-     * reconnect ringan berkali-kali sudah gagal semua (kemungkinan ada
-     * state internal TUN/engine yang nyangkut & butuh benar-benar dari nol).
-     */
-    private fun hardResetAndRetry(config: ServerConfig, reason: String) {
-        DebugLog.w(TAG, "Reconnect ringan gagal $MAX_RECONNECT_ATTEMPTS kali ($reason) -- melakukan reset penuh (termasuk TUN interface)")
-        StatusBus.log("Reconnect otomatis gagal $MAX_RECONNECT_ATTEMPTS kali ($reason) -- mencoba reset penuh (termasuk antarmuka VPN) sebagai upaya terakhir")
-        StatusBus.state.value = "Reset penuh tunnel, mencoba sekali lagi..."
-        updateNotification("Reset penuh, mencoba sekali lagi...")
-
-        hardResetAttempted = true
-        watchdogJob?.cancel()
-        watchdogJob = null
-        pingJob?.cancel()
-        pingJob = null
-        unregisterNetworkWatcher()
-
-        // Bongkar SEMUANYA, termasuk TUN interface -- beda dari
-        // handleTunnelDeath() yang sengaja membiarkan vpnInterface hidup.
-        val engine = tunEngine
-        val vpnIf = vpnInterface
-        tunEngine = null
-        vpnInterface = null
-        stopHttpProxyServer()
-        // URUTAN PENTING (FIX: laporan user -- hard reset berulang kadang
-        // bikin app dipaksa restart total lewat guard "macet permanen" di
-        // HevSocks5Engine.start()): TUTUP TUN FD DULU, BARU tunEngine.stop().
-        // Sebelumnya urutannya kebalik (stop() dulu, baru vpnIf?.close()) --
-        // padahal native hev-socks5-tunnel nge-epoll di atas TUN fd ini
-        // buat baca paket. Kalau fd itu masih terbuka pas stop() dipanggil,
-        // dan sinyal stop dari HevSocks5Bridge.stopTunnel() sendiri tidak
-        // selalu berhasil membangunkan epoll loop-nya di build native ini
-        // (lihat catatan panjang di HevSocks5Engine), thread native itu bisa
-        // nyangkut nunggu paket yang tidak akan pernah datang lagi (jaringan
-        // fisik sudah mati) -- ujungnya stop() timeout, lalu 2 detik
-        // kemudian start() BARU (di bawah) kena guard "belum lepas slot" dan
-        // akhirnya app dipaksa restart proses. Dengan menutup fd LEBIH DULU,
-        // epoll_wait di sisi native langsung dapat EPOLLHUP/EPOLLERR untuk
-        // fd itu dan loop-nya keluar SENDIRI -- stop()/join() sesudahnya
-        // jadi jauh lebih mungkin selesai cepat & normal, bukan macet.
-        try {
-            vpnIf?.close()
-        } catch (e: Exception) {
-            DebugLog.e(TAG, "Error saat menutup TUN interface (hard reset)", e)
-        }
-        if (engine != null) {
-            runBlockingWithTimeout("tunEngine.stop() (hard reset)") { engine.stop() }
-        }
-        runBlockingWithTimeout("sshTunnelManager.disconnect() (hard reset)") { sshTunnelManager.disconnect() }
-        runBlockingWithTimeout("xrayTunnelManager.disconnect() (hard reset)") { xrayTunnelManager.disconnect() }
-
-        // Jeda sebentar (biar OS/network settle) sebelum bikin ulang TUN
-        // interface dari nol dan coba connect lagi seperti awal.
-        serviceScope.launch {
-            delay(2000L)
-            if (stoppingIntentionally) return@launch
-
-            StatusBus.log("Membuat ulang antarmuka VPN (TUN) dari nol...")
-            StatusBus.initSteps(buildStepsFor(config))
-            StatusBus.start(StepId.TUN)
-
-            val vpnSettings = VpnSettingsStore.load(this@MyVpnService)
-            // REVERT (sama seperti startVpn()): IPv6 TIDAK di-route ke TUN --
-            // lihat catatan panjang di builder pertama pada startVpn() untuk
-            // alasannya (server SSH tidak punya rute IPv6, jadi semua CONNECT
-            // ke tujuan IPv6 selalu gagal & membanjiri log).
-            val builder = Builder()
-                .setSession("SuryaVPN")
-                .addAddress(TUN_ADDRESS, 32)
-                .addRoute("0.0.0.0", 0)
-                .setMtu(currentMtu)
-            applyDnsServers(builder, config, vpnSettings)
-
-            vpnInterface = try {
-                builder.establish()
-            } catch (e: Exception) {
-                DebugLog.e(TAG, "Hard reset: gagal membuat ulang TUN interface", e)
-                StatusBus.fail(StepId.TUN, e.message ?: e.javaClass.simpleName)
-                StatusBus.skipRemainingPending()
-                StatusBus.state.value = "Gagal: reset penuh juga gagal membuat antarmuka VPN (${e.message})"
-                stopVpn()
-                return@launch
-            }
-            StatusBus.success(StepId.TUN)
-            registerNetworkWatcher()
-            handlingDeath.set(false)
-            establishTunnel(config, isReconnect = true)
-        }
     }
 
     /**
@@ -2380,10 +2222,8 @@ class MyVpnService : VpnService() {
         // dari onStartCommand()/onDestroy() di MAIN THREAD -- itulah
         // sumber dialog "TunnelApp isn't responding".
         shutdownJob = shutdownScope.launch {
-            // Urutan penting: TUTUP TUN FD DULU (lihat catatan panjang di
-            // hardResetAndRetry() soal kenapa ini harus lebih dulu daripada
-            // tunEngine.stop() -- fd tertutup memicu epoll native
-            // EPOLLHUP/EPOLLERR yang membuat loop-nya keluar sendiri,
+            // Urutan penting: TUTUP TUN FD DULU -- fd tertutup memicu epoll
+            // native EPOLLHUP/EPOLLERR yang membuat loop-nya keluar sendiri,
             // bukan nunggu sinyal stop yang tidak selalu berhasil
             // membangunkannya di build native ini), BARU tun engine, baru
             // SSH/Xray.
