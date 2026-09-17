@@ -175,4 +175,13 @@ class HevSocks5Engine : TunEngine {
         }
         thread = null
     }
+
+    // Sengaja cek [thread]?.isAlive (state WRAPPER Java ini), BUKAN
+    // [nativeThreadAlive] (guard statis GLOBAL di companion object) --
+    // isAlive harus menjawab "apakah INSTANCE engine ini masih hidup",
+    // sedangkan nativeThreadAlive menjawab pertanyaan berbeda ("apakah ada
+    // SATU thread native mana pun, dari instance mana pun, yang masih
+    // pegang slot global").
+    override val isAlive: Boolean
+        get() = thread?.isAlive == true
 }

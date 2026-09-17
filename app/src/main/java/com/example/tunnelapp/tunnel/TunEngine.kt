@@ -43,4 +43,15 @@ interface TunEngine {
 
     /** Hentikan engine yang sedang berjalan. Aman dipanggil berkali-kali / sebelum start(). */
     fun stop()
+
+    /**
+     * True kalau engine ini SAAT INI masih benar-benar berjalan (thread
+     * native/wrapper-nya masih hidup) -- dipakai [MyVpnService] untuk
+     * memutuskan apakah engine perlu di-restart saat reconnect, atau boleh
+     * dibiarkan hidup apa adanya (TUN fd & port SOCKS5 tidak berubah
+     * selama reconnect RINGAN, jadi engine yang masih sehat TIDAK PERNAH
+     * perlu ikut direstart -- lihat catatan panjang di
+     * MyVpnService.handleTunnelDeath()/establishTunnel()).
+     */
+    val isAlive: Boolean
 }

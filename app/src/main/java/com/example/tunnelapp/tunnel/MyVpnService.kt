@@ -365,6 +365,14 @@ class MyVpnService : VpnService() {
     private val sshTunnelManager = SshjTunnelManager()
     private val xrayTunnelManager by lazy { XrayTunnelManager(this) }
     private var tunEngine: TunEngine? = null
+    // Port SOCKS5 yang dipakai [tunEngine] YANG SEDANG JALAN saat ini --
+    // dipakai establishTunnel() untuk memutuskan aman/tidaknya SKIP
+    // startTunEngine() saat reconnect ringan (lihat catatan panjang di
+    // sana). Kalau akun cadangan (fallbackProfiles) punya socksPort
+    // BERBEDA dari akun sebelumnya, engine WAJIB tetap direstart walau
+    // masih [isAlive] -- makanya port-nya juga harus dicocokkan, bukan
+    // cuma cek hidup/mati.
+    private var tunEngineSocksPort: Int? = null
 
     // Proxy HTTP lokal opsional (lihat VpnSettings.httpPort) -- hanya
     // non-null selama tunnel aktif DAN httpPort diisi user di VPN Setting.
@@ -1128,7 +1136,19 @@ class MyVpnService : VpnService() {
                 // step ini baru hijau kalau memang sudah terbukti ada trafik nyata
                 // yang balik lewat tunnel, bukan asumsi optimistis.
                 StatusBus.start(StepId.TUNNEL_ACTIVE)
-                startTunEngine(config)
+                // UPDATE (bagian dari fix bug native "macet permanen" --
+                // lihat catatan panjang di handleTunnelDeath()): kalau tun
+                // engine yang lama masih hidup & sehat (reconnect ringan,
+                // TUN fd & port SOCKS5 tidak berubah), TIDAK PERLU
+                // direstart -- cukup biarkan dia terus jalan, cuma
+                // SSH/Xray-nya (di atas) yang baru saja disambung ulang.
+                // startTunEngine() cuma dipanggil kalau memang belum ada
+                // engine hidup sama sekali (koneksi baru, ATAU
+                // handleTunnelDeath() sudah memastikan engine lama benar-
+                // benar mati & null-kan tunEngine).
+                if (tunEngine?.isAlive != true) {
+                    startTunEngine(config)
+                }
                 if (checkStoppedMidway(tunEngine)) return@launch
 
                 // --- Verifikasi tunnel BENERAN tembus ke internet DAN akun/
@@ -1309,24 +1329,34 @@ class MyVpnService : VpnService() {
         pingJob?.cancel()
         pingJob = null
 
-        // Bongkar SSH/Xray + tun engine yang mati itu -- TUN interface
-        // (vpnInterface) SENGAJA DIBIARKAN HIDUP supaya reconnect tidak perlu
-        // builder.establish() ulang (= tidak perlu izin VPN ulang dari user).
+        // Bongkar SSH/Xray -- TUN interface (vpnInterface) SENGAJA DIBIARKAN
+        // HIDUP supaya reconnect tidak perlu builder.establish() ulang (=
+        // tidak perlu izin VPN ulang dari user).
         //
-        // FIX "status nyangkut Terhubung walau internet mati / app freeze":
-        // handleTunnelDeath() ini bisa dipanggil dari thread APA SAJA (native
-        // hev-socks5-tunnel, ConnectionMonitor SSH, ATAU callback
-        // ConnectivityManager saat jaringan device hilang) -- ketiga panggilan
-        // di bawah dulu TELANJANG tanpa batas waktu, padahal
-        // xrayTunnelManager.disconnect() bisa menggantung selamanya kalau
-        // jaringan device benar-benar mati (lihat catatan panjang di
-        // [runBlockingWithTimeout]). Sekarang dibungkus timeout supaya thread
-        // pemanggil PASTI bebas lagi dalam waktu terbatas, dan
-        // scheduleReconnectOrGiveUp() di bawah ini SELALU sempat terpanggil.
+        // UPDATE (FIX bug native "macet permanen" saat reconnect ringan --
+        // laporan user: app dipaksa restart proses padahal cuma nunggu
+        // jaringan normal lagi, BUKAN abis hard reset): tun engine (native
+        // hev-socks5-tunnel) dulu SELALU ikut di-stop() di sini tiap kali
+        // tunnel mati, apa pun sebabnya -- padahal alasan matinya nyaris
+        // selalu SSH/Xray-nya (upstream) atau jaringan device, BUKAN engine
+        // itu sendiri. Engine cuma bertugas neruskan paket TUN<->SOCKS5
+        // lokal (127.0.0.1:port) -- TUN fd & port SOCKS5 SAMA SEKALI TIDAK
+        // BERUBAH selama reconnect ringan (lihat disconnectForReconnect()
+        // di bawah), jadi engine yang masih hidup & sehat TIDAK PERNAH
+        // butuh direstart di sini. Memaksanya stop() padahal sehat cuma
+        // menambah risiko kena bug native stop()-macet (lihat catatan
+        // panjang di HevSocks5Engine) TANPA MANFAAT SAMA SEKALI.
+        // Sekarang: HANYA stop() kalau engine memang SUDAH MATI sendiri
+        // ([engine.isAlive] false -- persis kondisi yang ditandai lewat
+        // onUnexpectedStop di startTunEngine()); kalau masih hidup,
+        // BIARKAN SAJA berjalan terus, jangan disentuh -- establishTunnel()
+        // di scheduleReconnectOrGiveUp() nanti otomatis SKIP
+        // startTunEngine() kalau [tunEngine] masih non-null & isAlive
+        // (lihat catatan di sana).
         val engine = tunEngine
-        tunEngine = null
         stopHttpProxyServer()
-        if (engine != null) {
+        if (engine != null && !engine.isAlive) {
+            tunEngine = null
             runBlockingWithTimeout("tunEngine.stop()") { engine.stop() }
         }
         // FIX ARSITEKTUR EADDRINUSE: pakai disconnectForReconnect() (bukan
@@ -1466,16 +1496,32 @@ class MyVpnService : VpnService() {
         tunEngine = null
         vpnInterface = null
         stopHttpProxyServer()
-        if (engine != null) {
-            runBlockingWithTimeout("tunEngine.stop() (hard reset)") { engine.stop() }
-        }
-        runBlockingWithTimeout("sshTunnelManager.disconnect() (hard reset)") { sshTunnelManager.disconnect() }
-        runBlockingWithTimeout("xrayTunnelManager.disconnect() (hard reset)") { xrayTunnelManager.disconnect() }
+        // URUTAN PENTING (FIX: laporan user -- hard reset berulang kadang
+        // bikin app dipaksa restart total lewat guard "macet permanen" di
+        // HevSocks5Engine.start()): TUTUP TUN FD DULU, BARU tunEngine.stop().
+        // Sebelumnya urutannya kebalik (stop() dulu, baru vpnIf?.close()) --
+        // padahal native hev-socks5-tunnel nge-epoll di atas TUN fd ini
+        // buat baca paket. Kalau fd itu masih terbuka pas stop() dipanggil,
+        // dan sinyal stop dari HevSocks5Bridge.stopTunnel() sendiri tidak
+        // selalu berhasil membangunkan epoll loop-nya di build native ini
+        // (lihat catatan panjang di HevSocks5Engine), thread native itu bisa
+        // nyangkut nunggu paket yang tidak akan pernah datang lagi (jaringan
+        // fisik sudah mati) -- ujungnya stop() timeout, lalu 2 detik
+        // kemudian start() BARU (di bawah) kena guard "belum lepas slot" dan
+        // akhirnya app dipaksa restart proses. Dengan menutup fd LEBIH DULU,
+        // epoll_wait di sisi native langsung dapat EPOLLHUP/EPOLLERR untuk
+        // fd itu dan loop-nya keluar SENDIRI -- stop()/join() sesudahnya
+        // jadi jauh lebih mungkin selesai cepat & normal, bukan macet.
         try {
             vpnIf?.close()
         } catch (e: Exception) {
             DebugLog.e(TAG, "Error saat menutup TUN interface (hard reset)", e)
         }
+        if (engine != null) {
+            runBlockingWithTimeout("tunEngine.stop() (hard reset)") { engine.stop() }
+        }
+        runBlockingWithTimeout("sshTunnelManager.disconnect() (hard reset)") { sshTunnelManager.disconnect() }
+        runBlockingWithTimeout("xrayTunnelManager.disconnect() (hard reset)") { xrayTunnelManager.disconnect() }
 
         // Jeda sebentar (biar OS/network settle) sebelum bikin ulang TUN
         // interface dari nol dan coba connect lagi seperti awal.
@@ -2179,6 +2225,7 @@ class MyVpnService : VpnService() {
         val fd = vpnInterface?.fd ?: throw IllegalStateException("TUN interface belum siap")
         val engine = HevSocks5Engine()
         tunEngine = engine
+        tunEngineSocksPort = config.socksPort
         engine.start(
             tunFd = fd,
             tunAddress = TUN_ADDRESS,
@@ -2250,8 +2297,13 @@ class MyVpnService : VpnService() {
         // dari onStartCommand()/onDestroy() di MAIN THREAD -- itulah
         // sumber dialog "TunnelApp isn't responding".
         shutdownJob = shutdownScope.launch {
-            // Urutan penting: matikan tun engine dulu (masih pakai fd TUN &
-            // SOCKS5), baru SSH/Xray, baru TUN interface-nya sendiri.
+            // Urutan penting: TUTUP TUN FD DULU (lihat catatan panjang di
+            // hardResetAndRetry() soal kenapa ini harus lebih dulu daripada
+            // tunEngine.stop() -- fd tertutup memicu epoll native
+            // EPOLLHUP/EPOLLERR yang membuat loop-nya keluar sendiri,
+            // bukan nunggu sinyal stop yang tidak selalu berhasil
+            // membangunkannya di build native ini), BARU tun engine, baru
+            // SSH/Xray.
             //
             // FIX "tombol Kontrol Koneksi macet di Memutuskan... selamanya":
             // sebelumnya dipanggil TELANJANG di sini -- kalau
@@ -2260,12 +2312,17 @@ class MyVpnService : VpnService() {
             // yang sama sebelum ini, saat jaringan device mati -- lihat
             // catatan di [runBlockingWithTimeout] dan guard [disconnecting]
             // di XrayTunnelManager), coroutine ini pun ikut menggantung
-            // selamanya SEBELUM sempat sampai ke vpnIf?.close() dan
-            // stopSelf() di bawah -- itulah kenapa VPN "tidak bisa dimatikan
-            // sama sekali". Sekarang tiap langkah dibatasi waktu, jadi proses
-            // shutdown ini DIJAMIN sampai ke stopForeground()/stopSelf() di
-            // bawah dalam waktu terbatas, apa pun kondisi native lib di
-            // baliknya.
+            // selamanya SEBELUM sempat sampai ke stopSelf() di bawah --
+            // itulah kenapa VPN "tidak bisa dimatikan sama sekali". Sekarang
+            // tiap langkah dibatasi waktu, jadi proses shutdown ini DIJAMIN
+            // sampai ke stopForeground()/stopSelf() di bawah dalam waktu
+            // terbatas, apa pun kondisi native lib di baliknya.
+            try {
+                vpnIf?.close()
+            } catch (e: Exception) {
+                DebugLog.e(TAG, "Error saat menutup TUN interface", e)
+            }
+
             if (engine != null) {
                 runBlockingWithTimeout("tunEngine.stop()") { engine.stop() }
             }
@@ -2275,12 +2332,6 @@ class MyVpnService : VpnService() {
             // XrayTunnelManager, connection == null di SshjTunnelManager).
             runBlockingWithTimeout("sshTunnelManager.disconnect()") { sshTunnelManager.disconnect() }
             runBlockingWithTimeout("xrayTunnelManager.disconnect()") { xrayTunnelManager.disconnect() }
-
-            try {
-                vpnIf?.close()
-            } catch (e: Exception) {
-                DebugLog.e(TAG, "Error saat menutup TUN interface", e)
-            }
 
             if (!StatusBus.state.value.startsWith("Gagal")) {
                 StatusBus.state.value = "Terputus"
