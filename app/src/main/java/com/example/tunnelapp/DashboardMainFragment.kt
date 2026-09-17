@@ -534,7 +534,10 @@ class DashboardMainFragment : Fragment() {
         // dengan mapping kembarannya di ServerConfig.toServerConfigOrNull.
         val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         val proxyRawMode = usesProxy && saved.proxyRawMode
-        val usesTls = modeIndex == 1 || modeIndex == 2 || modeIndex == 4
+        // modeIndex 4 (ENHANCED): TLS ikut proxyRawMode sekarang, samain dengan
+        // ServerConfig.usesTls()/toServerConfigOrNull() -- lihat dokumentasi
+        // ConnectionMode.ENHANCED.
+        val usesTls = modeIndex == 1 || modeIndex == 2 || (modeIndex == 4 && !proxyRawMode)
 
         if (usesProxy && proxyRawMode && saved.proxyHost.isBlank()) {
             StatusBus.state.value = "Raw Passthrough butuh host/IP proxy atau CDN diisi"

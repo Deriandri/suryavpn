@@ -403,20 +403,30 @@ class SshConfigActivity : AppCompatActivity() {
         (currentModeIndex() == 2 || currentModeIndex() == 3 || currentModeIndex() == 4) &&
             binding.chipRawMode.isChecked
 
-    /** Mode 3 pakai TLS/SNI kecuali Raw Passthrough dinyalakan; mode 4 (Enhanced)
-     *  SELALU pakai TLS apa pun status Raw Passthrough-nya -- lihat [currentModeIndex]
-     *  & dokumentasi ConnectionMode.ENHANCED (TLS selalu aktif). */
+    /** UPDATE (permintaan user, "bikin logikanya sama seperti HTTP Custom/DarkTunnel"):
+     *  mode 3 & mode 4 (Enhanced) sekarang perilakunya SAMA persis soal TLS --
+     *  keduanya pakai TLS+SNI HANYA kalau Raw Passthrough MATI (proxy HTTP klasik,
+     *  CONNECT dulu baru TLS di atas tunnel-nya). Begitu Raw Passthrough dinyalakan,
+     *  TLS ikut MATI -- server dianggap plaintext di baliknya (mis. reverse-proxy/CDN
+     *  yang expose port non-TLS seperti :80), tunnel-nya tinggal TCP connect + payload
+     *  custom langsung, PERSIS seperti mode "Proxy" (bukan "Proxy with SNI") di
+     *  DarkTunnel/HTTP Custom -- lihat [currentModeIndex] & dokumentasi
+     *  ConnectionMode.ENHANCED. Kalau proxy tujuannya justru CDN yang butuh SNI buat
+     *  routing (TLS tetap perlu walau raw), itu skenario terpisah -- selama ini belum
+     *  ada toggle eksplisit buat itu, cuma dua kombinasi di atas yang didukung
+     *  sekarang, sama seperti pemetaan on/off dua chip HTTP Custom/DarkTunnel. */
     private fun usesTlsForMode(modeIndex: Int): Boolean =
-        modeIndex == 1 || modeIndex == 2 || modeIndex == 4 || (modeIndex == 3 && !proxyRawModeEnabled())
+        modeIndex == 1 || modeIndex == 2 ||
+            ((modeIndex == 3 || modeIndex == 4) && !proxyRawModeEnabled())
 
     /**
      * FITUR BARU (permintaan user, "Enhanced di HTTP Custom/Darktunnel cuma
-     * on/off, bukan buka kolom SNI/TLS"): mode 4 (Enhanced) TETAP selalu
-     * pakai TLS secara internal (lihat [usesTlsForMode] & dokumentasi
-     * ConnectionMode.ENHANCED) -- yang berubah cuma tampilannya, blok
-     * SNI/TLS version/Ignore cert errors SENGAJA disembunyikan lagi khusus
-     * untuk mode 4 supaya toggle Enhanced terasa seperti switch murni,
-     * tanpa form baru yang muncul.
+     * on/off, bukan buka kolom SNI/TLS"): mode 4 (Enhanced) TLS-nya sekarang
+     * ikut status Raw Passthrough (lihat [usesTlsForMode] & dokumentasi
+     * ConnectionMode.ENHANCED yang sudah diperbarui) -- tapi blok field
+     * SNI/TLS version/Ignore cert errors tetap SENGAJA disembunyikan untuk
+     * mode 4 apa pun status TLS-nya, supaya toggle Enhanced tetap terasa
+     * seperti switch murni (raw on/off), tanpa form baru yang muncul.
      *
      * SNI otomatis jatuh ke host asli server begitu field-nya kosong (lihat
      * ConnectRelay.kt baris ~299 & ~410: `config.sslSni?.takeIf { it.isNotBlank() }
