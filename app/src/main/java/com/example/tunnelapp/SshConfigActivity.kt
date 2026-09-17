@@ -409,9 +409,27 @@ class SshConfigActivity : AppCompatActivity() {
     private fun usesTlsForMode(modeIndex: Int): Boolean =
         modeIndex == 1 || modeIndex == 2 || modeIndex == 4 || (modeIndex == 3 && !proxyRawModeEnabled())
 
+    /**
+     * FITUR BARU (permintaan user, "Enhanced di HTTP Custom/Darktunnel cuma
+     * on/off, bukan buka kolom SNI/TLS"): mode 4 (Enhanced) TETAP selalu
+     * pakai TLS secara internal (lihat [usesTlsForMode] & dokumentasi
+     * ConnectionMode.ENHANCED) -- yang berubah cuma tampilannya, blok
+     * SNI/TLS version/Ignore cert errors SENGAJA disembunyikan lagi khusus
+     * untuk mode 4 supaya toggle Enhanced terasa seperti switch murni,
+     * tanpa form baru yang muncul.
+     *
+     * SNI otomatis jatuh ke host asli server begitu field-nya kosong (lihat
+     * ConnectRelay.kt baris ~299 & ~410: `config.sslSni?.takeIf { it.isNotBlank() }
+     * ?: config.host`), jadi menyembunyikan field ini TIDAK mematikan TLS
+     * ataupun butuh nilai default baru -- perilaku koneksinya persis sama,
+     * cuma kolom isiannya yang tidak lagi dipaksa muncul ke user.
+     */
+    private fun showsTlsConfigFieldsForMode(modeIndex: Int): Boolean =
+        usesTlsForMode(modeIndex) && modeIndex != 4
+
     private fun updateFieldVisibilityForMode() {
         val modeIndex = currentModeIndex()
-        val usesTls = usesTlsForMode(modeIndex)
+        val showTlsConfigFields = showsTlsConfigFieldsForMode(modeIndex)
         val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         // DIKEMBALIKAN (permintaan user): mode 1 (SSH SSL) tidak lagi menampilkan
         // blok Remote Proxy/Raw Passthrough -- kembali ke perilaku SSH SSL polos
@@ -422,9 +440,9 @@ class SshConfigActivity : AppCompatActivity() {
         val proxyMandatory = modeIndex == 3
         val usesRawMode = proxyRawModeEnabled()
 
-        binding.tilSni.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
-        binding.containerTlsVersion.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
-        binding.chipIgnoreCertErrors.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
+        binding.tilSni.visibility = if (showTlsConfigFields) android.view.View.VISIBLE else android.view.View.GONE
+        binding.containerTlsVersion.visibility = if (showTlsConfigFields) android.view.View.VISIBLE else android.view.View.GONE
+        binding.chipIgnoreCertErrors.visibility = if (showTlsConfigFields) android.view.View.VISIBLE else android.view.View.GONE
         binding.tilPayload.visibility = if (usesPayload) android.view.View.VISIBLE else android.view.View.GONE
         // FITUR BARU (permintaan user): "Remote Proxy" (label + chip Raw Passthrough
         // + host/port proxy) sekarang satu blok (containerRemoteProxy) dengan SATU
