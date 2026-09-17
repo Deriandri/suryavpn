@@ -520,23 +520,55 @@ class MyVpnService : VpnService() {
             }
 
             override fun onAvailable(network: Network) {
-                // Sengaja TIDAK membatalkan job DETEKSI kematian tunnel apa
-                // pun (itu tetap jalan apa adanya lewat onLost/onUnavailable
-                // & watchdog). Yang dipercepat DI SINI cuma SISA WAKTU
-                // TUNGGU backoff kalau app KEBETULAN sedang di tengah jeda
-                // reconnect ([reconnectDelayJob] aktif, lihat
-                // scheduleReconnectOrGiveUp()) -- jaringan fisik sudah
-                // kembali, jadi tidak ada gunanya tetap menunggu sisa
-                // hitungan mundur 3s/6s/9s/... itu habis dulu. establishTunnel()
-                // yang dipicu tetap FULL & FRESH seperti biasa (percobaan
-                // reconnect biasa, bukan asumsi "sudah pulih tanpa cek") --
-                // beda dari bug lama yang MEMBATALKAN deteksi kematian itu
-                // sendiri.
+                // Sengaja TIDAK melakukan apa pun selain log di sini.
+                // onAvailable() cuma berarti "radio/interface fisiknya
+                // hidup" -- BUKAN berarti internetnya sudah beneran bisa
+                // dipakai (DNS, rute IP dari operator, dll butuh beberapa
+                // detik lagi buat settle setelah radio nyala, khususnya
+                // abis toggle data seluler). Kalau reconnect dipaksa
+                // secepat ini, percobaannya cuma bakal nyangkut lama di
+                // verifyTunnelReallyWorks() (connect "berhasil" ke level
+                // socket tapi trafik beneran belum lewat) sebelum akhirnya
+                // gagal juga -- persis gejala "masih lumayan lama" yang
+                // dilaporkan user, walau reconnect sudah dipicu SECEPAT
+                // radio nyala. Sinyal yang lebih dapat dipercaya buat
+                // "sudah BENERAN bisa dipakai" ada di onCapabilitiesChanged()
+                // di bawah (NET_CAPABILITY_VALIDATED) -- lihat di sana.
                 DebugLog.d(TAG, "Jaringan fisik baru tersedia (${network})")
+            }
+
+            override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                // FIX (laporan user: reconnect sudah dipicu cepat begitu
+                // radio nyala lewat onAvailable(), TAPI percobaan pertama
+                // tetap makan waktu ~24 detik sebelum akhirnya gagal &
+                // baru percobaan KEDUA yang sukses cepat) -- root cause:
+                // onAvailable() Android terpicu begitu ANTARMUKA fisiknya
+                // hidup, BUKAN begitu internetnya beneran bisa dipakai.
+                // Abis toggle data seluler, ada jeda (DNS, rute IP dari
+                // BTS/operator settle) sebelum trafik BENERAN bisa lewat --
+                // reconnect yang dipicu terlalu dini di jendela itu cuma
+                // nyangkut lama di verifyTunnelReallyWorks() (connect socket
+                // "sukses" tapi trafik nyata belum lewat) sampai akhirnya
+                // gagal juga, alih-alih benar-benar mempercepat apa pun.
+                //
+                // NET_CAPABILITY_VALIDATED = sinyal OS Android SENDIRI yang
+                // muncul HANYA setelah Android SUDAH mengecek & memastikan
+                // internet beneran bisa dipakai di jaringan ini (captive
+                // portal check dsb) -- jauh lebih bisa dipercaya daripada
+                // sekadar onAvailable(). Fast-path percepat reconnect
+                // dipindah ke sini, digerbangi capability ini.
+                //
+                // Aman dipanggil berkali-kali untuk network yang sama (event
+                // ini memang bisa terpicu berulang buat alasan lain, mis.
+                // perubahan sinyal) -- begitu [reconnectDelayJob] sudah
+                // null (baik karena sudah pernah dipercepat DI SINI, atau
+                // memang sudah tidak ada reconnect yang lagi menunggu),
+                // percobaan berikutnya otomatis no-op.
+                if (!capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) return
                 val job = reconnectDelayJob
                 val config = pendingReconnectConfig
                 if (job != null && job.isActive && config != null) {
-                    DebugLog.d(TAG, "Mempercepat reconnect -- tidak perlu nunggu sisa backoff, jaringan sudah kembali")
+                    DebugLog.d(TAG, "Jaringan tervalidasi OS (bukan cuma radio nyala) -- mempercepat reconnect, tidak perlu nunggu sisa backoff")
                     job.cancel()
                     reconnectDelayJob = null
                     pendingReconnectConfig = null
