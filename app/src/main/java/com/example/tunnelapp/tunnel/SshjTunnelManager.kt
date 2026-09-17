@@ -339,7 +339,7 @@ class SshjTunnelManager : SshEngineHandle {
         // & UserAuth.getBanner()). CATATAN: sshj mengembalikan "" (bukan null)
         // kalau server tidak kirim banner sama sekali -- makanya dicek isNotBlank().
         client.userAuth.banner?.takeIf { it.isNotBlank() }?.let { banner ->
-            StatusBus.log("Server Message: ${StatusBus.summarizeLongText(banner)}")
+            StatusBus.log("Server Message:\n$banner")
         }
         StatusBus.success(StepId.SSH_AUTH)
         // PENTING (cegah bug "tunnel idle 15 detik lalu putus sendiri"):

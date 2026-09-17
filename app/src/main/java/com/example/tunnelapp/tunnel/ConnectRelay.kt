@@ -446,6 +446,21 @@ class ConnectRelay(
      * connect langsung ke server SSH -- TLS/payload/SSH selanjutnya jalan
      * seperti biasa di atasnya.
      */
+    /**
+     * FITUR BARU (permintaan user, "respon kode error dipersingkat jadi
+     * detailnya aja"): buang prefix versi protokol "HTTP/1.1 " dari baris
+     * status HTTP mentah sebelum ditulis ke Log -- cuma kode & alasannya
+     * (mis. "403 Forbidden") yang penting buat diagnosis user, versi
+     * protokolnya sendiri jarang relevan & cuma menambah panjang baris log
+     * tanpa menambah informasi baru. Baris yang tidak cocok pola status HTTP
+     * standar (mis. "tidak ada respons dari proxy") dikembalikan apa adanya,
+     * tidak dipotong/diubah.
+     */
+    private fun httpStatusDetail(statusLine: String): String {
+        val reason = Regex("""^HTTP/\d\.\d\s+(.+)$""").find(statusLine.trim())?.groupValues?.get(1)?.trim()
+        return reason?.ifBlank { statusLine } ?: statusLine
+    }
+
     @Throws(IOException::class)
     private fun sendProxyConnect(rawSocket: Socket) {
         val target = "${config.host}:${config.port}"
@@ -479,10 +494,10 @@ class ConnectRelay(
         val isSuccess = Regex("""^HTTP/\d\.\d\s+200\b""").containsMatchIn(statusLine)
         if (!isSuccess) {
             val shown = statusLine.ifBlank { "tidak ada respons dari proxy" }
-            StatusBus.log("Response: ${StatusBus.summarizeLongText(shown, maxLines = 1, maxCharsPerLine = 120)}")
+            StatusBus.log("Response: ${StatusBus.summarizeLongText(httpStatusDetail(shown), maxLines = 1, maxCharsPerLine = 120)}")
             throw IOException("Proxy menolak CONNECT ke $target: $shown")
         }
-        StatusBus.log("Response: ${StatusBus.summarizeLongText(statusLine, maxLines = 1, maxCharsPerLine = 120)}")
+        StatusBus.log("Response: ${StatusBus.summarizeLongText(httpStatusDetail(statusLine), maxLines = 1, maxCharsPerLine = 120)}")
         Log.i(TAG, "Proxy CONNECT ke $target sukses ($statusLine)")
     }
 
@@ -555,7 +570,7 @@ class ConnectRelay(
                         return rawLineBytes
                     }
                     if (line.isNotBlank() && Regex("""^HTTP/\d\.\d\s+\d{3}""").containsMatchIn(line)) {
-                        StatusBus.log("Response: ${StatusBus.summarizeLongText(line, maxLines = 1, maxCharsPerLine = 120)}")
+                        StatusBus.log("Response: ${StatusBus.summarizeLongText(httpStatusDetail(line), maxLines = 1, maxCharsPerLine = 120)}")
                     }
                     // Baris non-SSH lain (header HTTP seperti "Upgrade: websocket", dll)
                     // sengaja tidak ditampilkan supaya log tidak penuh sampah, dan MEMANG
