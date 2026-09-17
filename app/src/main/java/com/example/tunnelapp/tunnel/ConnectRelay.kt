@@ -329,7 +329,8 @@ class ConnectRelay(
 
                 sslSocket.startHandshake()
                 Log.i(TAG, "TLS handshake sukses (SNI: $sniHost)")
-                StatusBus.log(LogI18n.tlsHandshakeSuccess(sniHost, sslSocket.session.protocol, config.ignoreCertErrors))
+                val certNote = if (config.ignoreCertErrors) ", verifikasi sertifikat DINONAKTIFKAN" else ""
+                StatusBus.log("TLS handshake sukses (SNI: $sniHost, ${sslSocket.session.protocol}$certNote)")
                 StatusBus.success(StepId.TLS)
                 sslSocket
             } catch (e: Exception) {
@@ -492,7 +493,7 @@ class ConnectRelay(
 
         val isSuccess = Regex("""^HTTP/\d\.\d\s+200\b""").containsMatchIn(statusLine)
         if (!isSuccess) {
-            val shown = statusLine.ifBlank { LogI18n.noResponseFromProxy() }
+            val shown = statusLine.ifBlank { "tidak ada respons dari proxy" }
             StatusBus.log("Response: ${StatusBus.summarizeLongText(httpStatusDetail(shown), maxLines = 1, maxCharsPerLine = 120)}")
             throw IOException("Proxy menolak CONNECT ke $target: $shown")
         }
@@ -666,12 +667,11 @@ class ConnectRelay(
                 // KECUALI akun ini "terkunci total" (config.hideSensitiveLogs,
                 // lihat KDoc [ServerConfig.hideSensitiveLogs]), yang isi
                 // payload aslinya sengaja tidak pernah ditampilkan ke layar
-                // Log sama sekali -- cukup "Sending Payload" polos, tanpa
-                // placeholder/keterangan tambahan apa pun.
+                // Log sama sekali, cuma placeholder generik + jumlah byte.
                 if (config.hideSensitiveLogs) {
-                    StatusBus.log(LogI18n.sendingPayloadHidden())
+                    StatusBus.log("Sending Payload: [payload disembunyikan - akun terkunci]")
                 } else {
-                    StatusBus.log(LogI18n.sendingPayload(chunk.text.replace("\r\n", "[crlf]")))
+                    StatusBus.log("Sending Payload: ${chunk.text.replace("\r\n", "[crlf]")}")
                 }
                 val bytes = chunk.text.toByteArray(StandardCharsets.UTF_8)
                 out.write(bytes)

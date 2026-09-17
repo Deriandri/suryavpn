@@ -605,7 +605,7 @@ class MyVpnService : VpnService() {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onLost(network: Network) {
                 DebugLog.w(TAG, "Jaringan fisik device hilang (data seluler/WiFi mati) -- putus tunnel instan (tanpa grace period)")
-                handleTunnelDeath(LogI18n.deviceNetworkLost())
+                handleTunnelDeath("Jaringan device terputus (data/WiFi mati)")
             }
 
             override fun onUnavailable() {
@@ -751,7 +751,7 @@ class MyVpnService : VpnService() {
                     if (config != null) {
                         startVpn(config, ProfileStore.getActiveId(this))
                     } else {
-                        StatusBus.log(LogI18n.noSavedAccountForConnect())
+                        StatusBus.log("Tidak ada akun tersimpan untuk Connect dari notifikasi.")
                     }
                 }
                 return START_STICKY
@@ -765,7 +765,7 @@ class MyVpnService : VpnService() {
                     if (config != null) {
                         startVpn(config, ProfileStore.getActiveId(this))
                     } else {
-                        StatusBus.log(LogI18n.noSavedAccountForReconnect())
+                        StatusBus.log("Tidak ada akun tersimpan untuk Reconnect dari notifikasi.")
                     }
                     return START_STICKY
                 }
@@ -987,7 +987,7 @@ class MyVpnService : VpnService() {
         // Android 14 (UP1A.231005.007) API 34. Version 1.0.26 Build 32."
         StatusBus.log(deviceInfoBanner())
         StatusBus.initSteps(buildStepsFor(config))
-        StatusBus.state.value = LogI18n.creatingTunInterface()
+        StatusBus.state.value = "Membuat antarmuka VPN (TUN)..."
 
         // FIX (race di atas): kalau masih ada shutdownJob dari stopVpn()
         // sebelumnya yang belum kelar, tunggu dulu (maks TEARDOWN_STEP_TIMEOUT_MS)
@@ -998,7 +998,7 @@ class MyVpnService : VpnService() {
         val pendingShutdown = shutdownJob
         serviceScope.launch {
             if (pendingShutdown != null && pendingShutdown.isActive) {
-                StatusBus.log(LogI18n.waitingForPreviousDisconnect())
+                StatusBus.log("Menunggu proses disconnect sebelumnya selesai...")
                 withTimeoutOrNull(TEARDOWN_STEP_TIMEOUT_MS) { pendingShutdown.join() }
             }
 
@@ -1040,7 +1040,7 @@ class MyVpnService : VpnService() {
                 DebugLog.e(TAG, "Gagal membuat TUN interface", e)
                 StatusBus.fail(StepId.TUN, e.message ?: e.javaClass.simpleName)
                 StatusBus.skipRemainingPending()
-                StatusBus.state.value = LogI18n.failedToCreateTunInterface(e.message)
+                StatusBus.state.value = "Gagal membuat TUN interface: ${e.message}"
                 startInProgress.set(false)
                 stopSelf()
                 return@launch
@@ -1049,7 +1049,7 @@ class MyVpnService : VpnService() {
 
             Log.i(TAG, "TUN interface berhasil dibuat")
             registerNetworkWatcher()
-            StatusBus.state.value = LogI18n.connectingToHostPort(config.host, config.port)
+            StatusBus.state.value = "Menghubungkan ke ${config.host}:${config.port}..."
 
             establishTunnel(config, isReconnect = false)
         }
@@ -1111,7 +1111,7 @@ class MyVpnService : VpnService() {
                 addedAny = true
             } catch (e: IllegalArgumentException) {
                 DebugLog.w(TAG, "$label \"$value\" bukan alamat IP valid, diabaikan", e)
-                StatusBus.log(LogI18n.invalidDnsIpIgnored(label, value))
+                StatusBus.log("$label \"$value\" bukan alamat IP valid -- diabaikan")
             }
         }
         if (!addedAny) {
@@ -1121,7 +1121,7 @@ class MyVpnService : VpnService() {
                 // Xray-core sudah resolve DNS default-nya sendiri secara
                 // internal (XrayTunnelManager.resolveDnsAddr), independen
                 // dari builder ini.
-                StatusBus.log(LogI18n.dnsEmptyXrayInternalResolver())
+                StatusBus.log("[DNS] DNS1/DNS2 kosong -- mode Xray pakai resolver DNS internal Xray sendiri (bukan TUN)")
             } else if (vpnSettings.dnsFallbackEnabled) {
                 // DNS1/DNS2 per-server kosong -- pasang DNS default supaya
                 // resolusi domain tidak gagal total ("connect tapi internet
@@ -1133,16 +1133,16 @@ class MyVpnService : VpnService() {
                 val effectiveDefaultDns = vpnSettings.defaultDns.trim().ifEmpty { DEFAULT_DNS }
                 try {
                     builder.addDnsServer(effectiveDefaultDns)
-                    StatusBus.log(LogI18n.dnsEmptyUsingDefault(effectiveDefaultDns))
+                    StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $effectiveDefaultDns")
                 } catch (e: IllegalArgumentException) {
                     DebugLog.w(TAG, "DNS default \"$effectiveDefaultDns\" gagal dipasang ke TUN", e)
-                    StatusBus.log(LogI18n.dnsEmptyDefaultFailed(effectiveDefaultDns))
+                    StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $effectiveDefaultDns gagal dipasang -- TIDAK ada DNS di TUN")
                 }
             } else {
                 // User mematikan switch "DNS Default Otomatis" -- TIDAK ADA
                 // addDnsServer() dipanggil sama sekali. Lihat catatan risiko
                 // di kdoc applyDnsServers().
-                StatusBus.log(LogI18n.dnsEmptyAndDefaultDisabled())
+                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS Default Otomatis dimatikan -- TIDAK ada DNS dipasang ke TUN")
             }
         }
 
@@ -1257,7 +1257,7 @@ class MyVpnService : VpnService() {
                     // bukan java.net.Socket seperti jalur SSH -- pakai overload
                     // VpnService.protect(fd: Int) langsung.
                     xrayTunnelManager.connect(config) { fd -> protect(fd) }
-                    StatusBus.state.value = LogI18n.xrayConnectedActivatingTunnel()
+                    StatusBus.state.value = "Xray-core tersambung. Mengaktifkan tunnel..."
                     updateNotification("Xray-core aktif")
                 } else {
                     sshTunnelManager.connect(
@@ -1281,7 +1281,7 @@ class MyVpnService : VpnService() {
                         compressionEnabled = compressionEnabled,
                         onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }
                     )
-                    StatusBus.state.value = LogI18n.sshConnectedActivatingTunnel()
+                    StatusBus.state.value = "SSH tersambung. Mengaktifkan tunnel..."
                     updateNotification("SSH tersambung ke ${config.host}")
                 }
 
@@ -1359,7 +1359,9 @@ class MyVpnService : VpnService() {
                 // mahal daripada di sini.
                 val reachable = verifyTunnelReallyWorks(config.socksPort, attempts = 1)
                 if (!reachable) {
-                    val reason = LogI18n.tunnelUpNoRealTraffic()
+                    val reason = "Tunnel nyala tapi tidak ada trafik nyata yang balik lewat tunnel " +
+                        "-- kemungkinan jaringan device mati, ATAU akun/kredensial server " +
+                        "sudah tidak valid/expired"
                     // Tandai step ini ERROR secara eksplisit -- tanpa ini, step yang
                     // masih RUNNING (spinner) bakal nyangkut selamanya di layar Log,
                     // karena skipRemainingPending() di catch block cuma menyentuh
@@ -1375,7 +1377,7 @@ class MyVpnService : VpnService() {
                 // benar-benar sukses, jadi Log terlihat "berhenti di situ"
                 // padahal sebenarnya sudah terverifikasi aktif. Tambahkan event
                 // nyata di sini supaya Log merefleksikan status sebenarnya.
-                StatusBus.log(LogI18n.tunnelActiveVerified())
+                StatusBus.log("Tunnel aktif — verifikasi trafik nyata berhasil, semua koneksi device lewat tunnel.")
                 if (checkStoppedMidway(tunEngine)) return@launch
 
                 // Nyalakan proxy HTTP lokal tambahan kalau diisi user (VPN
@@ -1389,10 +1391,10 @@ class MyVpnService : VpnService() {
                         httpProxyServer = HttpProxyServer().apply {
                             start(vpnSettingsForHttpProxy.httpPort, config.socksPort)
                         }
-                        StatusBus.log(LogI18n.localHttpProxyActive(vpnSettingsForHttpProxy.httpPort))
+                        StatusBus.log("Proxy HTTP lokal aktif di 127.0.0.1:${vpnSettingsForHttpProxy.httpPort}")
                     } catch (e: Exception) {
                         DebugLog.e(TAG, "Gagal menyalakan proxy HTTP lokal", e)
-                        StatusBus.log(LogI18n.localHttpProxyFailed(vpnSettingsForHttpProxy.httpPort, e.message))
+                        StatusBus.log("Proxy HTTP lokal GAGAL dinyalakan di port ${vpnSettingsForHttpProxy.httpPort}: ${e.message}")
                         httpProxyServer = null
                     }
                 }
@@ -1404,7 +1406,7 @@ class MyVpnService : VpnService() {
                 startWatchdog(config)
                 startPingLoop(config)
 
-                StatusBus.state.value = LogI18n.tunnelActiveAllTrafficViaSsh()
+                StatusBus.state.value = "Tunnel aktif — semua trafik device lewat SSH"
                 updateNotification("Tunnel aktif (${displayHost(config)})")
             } catch (e: Exception) {
                 // Kalau exception ini muncul GARA-GARA kita sendiri sedang
@@ -1418,7 +1420,7 @@ class MyVpnService : VpnService() {
                 StatusBus.skipRemainingPending()
                 // Pakai pesan dari tahap yang benar-benar gagal (lebih akurat)
                 // kalau ada, baru fallback ke pesan exception generik.
-                val reason = LogI18n.humanizeReason(StatusBus.firstErrorDetail() ?: e.message ?: e.javaClass.simpleName)
+                val reason = StatusBus.firstErrorDetail() ?: e.message ?: e.javaClass.simpleName
 
                 // FIX BUG "banner reconnect otomatis nongol duluan / state korup
                 // & crash saat connect ulang": sshTunnelManager.disconnect() di
@@ -1471,7 +1473,7 @@ class MyVpnService : VpnService() {
                 }
 
                 if (isReconnect) {
-                    scheduleReconnectOrGiveUp(LogI18n.reconnectFailedReason(reason))
+                    scheduleReconnectOrGiveUp("Reconnect gagal: $reason")
                 } else {
                     // FIX (laporan user): sebelumnya kegagalan connect awal
                     // (bukan reconnect) cuma nge-update StatusBus.state, jadi
@@ -1480,8 +1482,8 @@ class MyVpnService : VpnService() {
                     // yang benar-benar tertulis ke liveLog. Sama seperti fix
                     // sebelumnya untuk jalur sukses, di sini juga perlu event
                     // nyata ke Log supaya konsisten dengan status akhirnya.
-                    StatusBus.log(LogI18n.failedReason(reason))
-                    StatusBus.state.value = LogI18n.failedReason(reason)
+                    StatusBus.log("Gagal: $reason")
+                    StatusBus.state.value = "Gagal: $reason"
                     stopVpn()
                 }
             }
@@ -1562,8 +1564,8 @@ class MyVpnService : VpnService() {
         }
 
         if (!currentAutoReconnect) {
-            StatusBus.log(LogI18n.tunnelDisconnectedAutoReconnectOff(reason))
-            StatusBus.state.value = LogI18n.stateDisconnectedAutoReconnectOff(reason)
+            StatusBus.log("Tunnel terputus ($reason) -- auto reconnect nonaktif (VPN Setting), tidak mencoba nyambung ulang")
+            StatusBus.state.value = "Terputus: tunnel mati ($reason), auto reconnect nonaktif"
             stopVpn()
             return
         }
@@ -1577,17 +1579,17 @@ class MyVpnService : VpnService() {
         // begitu kelewat MAX_TOTAL_RECONNECT_ATTEMPTS, app berhenti TOTAL.
         totalReconnectAttempts++
         if (totalReconnectAttempts > MAX_TOTAL_RECONNECT_ATTEMPTS) {
-            StatusBus.log(LogI18n.tunnelDisconnectedGivingUp(reason, MAX_TOTAL_RECONNECT_ATTEMPTS))
-            StatusBus.state.value = LogI18n.stateReconnectFailedStopped(MAX_TOTAL_RECONNECT_ATTEMPTS)
-            updateNotification(LogI18n.notificationReconnectFailedStopped(MAX_TOTAL_RECONNECT_ATTEMPTS))
+            StatusBus.log("Tunnel terputus ($reason) -- sudah $MAX_TOTAL_RECONNECT_ATTEMPTS kali percobaan reconnect, menyerah & berhenti total")
+            StatusBus.state.value = "Terputus: reconnect gagal $MAX_TOTAL_RECONNECT_ATTEMPTS kali, dihentikan"
+            updateNotification("Reconnect gagal $MAX_TOTAL_RECONNECT_ATTEMPTS kali -- dihentikan")
             stopVpn()
             return
         }
 
         val configToUse = lastConfig ?: config
-        StatusBus.log(LogI18n.tunnelDisconnectedRetrying(reason, totalReconnectAttempts, MAX_TOTAL_RECONNECT_ATTEMPTS, RECONNECT_ATTEMPT_DELAY_MS / 1000))
-        StatusBus.state.value = LogI18n.stateReconnecting(totalReconnectAttempts, MAX_TOTAL_RECONNECT_ATTEMPTS)
-        updateNotification(LogI18n.notificationReconnecting(totalReconnectAttempts, MAX_TOTAL_RECONNECT_ATTEMPTS))
+        StatusBus.log("Tunnel terputus ($reason) -- reconnect otomatis percobaan $totalReconnectAttempts/$MAX_TOTAL_RECONNECT_ATTEMPTS dalam ${RECONNECT_ATTEMPT_DELAY_MS / 1000}s")
+        StatusBus.state.value = "Tunnel terputus — reconnect otomatis (percobaan $totalReconnectAttempts/$MAX_TOTAL_RECONNECT_ATTEMPTS)..."
+        updateNotification("Reconnect otomatis (percobaan $totalReconnectAttempts/$MAX_TOTAL_RECONNECT_ATTEMPTS)...")
 
         pendingReconnectConfig = configToUse
         reconnectDelayJob = serviceScope.launch {
@@ -2314,8 +2316,8 @@ class MyVpnService : VpnService() {
 
         // Jangan timpa pesan "Gagal: ..." yang sudah lebih spesifik kalau
         // stopVpn() ini dipanggil akibat error, bukan disconnect manual.
-        if (!LogI18n.isFailedState(StatusBus.state.value)) {
-            StatusBus.state.value = LogI18n.disconnectingState()
+        if (!StatusBus.state.value.startsWith("Gagal")) {
+            StatusBus.state.value = "Memutuskan..."
         }
         // FIX: sebelumnya stopVpn() cuma update StatusBus.state, sedangkan
         // layar Log (Tahapan Koneksi + Terminal) murni mengikuti
@@ -2324,7 +2326,7 @@ class MyVpnService : VpnService() {
         // connect (seolah beku/tidak real), dan tahap yang masih RUNNING
         // (spinner) nyangkut selamanya. Sekarang kirim event nyata ke
         // liveLog + tandai tahap yang belum selesai.
-        StatusBus.log(LogI18n.disconnectingByUser())
+        StatusBus.log("Memutuskan tunnel (diminta pengguna)...")
         // FIX: pakai markDisconnected() (bukan markInterrupted()) supaya tahap
         // yang sudah SUCCESS ikut direset -- lihat catatan di StatusBus.kt.
         // markInterrupted() saja tidak cukup kalau disconnect dipanggil SETELAH
@@ -2383,15 +2385,15 @@ class MyVpnService : VpnService() {
             runBlockingWithTimeout("sshTunnelManager.disconnect()") { sshTunnelManager.disconnect() }
             runBlockingWithTimeout("xrayTunnelManager.disconnect()") { xrayTunnelManager.disconnect() }
 
-            if (!LogI18n.isFailedState(StatusBus.state.value)) {
-                StatusBus.state.value = LogI18n.disconnectedState()
+            if (!StatusBus.state.value.startsWith("Gagal")) {
+                StatusBus.state.value = "Terputus"
             }
             // Baris log terakhir yang menandakan tunnel BENAR-BENAR sudah
             // ditutup (engine, SSH/Xray, dan TUN interface semua sudah
             // dibongkar) -- ini yang bikin layar Log terasa "real": ada
             // event baru yang muncul persis saat status berubah jadi
             // Terputus, bukan cuma diam di baris terakhir sebelum stop.
-            StatusBus.log(LogI18n.tunnelDisconnectedAllClosed())
+            StatusBus.log("Tunnel terputus, semua koneksi ditutup.")
             // stopForeground()/stopSelf() aman dipanggil dari thread mana pun.
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
