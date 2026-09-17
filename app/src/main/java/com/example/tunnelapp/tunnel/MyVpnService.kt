@@ -137,6 +137,10 @@ class MyVpnService : VpnService() {
         const val EXTRA_IGNORE_CERT_ERRORS = "extra_ignore_cert_errors"
         const val EXTRA_DNS1 = "extra_dns1"
         const val EXTRA_DNS2 = "extra_dns2"
+        // FITUR BARU (permintaan user, "sembunyikan payload di Log untuk akun
+        // terkunci total"): true kalau akun aktif lockMode-nya LOCK_ALL --
+        // lihat KDoc [ServerConfig.hideSensitiveLogs] & DashboardMainFragment.
+        const val EXTRA_HIDE_SENSITIVE_LOGS = "extra_hide_sensitive_logs"
         // FIX/FITUR BARU (fallback akun cadangan): id profil ProfileStore yang
         // lagi dipakai -- dikirim dari DashboardMainFragment supaya
         // MyVpnService tahu profil mana yang HARUS DIKECUALIKAN saat menyusun
@@ -819,7 +823,8 @@ class MyVpnService : VpnService() {
                     customHeaders = intent.getStringExtra(EXTRA_CUSTOM_HEADERS),
                     ignoreCertErrors = intent.getBooleanExtra(EXTRA_IGNORE_CERT_ERRORS, false),
                     dns1 = intent.getStringExtra(EXTRA_DNS1),
-                    dns2 = intent.getStringExtra(EXTRA_DNS2)
+                    dns2 = intent.getStringExtra(EXTRA_DNS2),
+                    hideSensitiveLogs = intent.getBooleanExtra(EXTRA_HIDE_SENSITIVE_LOGS, false)
                 )
                 startVpn(config, intent.getStringExtra(EXTRA_PROFILE_ID))
                 return START_STICKY

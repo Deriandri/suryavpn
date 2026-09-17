@@ -284,7 +284,17 @@ data class ServerConfig(
     val ignoreCertErrors: Boolean = false,
     val dns1: String? = null,
     val dns2: String? = null,
-    val udpgwPort: Int = 0
+    val udpgwPort: Int = 0,
+    // FITUR BARU (permintaan user, "sembunyikan payload di Log untuk akun
+    // terkunci total"): true kalau [SavedConfig.lockMode] akun ini adalah
+    // [ConfigLockMode.LOCK_ALL] -- lihat [toServerConfigOrNull] &
+    // DashboardMainFragment.onConnectClicked() untuk cara field ini diisi.
+    // Dipakai [com.example.tunnelapp.tunnel.ConnectRelay] supaya baris
+    // "Sending Payload: ..." di halaman Log diganti placeholder, bukan isi
+    // payload asli, untuk akun yang memang sengaja dikunci total (mis. akun
+    // hasil impor dari penjual konfig) -- akun biasa/tidak terkunci tetap
+    // menampilkan payload apa adanya seperti sebelumnya.
+    val hideSensitiveLogs: Boolean = false
 ) {
     /**
      * Parse [customHeaders] jadi daftar pasangan (nama, nilai) siap pakai,
@@ -415,7 +425,9 @@ fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
         if (xrayLink.isBlank()) return null
         return ServerConfig(
             host = "", username = "", mode = ConnectionMode.XRAY,
-            xrayLink = xrayLink, dns1 = dns1, dns2 = dns2
+            xrayLink = xrayLink, dns1 = dns1, dns2 = dns2,
+            hideSensitiveLogs = lockMode == ConfigLockMode.LOCK_ALL ||
+                lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY
         )
     }
 
@@ -455,6 +467,8 @@ fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
         customHeaders = customHeaders,
         ignoreCertErrors = ignoreCertErrors,
         dns1 = dns1,
-        dns2 = dns2
+        dns2 = dns2,
+        hideSensitiveLogs = lockMode == ConfigLockMode.LOCK_ALL ||
+            lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY
     )
 }

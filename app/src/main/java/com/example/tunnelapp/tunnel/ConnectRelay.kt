@@ -479,10 +479,10 @@ class ConnectRelay(
         val isSuccess = Regex("""^HTTP/\d\.\d\s+200\b""").containsMatchIn(statusLine)
         if (!isSuccess) {
             val shown = statusLine.ifBlank { "tidak ada respons dari proxy" }
-            StatusBus.log("Response: $shown")
+            StatusBus.log("Response: ${StatusBus.summarizeLongText(shown, maxLines = 1, maxCharsPerLine = 120)}")
             throw IOException("Proxy menolak CONNECT ke $target: $shown")
         }
-        StatusBus.log("Response: $statusLine")
+        StatusBus.log("Response: ${StatusBus.summarizeLongText(statusLine, maxLines = 1, maxCharsPerLine = 120)}")
         Log.i(TAG, "Proxy CONNECT ke $target sukses ($statusLine)")
     }
 
@@ -555,7 +555,7 @@ class ConnectRelay(
                         return rawLineBytes
                     }
                     if (line.isNotBlank() && Regex("""^HTTP/\d\.\d\s+\d{3}""").containsMatchIn(line)) {
-                        StatusBus.log("Response: $line")
+                        StatusBus.log("Response: ${StatusBus.summarizeLongText(line, maxLines = 1, maxCharsPerLine = 120)}")
                     }
                     // Baris non-SSH lain (header HTTP seperti "Upgrade: websocket", dll)
                     // sengaja tidak ditampilkan supaya log tidak penuh sampah, dan MEMANG
@@ -648,8 +648,16 @@ class ConnectRelay(
             if (chunk.text.isNotEmpty()) {
                 // Log APA ADANYA (isi payload yang betul-betul dikirim ke socket,
                 // cuma \r\n ditulis balik jadi "[crlf]" biar kebaca di layar --
-                // sama seperti tampilan DarkTunnel), bukan teks pura-pura.
-                StatusBus.log("Sending Payload: ${chunk.text.replace("\r\n", "[crlf]")}")
+                // sama seperti tampilan DarkTunnel), bukan teks pura-pura --
+                // KECUALI akun ini "terkunci total" (config.hideSensitiveLogs,
+                // lihat KDoc [ServerConfig.hideSensitiveLogs]), yang isi
+                // payload aslinya sengaja tidak pernah ditampilkan ke layar
+                // Log sama sekali, cuma placeholder generik + jumlah byte.
+                if (config.hideSensitiveLogs) {
+                    StatusBus.log("Sending Payload: [payload disembunyikan - akun terkunci]")
+                } else {
+                    StatusBus.log("Sending Payload: ${chunk.text.replace("\r\n", "[crlf]")}")
+                }
                 val bytes = chunk.text.toByteArray(StandardCharsets.UTF_8)
                 out.write(bytes)
                 out.flush()

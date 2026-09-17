@@ -18,6 +18,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.example.tunnelapp.databinding.FragmentDashboardMainBinding
 import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.ConnectionMode
+import com.example.tunnelapp.model.ConfigLockMode
 import com.example.tunnelapp.tunnel.ConnectionStep
 import com.example.tunnelapp.tunnel.MyVpnService
 import com.example.tunnelapp.tunnel.StatusBus
@@ -77,6 +78,10 @@ class DashboardMainFragment : Fragment() {
         val ignoreCertErrors: Boolean,
         val dns1: String,
         val dns2: String,
+        // FITUR BARU (permintaan user, "sembunyikan payload di Log untuk akun
+        // terkunci total"): diteruskan ke Service lewat
+        // EXTRA_HIDE_SENSITIVE_LOGS -- lihat KDoc [ServerConfig.hideSensitiveLogs].
+        val hideSensitiveLogs: Boolean,
         // FIX/FITUR BARU (fallback akun cadangan di MyVpnService): id profil
         // ProfileStore yang dipakai request Connect ini -- diteruskan ke
         // Service lewat EXTRA_PROFILE_ID supaya dia tahu profil mana yang
@@ -500,6 +505,8 @@ class DashboardMainFragment : Fragment() {
                     useWebSocket = false, wsPath = "", proxyRawMode = false, xrayLink = saved.xrayLink,
                     customHeaders = "", ignoreCertErrors = false,
                     dns1 = saved.dns1, dns2 = saved.dns2,
+                    hideSensitiveLogs = saved.lockMode == ConfigLockMode.LOCK_ALL ||
+                        saved.lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY,
                     profileId = activeProfile.id
                 )
             )
@@ -555,6 +562,8 @@ class DashboardMainFragment : Fragment() {
                 ignoreCertErrors = saved.ignoreCertErrors,
                 dns1 = saved.dns1,
                 dns2 = saved.dns2,
+                hideSensitiveLogs = saved.lockMode == ConfigLockMode.LOCK_ALL ||
+                    saved.lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY,
                 profileId = activeProfile.id
             )
         )
@@ -603,6 +612,7 @@ class DashboardMainFragment : Fragment() {
             putExtra(MyVpnService.EXTRA_IGNORE_CERT_ERRORS, c.ignoreCertErrors)
             if (c.dns1.isNotEmpty()) putExtra(MyVpnService.EXTRA_DNS1, c.dns1)
             if (c.dns2.isNotEmpty()) putExtra(MyVpnService.EXTRA_DNS2, c.dns2)
+            putExtra(MyVpnService.EXTRA_HIDE_SENSITIVE_LOGS, c.hideSensitiveLogs)
             if (!c.profileId.isNullOrEmpty()) putExtra(MyVpnService.EXTRA_PROFILE_ID, c.profileId)
         }
         ctx.startForegroundService(intent)

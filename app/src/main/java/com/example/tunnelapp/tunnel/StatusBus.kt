@@ -61,6 +61,37 @@ object StatusBus {
         liveLog.value = emptyList()
     }
 
+    /**
+     * FITUR BARU (permintaan user, "log kepanjangan, ringkas baris respons
+     * mentah dari server jadi detail pastinya aja"): dipakai SEBELUM baris
+     * respons mentah dari server (mis. banner SSH_MSG_USERAUTH_BANNER a.k.a.
+     * "Server Message" di SshjTunnelManager, yang kadang berisi ASCII art
+     * panjang/rules/iklan dari penjual konfig, lihat contoh di screenshot
+     * user) ditulis ke [log] -- BUKAN untuk baris log biasa (status koneksi,
+     * error singkat, dll) yang memang sudah singkat dari sononya, itu tetap
+     * dilog apa adanya seperti sebelumnya.
+     *
+     * Aturan ringkas: ambil maksimal [maxLines] baris pertama yang tidak
+     * kosong, masing-masing dipotong ke [maxCharsPerLine] karakter kalau
+     * lebih panjang -- sisanya (baris & karakter yang dibuang) diringkas jadi
+     * SATU baris penutup "... (+N baris lagi)" supaya user tetap tahu ada
+     * bagian yang dipotong (bukan cuma hilang diam-diam tanpa jejak), tanpa
+     * bikin layar Log penuh ASCII art/teks panjang yang tidak penting.
+     */
+    fun summarizeLongText(raw: String, maxLines: Int = 4, maxCharsPerLine: Int = 80): String {
+        val lines = raw.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        if (lines.isEmpty()) return raw.trim()
+        val kept = lines.take(maxLines).map {
+            if (it.length > maxCharsPerLine) it.take(maxCharsPerLine) + "..." else it
+        }
+        val remainingLines = lines.size - kept.size
+        return if (remainingLines > 0) {
+            (kept + "... (+$remainingLines baris lagi)").joinToString("\n")
+        } else {
+            kept.joinToString("\n")
+        }
+    }
+
     fun initSteps(newSteps: List<ConnectionStep>) {
         steps.value = newSteps
     }
