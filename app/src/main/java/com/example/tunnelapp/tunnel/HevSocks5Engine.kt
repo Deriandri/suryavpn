@@ -1,5 +1,6 @@
 package com.example.tunnelapp.tunnel
 
+import android.os.Process
 import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -43,13 +44,25 @@ class HevSocks5Engine : TunEngine {
         // [NATIVE_STOP_WAIT_MS]) sampai berhasil mengambil "slot" native
         // lewat [nativeThreadAlive].compareAndSet(false, true) -- slot itu
         // cuma dilepas (di-set false) DARI DALAM thread native itu sendiri
-        // setelah startTunnel() benar-benar return. Kalau tetap tidak
-        // kebagian slot setelah menunggu, start() MENOLAK (throw biasa)
-        // daripada memaksa panggilan kedua yang berisiko crash -- exception
-        // ini otomatis ditangkap try/catch di
-        // MyVpnService.establishTunnel() dan diperlakukan sebagai percobaan
-        // gagal biasa lewat handleTunnelDeath()/scheduleReconnectOrGiveUp()
-        // yang sudah ada, BUKAN crash.
+        // setelah startTunnel() benar-benar return.
+        //
+        // UPDATE (laporan user setelah fix di atas dipasang): ternyata di
+        // build native ini, begitu thread native macet, dia macet
+        // PERMANEN -- HevSocks5Bridge.stopTunnel() tidak pernah benar-benar
+        // membuatnya return (kemungkinan native-nya nyangkut di blocking
+        // read/epoll yang tidak pernah bangun lagi begitu interface fisik
+        // sudah ditutup duluan). Akibatnya [nativeThreadAlive] TIDAK PERNAH
+        // balik ke false lagi SELAMANYA dalam proses yang sama -- kalau
+        // start() cuma throw biasa di sini, app jadi macet permanen: user
+        // tekan Connect lagi pun SELALU gagal dengan pesan yang sama,
+        // walaupun tunnel lama sudah lama mati & TUN interface baru sudah
+        // siap. Satu-satunya cara aman memulihkan state native yang GLOBAL
+        // per-proses ini adalah proses baru dari nol -- jadi begitu batas
+        // waktu ini kelewat, app SENGAJA bunuh proses sendiri
+        // (Process.killProcess) daripada membiarkan user terjebak di loop
+        // gagal-terus tanpa jalan keluar selain force-stop manual dari
+        // Pengaturan Android. User perlu buka ulang app sekali setelah ini
+        // -- static state akan bersih lagi di proses baru.
         private val nativeThreadAlive = AtomicBoolean(false)
         private const val NATIVE_STOP_WAIT_MS = 4000L
         private const val NATIVE_STOP_POLL_MS = 100L
@@ -77,11 +90,23 @@ class HevSocks5Engine : TunEngine {
         val deadline = System.currentTimeMillis() + NATIVE_STOP_WAIT_MS
         while (!nativeThreadAlive.compareAndSet(false, true)) {
             if (System.currentTimeMillis() >= deadline) {
-                throw IllegalStateException(
-                    "hev-socks5-tunnel sebelumnya belum benar-benar berhenti setelah " +
-                        "${NATIVE_STOP_WAIT_MS}ms -- menolak start baru untuk mencegah " +
-                        "crash native (dua startTunnel() jalan bersamaan)"
+                // Macet PERMANEN, bukan cuma lambat -- lihat catatan
+                // panjang "UPDATE" di companion object. Log dulu (SINKRON,
+                // langsung ke disk lewat DebugLog.e) supaya kelihatan di
+                // Log Debug pas app dibuka ulang, baru bunuh proses.
+                DebugLog.e(
+                    TAG,
+                    "hev-socks5-tunnel sebelumnya MACET PERMANEN (tidak selesai " +
+                        "setelah ${NATIVE_STOP_WAIT_MS}ms) -- memaksa restart proses " +
+                        "total untuk memulihkan state native yang global. Buka ulang " +
+                        "app untuk sambung lagi."
                 )
+                Process.killProcess(Process.myPid())
+                // Baris di bawah tidak akan pernah tereksekusi -- killProcess()
+                // di atas langsung mematikan proses ini. Cuma buat memenuhi
+                // tipe Kotlin (compiler tidak tahu killProcess() tidak pernah
+                // return secara normal).
+                throw IllegalStateException("Proses dihentikan paksa (native tunnel macet permanen)")
             }
             Thread.sleep(NATIVE_STOP_POLL_MS)
         }
