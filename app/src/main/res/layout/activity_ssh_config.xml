@@ -98,6 +98,22 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Payload + Remote Proxy" />
+
+                    <!-- FITUR BARU (permintaan user): tombol/chip untuk mengaktifkan
+                         modeIndex 4 / ConnectionMode.ENHANCED yang SEBELUMNYA ada di
+                         model (ServerConfig.kt) tapi tidak bisa dipilih dari UI sama
+                         sekali (chipSshEnhanced yang sudah ada sebenarnya modeIndex 2,
+                         SSH TLS Payload Proxy -- lihat SshConfigActivity.currentModeIndex).
+                         Beda dari mode 2: proxy/CDN di sini WAJIB diisi begitu Raw
+                         Passthrough aktif (bukan cuma opsional), dan Raw Passthrough
+                         menyala default begitu chip ini dipilih -- lihat dokumentasi
+                         ConnectionMode.ENHANCED. -->
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipEnhanced"
+                        style="@style/Widget.TunnelApp.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Enhanced" />
                 </com.google.android.material.chip.ChipGroup>
 
                 <com.google.android.material.textfield.TextInputLayout

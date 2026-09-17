@@ -437,14 +437,19 @@ fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
         1 -> ConnectionMode.SSH_SSL
         2 -> ConnectionMode.SSH_SSL_PAYLOAD
         3 -> ConnectionMode.REMOTE_PROXY
+        4 -> ConnectionMode.ENHANCED
         else -> ConnectionMode.SSH
     }
-    val usesPayload = modeIndex == 2 || modeIndex == 3
+    val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
     // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi dari
     // usesProxy -- lihat ServerConfig.usesProxy().
-    val usesProxy = modeIndex == 2 || modeIndex == 3
+    // modeIndex 4 (ENHANCED) ditambahkan supaya konsisten dengan
+    // ServerConfig.usesProxy()/usesTls() -- lihat dokumentasi di sana. Proxy-nya
+    // tetap opsional (falls back ke "" kalau proxyHost kosong, sama seperti
+    // modeIndex 2), bukan wajib seperti REMOTE_PROXY.
+    val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
     val proxyRawModeResolved = usesProxy && proxyRawMode
-    val usesTls = modeIndex == 1 || modeIndex == 2
+    val usesTls = modeIndex == 1 || modeIndex == 2 || modeIndex == 4
 
     if (usesProxy && proxyRawModeResolved && proxyHost.isBlank()) return null
     if (modeIndex == 3 && proxyHost.isBlank()) return null

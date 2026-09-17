@@ -199,8 +199,12 @@ class SshConfigActivity : AppCompatActivity() {
         // sebagai default (belum pernah dikonfigurasi SSH-nya).
         val chip = when (saved.modeIndex) {
             1 -> binding.chipSshSsl
-            2, 4 -> binding.chipSshEnhanced
+            2 -> binding.chipSshEnhanced
             3 -> binding.chipPayloadRemoteProxy
+            // FITUR BARU (permintaan user): modeIndex 4 sekarang punya chip sendiri
+            // (chipEnhanced) -- sebelumnya digabung ke chipSshEnhanced (modeIndex 2)
+            // karena memang belum ada tombol terpisah untuk ConnectionMode.ENHANCED asli.
+            4 -> binding.chipEnhanced
             else -> binding.chipSsh
         }
         chip.isChecked = true
@@ -309,7 +313,10 @@ class SshConfigActivity : AppCompatActivity() {
         val modeIndex = currentModeIndex()
         // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
         // mode ini tidak lagi punya Remote Proxy sama sekali, lihat updateFieldVisibilityForMode().
-        if ((modeIndex == 2 || modeIndex == 3) &&
+        // modeIndex 4 (Enhanced, chip baru) ikut disertakan di sini -- sesuai
+        // dokumentasi ConnectionMode.ENHANCED, varian Raw Passthrough (CDN) memang
+        // default aktif begitu chip Enhanced dipilih.
+        if ((modeIndex == 2 || modeIndex == 3 || modeIndex == 4) &&
             !rawModeHasExplicitValue && !binding.chipRawMode.isChecked
         ) {
             settingRawModeProgrammatically = true
@@ -333,6 +340,10 @@ class SshConfigActivity : AppCompatActivity() {
      * default (lihat applyDefaultRawModeForEnhancedIfNeeded).
      */
     private fun currentModeIndex(): Int = when {
+        // FITUR BARU (permintaan user): chip Enhanced -> modeIndex 4, mengaktifkan
+        // ConnectionMode.ENHANCED yang asli (beda dari chipSshEnhanced/modeIndex 2,
+        // lihat dokumentasi ConnectionMode.ENHANCED di ServerConfig.kt).
+        binding.chipEnhanced.isChecked -> 4
         binding.chipPayloadRemoteProxy.isChecked -> 3
         binding.chipSshEnhanced.isChecked -> 2
         binding.chipSshSsl.isChecked -> 1
@@ -340,21 +351,25 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     private fun proxyRawModeEnabled(): Boolean =
-        (currentModeIndex() == 2 || currentModeIndex() == 3) &&
+        (currentModeIndex() == 2 || currentModeIndex() == 3 || currentModeIndex() == 4) &&
             binding.chipRawMode.isChecked
 
-    /** Mode 3 pakai TLS/SNI kecuali Raw Passthrough dinyalakan -- lihat [currentModeIndex]. */
+    /** Mode 3 pakai TLS/SNI kecuali Raw Passthrough dinyalakan; mode 4 (Enhanced)
+     *  SELALU pakai TLS apa pun status Raw Passthrough-nya -- lihat [currentModeIndex]
+     *  & dokumentasi ConnectionMode.ENHANCED (TLS selalu aktif). */
     private fun usesTlsForMode(modeIndex: Int): Boolean =
-        modeIndex == 1 || modeIndex == 2 || (modeIndex == 3 && !proxyRawModeEnabled())
+        modeIndex == 1 || modeIndex == 2 || modeIndex == 4 || (modeIndex == 3 && !proxyRawModeEnabled())
 
     private fun updateFieldVisibilityForMode() {
         val modeIndex = currentModeIndex()
         val usesTls = usesTlsForMode(modeIndex)
-        val usesPayload = modeIndex == 2 || modeIndex == 3
+        val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         // DIKEMBALIKAN (permintaan user): mode 1 (SSH SSL) tidak lagi menampilkan
         // blok Remote Proxy/Raw Passthrough -- kembali ke perilaku SSH SSL polos
         // (TLS wrap langsung ke host, tanpa proxy/CDN sama sekali).
-        val usesProxy = modeIndex == 2 || modeIndex == 3
+        // modeIndex 4 (Enhanced) ikut disertakan -- proxy/CDN opsional kecuali
+        // Raw Passthrough aktif (lihat validasi di onSaveClicked).
+        val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         val proxyMandatory = modeIndex == 3
         val usesRawMode = proxyRawModeEnabled()
 
@@ -473,7 +488,7 @@ class SshConfigActivity : AppCompatActivity() {
 
         val payloadProxyLocked = originalConfig?.lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY
 
-        val usesPayload = modeIndex == 2 || modeIndex == 3
+        val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         // PERBAIKAN (permintaan user, "kunci payload & remote proxy malah
         // kebuka semua"): kalau field ini sedang dikunci (lihat
         // [applyPayloadProxyLockIfNeeded]), form-nya SENGAJA dikosongkan &
@@ -488,8 +503,9 @@ class SshConfigActivity : AppCompatActivity() {
         }
 
         // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
-        // lihat updateFieldVisibilityForMode().
-        val usesProxy = modeIndex == 2 || modeIndex == 3
+        // lihat updateFieldVisibilityForMode(). modeIndex 4 (Enhanced) disertakan
+        // juga di sini supaya proxy/CDN-nya ikut tersimpan.
+        val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         val proxyHost = when {
             payloadProxyLocked -> originalConfig?.proxyHost.orEmpty()
             usesProxy -> binding.etProxyHost.text.toString().trim()
