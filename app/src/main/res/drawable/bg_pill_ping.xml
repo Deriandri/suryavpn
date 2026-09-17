@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Badge latency/ping per akun (lihat item_account_row.xml -> tvRowPing
+     & ConfigActivity.bindAccountRow). PENTING: tetap satu <shape> tunggal
+     berisi <solid> (bukan <gradient>/layer-list), pola SAMA PERSIS dengan
+     bg_status_pill.xml — ConfigActivity.bindAccountRow melakukan
+     (tvRowPing.background.mutate() as GradientDrawable).setColor(...)
+     untuk ganti warna sesuai hasil ping (hijau=cepat, oranye=sedang,
+     merah=lambat/gagal), jadi root elemen ini wajib tetap GradientDrawable
+     dengan <solid> yang bisa ditimpa. Warna di sini cuma placeholder awal
+     sebelum ping pertama dijalankan. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/status_pending_bg" />
+    <corners android:radius="10dp" />
+</shape>

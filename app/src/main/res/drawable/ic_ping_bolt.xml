@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ikon petir sederhana, dipakai di tombol "Tes Ping Semua Server"
+     (activity_config.xml) untuk melambangkan uji kecepatan/latency —
+     tint diatur lewat app:iconTint pada MaterialButton pemanggilnya
+     (sama pola dengan ic_power di tombol Connect Dashboard). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M13,2L4.09,12.5 L11,12.5 L10,22 L19.91,10.5 L13,10.5 Z" />
+</vector>

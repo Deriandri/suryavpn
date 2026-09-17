@@ -151,6 +151,28 @@
                 android:focusable="true"
                 android:visibility="gone" />
 
+            <!-- FITUR BARU (permintaan user, "cek ping/latency server"):
+                 badge kecil menampilkan hasil TCP ping terakhir akun ini
+                 (lihat PingUtil.tcpPing & ConfigActivity.onTestPingAllClicked/
+                 bindAccountRow) — tersembunyi (GONE) sampai tombol "Tes
+                 Ping Semua Server" pernah ditekan minimal sekali. Warna
+                 latar & teksnya diubah runtime (hijau=cepat, oranye=sedang,
+                 merah=lambat/gagal), lihat bg_pill_ping.xml. -->
+            <TextView
+                android:id="@+id/tvRowPing"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_pill_ping"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:text="-- ms"
+                android:textStyle="bold"
+                android:textSize="10.5sp"
+                android:visibility="gone" />
+
             <!-- Spacer: dorong ikon aksi ke ujung kanan baris, senada
                  dengan status di kiri (lihat catatan REDESIGN di atas). -->
             <View

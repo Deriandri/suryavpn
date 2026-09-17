@@ -2,10 +2,8 @@ package com.example.tunnelapp
 
 import android.content.Intent
 import android.graphics.drawable.GradientDrawable
-import android.net.TrafficStats
 import android.net.VpnService
 import android.os.Bundle
-import android.os.Process
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -24,10 +22,8 @@ import com.example.tunnelapp.tunnel.ConnectionStep
 import com.example.tunnelapp.tunnel.MyVpnService
 import com.example.tunnelapp.tunnel.StatusBus
 import com.example.tunnelapp.tunnel.StepStatus
+import com.example.tunnelapp.tunnel.TrafficStatsBus
 import com.example.tunnelapp.tunnel.XrayLinkParser
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -128,7 +124,6 @@ class DashboardMainFragment : Fragment() {
                     binding.tvStatus.text = status
                     applyStatusPillColor(status)
                     applyConnectButtonState(status)
-                    handleTrafficStatsForStatus(StatusBus.isConnected(status))
                 }
             }
         }
@@ -149,138 +144,45 @@ class DashboardMainFragment : Fragment() {
                 }
             }
         }
-    }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        stopTrafficPolling(resetUi = false)
-        statsActive = false
-        _binding = null
-    }
-
-    // ------------------------------------------------------------------
-    // FITUR BARU (permintaan user: "Statistik pemakaian data & kecepatan
-    // real-time, grafik naik-turun, total terpakai" di kiri-kanan kartu
-    // hero) -- kartu "Download"/"Upload" di fragment_dashboard_main.xml.
-    //
-    // Sumber data: TrafficStats.getUidRxBytes/getUidTxBytes(uid) milik APP
-    // INI SENDIRI (bukan seluruh device) -- ini SUDAH BENAR untuk app VPN:
-    // begitu tunnel aktif, semua trafik device lain (browser, dll) pada
-    // dasarnya "dikonsumsi lalu diteruskan lagi" oleh proses app ini lewat
-    // TUN fd (lihat MyVpnService/HevSocks5Engine), sehingga byte count UID
-    // app ini sudah merepresentasikan seluruh trafik yang lewat tunnel,
-    // bukan cuma trafik app ini sendiri secara sempit.
-    //
-    // Cara kerja:
-    //  - startTrafficPolling() jalan tiap 1 detik selama status terhubung
-    //    (dipanggil dari handleTrafficStatsForStatus, dipicu StatusBus.state).
-    //  - Kecepatan (KB/s atau MB/s) dihitung dari SELISIH total byte antar
-    //    dua polling berturut-turut, dibagi selisih waktu (bukan diasumsikan
-    //    presis 1000ms, supaya tetap akurat walau ada jeda/skip).
-    //  - "Total" pada tiap kartu dihitung relatif ke titik SAAT TUNNEL INI
-    //    MULAI terhubung (baseline), BUKAN total absolut sejak device
-    //    nyala -- lebih berguna buat user karena mencerminkan pemakaian
-    //    sesi ini saja, sesuai konteks "grafik ini utk sesi VPN yg aktif".
-    //  - Begitu status TIDAK lagi terhubung, polling dihentikan & UI kedua
-    //    kartu direset ke nol/grafik kosong.
-    // ------------------------------------------------------------------
-
-    private var trafficPollJob: Job? = null
-    private var statsActive = false
-    private var lastRxBytes: Long = -1
-    private var lastTxBytes: Long = -1
-    private var lastPollTimeMs: Long = 0L
-    private var baselineRxBytes: Long = -1
-    private var baselineTxBytes: Long = -1
-
-    private fun handleTrafficStatsForStatus(connected: Boolean) {
-        if (connected && !statsActive) {
-            statsActive = true
-            startTrafficPolling()
-        } else if (!connected && statsActive) {
-            statsActive = false
-            stopTrafficPolling(resetUi = true)
-        }
-    }
-
-    private fun startTrafficPolling() {
-        trafficPollJob?.cancel()
-        lastRxBytes = -1
-        lastTxBytes = -1
-        lastPollTimeMs = 0L
-        baselineRxBytes = -1
-        baselineTxBytes = -1
-
-        trafficPollJob = viewLifecycleOwner.lifecycleScope.launch {
-            val uid = Process.myUid()
-            while (isActive) {
-                val rx = TrafficStats.getUidRxBytes(uid)
-                val tx = TrafficStats.getUidTxBytes(uid)
-                // -1 (TrafficStats.UNSUPPORTED) berarti device/kernel tidak
-                // menyediakan statistik per-UID sama sekali -- daripada
-                // menampilkan angka acak/negatif, kartu dibiarkan diam di
-                // nilai terakhirnya (jarang terjadi di perangkat modern).
-                if (rx >= 0 && tx >= 0) {
-                    if (baselineRxBytes < 0) {
-                        baselineRxBytes = rx
-                        baselineTxBytes = tx
+        // FITUR BARU (permintaan user: total pemakaian JANGAN reset kalau
+        // app ditutup selama VPN masih konek) -- Fragment ini SEKARANG
+        // cuma "berlangganan" TrafficStatsBus.state, tidak lagi menghitung
+        // byte sendiri. Hitungan sebenarnya (baseline, total, kecepatan)
+        // dipegang MyVpnService (lihat startTrafficPolling() di sana),
+        // yang hidup selama tunnel aktif -- independen dari Fragment ini
+        // dibuka/ditutup berkali-kali. state.active == false berarti tidak
+        // ada tunnel aktif sama sekali -> tampilkan 0/grafik kosong.
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                TrafficStatsBus.state.collect { snapshot ->
+                    val b = _binding ?: return@collect
+                    if (snapshot.active) {
+                        b.tvDownloadSpeed.text = formatSpeed(snapshot.rxSpeedBps)
+                        b.tvUploadSpeed.text = formatSpeed(snapshot.txSpeedBps)
+                        b.tvDownloadTotal.text = formatTotalBytes(snapshot.rxTotalBytes)
+                        b.tvUploadTotal.text = formatTotalBytes(snapshot.txTotalBytes)
+                        b.sparklineDownload.submitSample(snapshot.rxSpeedBps)
+                        b.sparklineUpload.submitSample(snapshot.txSpeedBps)
+                    } else {
+                        b.tvDownloadSpeed.text = "0 KB/s"
+                        b.tvUploadSpeed.text = "0 KB/s"
+                        b.tvDownloadTotal.text = "Total: 0 MB"
+                        b.tvUploadTotal.text = "Total: 0 MB"
+                        b.sparklineDownload.clear()
+                        b.sparklineUpload.clear()
                     }
-                    val now = System.currentTimeMillis()
-                    if (lastRxBytes >= 0 && lastPollTimeMs > 0) {
-                        val dtSec = ((now - lastPollTimeMs).coerceAtLeast(1)) / 1000f
-                        val rxSpeed = (rx - lastRxBytes).coerceAtLeast(0) / dtSec
-                        val txSpeed = (tx - lastTxBytes).coerceAtLeast(0) / dtSec
-                        updateStatCard(
-                            binding.tvDownloadSpeed, binding.tvDownloadTotal, binding.sparklineDownload,
-                            rxSpeed, (rx - baselineRxBytes).coerceAtLeast(0)
-                        )
-                        updateStatCard(
-                            binding.tvUploadSpeed, binding.tvUploadTotal, binding.sparklineUpload,
-                            txSpeed, (tx - baselineTxBytes).coerceAtLeast(0)
-                        )
-                    }
-                    lastRxBytes = rx
-                    lastTxBytes = tx
-                    lastPollTimeMs = now
                 }
-                delay(1000)
             }
         }
     }
 
-    private fun stopTrafficPolling(resetUi: Boolean) {
-        trafficPollJob?.cancel()
-        trafficPollJob = null
-        lastRxBytes = -1
-        lastTxBytes = -1
-        lastPollTimeMs = 0L
-        baselineRxBytes = -1
-        baselineTxBytes = -1
-
-        if (resetUi) {
-            val b = _binding ?: return
-            b.tvDownloadSpeed.text = "0 KB/s"
-            b.tvUploadSpeed.text = "0 KB/s"
-            b.tvDownloadTotal.text = "Total: 0 MB"
-            b.tvUploadTotal.text = "Total: 0 MB"
-            b.sparklineDownload.clear()
-            b.sparklineUpload.clear()
-        }
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 
-    private fun updateStatCard(
-        speedView: TextView,
-        totalView: TextView,
-        sparkline: com.example.tunnelapp.ui.SparklineView,
-        speedBytesPerSec: Float,
-        totalBytes: Long
-    ) {
-        if (_binding == null) return
-        speedView.text = formatSpeed(speedBytesPerSec)
-        totalView.text = formatTotalBytes(totalBytes)
-        sparkline.submitSample(speedBytesPerSec)
-    }
-
+    /** Format kecepatan (byte/detik) jadi "X.X KB/s" atau "X.XX MB/s" untuk kartu Download/Upload. */
     private fun formatSpeed(bytesPerSec: Float): String {
         val kbps = bytesPerSec / 1024f
         return if (kbps >= 1024f) {
@@ -290,6 +192,7 @@ class DashboardMainFragment : Fragment() {
         }
     }
 
+    /** Format total byte jadi "Total: X.X MB" atau "Total: X.XX GB" untuk kartu Download/Upload. */
     private fun formatTotalBytes(totalBytes: Long): String {
         val mb = totalBytes / (1024f * 1024f)
         return if (mb >= 1024f) {

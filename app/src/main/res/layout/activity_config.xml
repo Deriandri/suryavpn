@@ -455,6 +455,34 @@
                             android:autofillHints="" />
                     </com.google.android.material.textfield.TextInputLayout>
 
+                    <!-- FITUR BARU (permintaan user, "cek ping/latency server
+                         sebelum & sesudah connect, urutkan dari yang paling
+                         cepat"): tombol ini menguji TCP ping ke SEMUA akun
+                         tersimpan sekaligus (bukan cuma yang lolos filter
+                         pencarian di atas), lalu daftar di bawah otomatis
+                         diurutkan dari hasil PALING CEPAT — lihat
+                         ConfigActivity.onTestPingAllClicked/resolvePingTarget.
+                         Aman ditekan kapan pun, baik SEBELUM tunnel mana pun
+                         terhubung maupun SAAT salah satu akun sedang aktif
+                         (uji jalan lewat socket terpisah yang di-protect()
+                         dari VpnService yang berjalan supaya tidak ikut
+                         tertarik masuk tunnel yang sedang aktif — lihat
+                         MyVpnService.protectSocketIfRunning). -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTestPingAll"
+                        style="@style/Button.Primary"
+                        android:layout_width="match_parent"
+                        android:layout_height="46dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="Tes Ping Semua Server"
+                        android:textAllCaps="false"
+                        android:textSize="13.5sp"
+                        app:icon="@drawable/ic_ping_bolt"
+                        app:iconGravity="textStart"
+                        app:iconPadding="8dp"
+                        app:iconSize="18dp"
+                        app:cornerRadius="12dp" />
+
                     <!-- Daftar akun: tiap baris (item_account_row.xml) dipisah
                          garis tipis "dividerRow" (disembunyikan di baris
                          pertama lewat ConfigActivity.refreshAccountsList()),

@@ -22,6 +22,7 @@
     <color name="app_background">#F3F4F6</color>
     <color name="card_background">#FFFFFF</color>
     <color name="divider">#E5E7EB</color>
+    <color name="card_stroke">#D1D5DB</color>
 
     <!-- Text -->
     <color name="text_primary">#111827</color>

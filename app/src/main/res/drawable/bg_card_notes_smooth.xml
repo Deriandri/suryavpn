@@ -16,4 +16,7 @@
         android:angle="135"
         android:startColor="@color/notes_card_gradient_start"
         android:endColor="@color/notes_card_gradient_end" />
+    <stroke
+        android:width="1.5dp"
+        android:color="#26FFFFFF" />
 </shape>

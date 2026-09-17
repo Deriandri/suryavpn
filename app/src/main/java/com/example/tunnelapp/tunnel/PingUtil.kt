@@ -29,14 +29,36 @@ data class PingResult(
  * koneksi yang sebenarnya akan dipakai tunnel.
  */
 object PingUtil {
-    suspend fun tcpPing(host: String, port: Int, timeoutMs: Int = 4000): PingResult =
+    /**
+     * @param protect FITUR BARU (permintaan user, "cek ping sebelum & sesudah
+     *                connect"): kalau diisi, dipanggil ke socket ini SEBELUM
+     *                connect() -- dipakai [ConfigActivity.onTestPingAllClicked]
+     *                lewat [com.example.tunnelapp.tunnel.MyVpnService.protectSocketIfRunning]
+     *                supaya kalau ADA tunnel yang sedang aktif saat tes ping
+     *                dijalankan, socket tes ini TETAP langsung ke internet asli
+     *                (persis seperti [com.example.tunnelapp.tunnel.MyVpnService.pingHost]
+     *                yang sudah lebih dulu ada untuk host tunnel aktif) --
+     *                BUKAN ikut tertarik masuk TUN VpnService milik app ini
+     *                sendiri, yang kalau dibiarkan bakal menghasilkan angka
+     *                latency yang salah (nebeng keluar-masuk tunnel yang
+     *                sedang jalan) atau malah gagal total. Null/default
+     *                (tidak ada tunnel aktif) berarti socket biasa memang
+     *                sudah langsung ke internet asli, tidak perlu apa-apa.
+     */
+    suspend fun tcpPing(
+        host: String,
+        port: Int,
+        timeoutMs: Int = 4000,
+        protect: ((Socket) -> Unit)? = null
+    ): PingResult =
         withContext(Dispatchers.IO) {
             if (host.isBlank()) {
                 return@withContext PingResult(false, null, "Host belum diisi")
             }
             val socket = Socket()
-            val start = System.nanoTime()
             try {
+                protect?.invoke(socket)
+                val start = System.nanoTime()
                 socket.connect(InetSocketAddress(host, port), timeoutMs)
                 val elapsedMs = (System.nanoTime() - start) / 1_000_000
                 PingResult(true, elapsedMs)

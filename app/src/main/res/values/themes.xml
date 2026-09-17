@@ -46,7 +46,8 @@
         <item name="cardElevation">2dp</item>
         <item name="contentPadding">16dp</item>
         <item name="cardBackgroundColor">@color/card_background</item>
-        <item name="strokeWidth">0dp</item>
+        <item name="strokeWidth">1.5dp</item>
+        <item name="strokeColor">@color/card_stroke</item>
     </style>
 
     <!-- REDESIGN (permintaan user: kartu Konfigurasi Akun jadi "profesional,
@@ -61,7 +62,8 @@
         <item name="cardElevation">1.2dp</item>
         <item name="contentPadding">14dp</item>
         <item name="cardBackgroundColor">@color/card_background</item>
-        <item name="strokeWidth">0dp</item>
+        <item name="strokeWidth">1.5dp</item>
+        <item name="strokeColor">@color/card_stroke</item>
     </style>
 
     <style name="SectionTitleText">

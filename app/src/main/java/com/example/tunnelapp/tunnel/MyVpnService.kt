@@ -11,6 +11,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.TrafficStats
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -84,6 +85,39 @@ class MyVpnService : VpnService() {
         // runBlockingWithTimeout), jadi 1.5 detik ini cukup longgar buat
         // kasus normal tanpa bikin tombol Reconnect kerasa lambat.
         private const val RECONNECT_NOTIFICATION_DELAY_MS = 1500L
+
+        // FITUR BARU (permintaan user, "cek ping/latency server sebelum &
+        // sesudah connect"): referensi ke instance Service ini SELAMA dia
+        // hidup (diisi onCreate, dikosongkan onDestroy) -- SATU-SATUNYA
+        // tujuannya supaya layar lain (ConfigActivity, lewat
+        // [protectSocketIfRunning]) bisa protect() socket TES PING mereka
+        // sendiri dari LUAR Service ini, TANPA perlu bind() penuh ke Service
+        // cuma demi satu panggilan protect(). Bukan dipakai untuk
+        // mengendalikan tunnel (start/stop tetap lewat Intent action seperti
+        // biasa) -- murni jalan pintas akses ke VpnService.protect() bawaan
+        // Android yang memang instance method, tidak ada versi statisnya.
+        @Volatile private var runningInstance: MyVpnService? = null
+
+        /**
+         * Bungkus [socket] dengan `VpnService.protect()` KALAU ada tunnel
+         * Service ini yang sedang berjalan -- dipakai [PingUtil.tcpPing]
+         * lewat [ConfigActivity.onTestPingAllClicked] supaya tes ping ke
+         * server LAIN (bukan cuma host yang lagi dipakai tunnel aktif) tetap
+         * lewat jalur internet ASLI, BUKAN ikut ditarik masuk TUN milik app
+         * ini sendiri (yang kalau dibiarkan bikin hasil ping salah/nebeng
+         * keluar-masuk tunnel yang sama). Kalau tidak ada tunnel aktif
+         * ([runningInstance] null), no-op -- socket biasa memang sudah
+         * langsung ke internet asli, sama seperti sebelum tunnel manapun
+         * pernah dinyalakan. Try-catch murni jaga-jaga (mis. race kondisi
+         * Service baru saja dihancurkan tepat di tengah pemanggilan ini);
+         * gagal protect() TIDAK boleh menggagalkan tes ping itu sendiri.
+         */
+        fun protectSocketIfRunning(socket: Socket) {
+            try {
+                runningInstance?.protect(socket)
+            } catch (_: Exception) {
+            }
+        }
 
         const val EXTRA_HOST = "extra_host"
         const val EXTRA_PORT = "extra_port"
@@ -370,6 +404,94 @@ class MyVpnService : VpnService() {
     private fun stopHttpProxyServer() {
         httpProxyServer?.stop()
         httpProxyServer = null
+    }
+
+    // ------------------------------------------------------------------
+    // FITUR BARU (permintaan user: "Statistik pemakaian data & kecepatan
+    // real-time" -- total JANGAN ikut reset kalau layar Dashboard/app
+    // ditutup selama tunnel masih konek). Dipindahkan ke sini (SEBELUMNYA
+    // ada di DashboardMainFragment) supaya baseline+total hidup selama
+    // SERVICE ini hidup, bukan terikat umur Activity/Fragment mana pun --
+    // lihat kdoc lengkap di TrafficStatsBus.kt.
+    //
+    // Sumber data: TrafficStats.getUidRxBytes/getUidTxBytes(uid) milik APP
+    // INI SENDIRI -- benar untuk app VPN karena begitu tunnel aktif,
+    // semua trafik device lain pada dasarnya diteruskan lewat proses app
+    // ini sendiri lewat TUN fd, jadi byte count UID ini sudah mewakili
+    // seluruh trafik yang lewat tunnel.
+    // ------------------------------------------------------------------
+
+    private var trafficPollJob: Job? = null
+    private var trafficBaselineRx: Long = -1
+    private var trafficBaselineTx: Long = -1
+    private var trafficLastRx: Long = -1
+    private var trafficLastTx: Long = -1
+    private var trafficLastPollTimeMs: Long = 0L
+
+    /**
+     * Dipanggil SEKALI tiap kali user menekan Connect dari kondisi idle
+     * (dari [startVpn], BUKAN dari [establishTunnel]/reconnect otomatis) --
+     * baseline byte diambil di sini supaya "Total" di Dashboard menghitung
+     * pemakaian sesi INI saja. Reconnect otomatis di tengah sesi (kalau
+     * tunnel sempat mati sendiri lalu nyambung lagi) SENGAJA TIDAK memanggil
+     * ulang fungsi ini -- job polling yang sama terus jalan tanpa jeda,
+     * supaya totalnya tidak tiba-tiba turun ke 0 gara-gara reconnect
+     * singkat.
+     */
+    private fun startTrafficPolling() {
+        trafficPollJob?.cancel()
+        trafficBaselineRx = -1
+        trafficBaselineTx = -1
+        trafficLastRx = -1
+        trafficLastTx = -1
+        trafficLastPollTimeMs = 0L
+
+        trafficPollJob = serviceScope.launch {
+            val uid = android.os.Process.myUid()
+            while (isActive) {
+                val rx = TrafficStats.getUidRxBytes(uid)
+                val tx = TrafficStats.getUidTxBytes(uid)
+                // -1 (TrafficStats.UNSUPPORTED) berarti device/kernel tidak
+                // menyediakan statistik per-UID sama sekali -- daripada
+                // menampilkan angka acak/negatif, polling ini dilewati saja
+                // untuk siklus ini (jarang terjadi di perangkat modern).
+                if (rx >= 0 && tx >= 0) {
+                    if (trafficBaselineRx < 0) {
+                        trafficBaselineRx = rx
+                        trafficBaselineTx = tx
+                    }
+                    val now = System.currentTimeMillis()
+                    if (trafficLastRx >= 0 && trafficLastPollTimeMs > 0) {
+                        val dtSec = ((now - trafficLastPollTimeMs).coerceAtLeast(1)) / 1000f
+                        val rxSpeed = (rx - trafficLastRx).coerceAtLeast(0) / dtSec
+                        val txSpeed = (tx - trafficLastTx).coerceAtLeast(0) / dtSec
+                        TrafficStatsBus.state.value = TrafficStatsBus.TrafficSnapshot(
+                            rxSpeedBps = rxSpeed,
+                            txSpeedBps = txSpeed,
+                            rxTotalBytes = (rx - trafficBaselineRx).coerceAtLeast(0),
+                            txTotalBytes = (tx - trafficBaselineTx).coerceAtLeast(0),
+                            active = true
+                        )
+                    }
+                    trafficLastRx = rx
+                    trafficLastTx = tx
+                    trafficLastPollTimeMs = now
+                }
+                delay(1000)
+            }
+        }
+    }
+
+    /** Dipanggil dari [stopVpn] -- hentikan polling & kembalikan Dashboard ke tampilan kosong/nol. */
+    private fun stopTrafficPolling() {
+        trafficPollJob?.cancel()
+        trafficPollJob = null
+        trafficBaselineRx = -1
+        trafficBaselineTx = -1
+        trafficLastRx = -1
+        trafficLastTx = -1
+        trafficLastPollTimeMs = 0L
+        TrafficStatsBus.state.value = TrafficStatsBus.TrafficSnapshot()
     }
 
     // Config terakhir yang berhasil/sedang dicoba -- dipakai untuk reconnect
@@ -850,6 +972,7 @@ class MyVpnService : VpnService() {
         currentMtu = vpnSettings.mtu
         currentAutoReconnect = vpnSettings.autoReconnect
         acquireWakeLockIfNeeded(vpnSettings.keepCpuAwake)
+        startTrafficPolling()
 
         startForeground(NOTIFICATION_ID, buildNotification("Menghubungkan..."))
         StatusBus.clearLog()
@@ -2179,6 +2302,7 @@ class MyVpnService : VpnService() {
         reconnectDelayJob?.cancel()
         reconnectDelayJob = null
         pendingReconnectConfig = null
+        stopTrafficPolling()
         releaseWakeLock()
         unregisterNetworkWatcher()
         // Batalkan proses connect/reconnect yang mungkin masih jalan di
@@ -2271,8 +2395,15 @@ class MyVpnService : VpnService() {
         }
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        // Lihat dokumentasi lengkap di companion.runningInstance/protectSocketIfRunning.
+        runningInstance = this
+    }
+
     override fun onDestroy() {
         stopVpn()
+        runningInstance = null
         super.onDestroy()
     }
 

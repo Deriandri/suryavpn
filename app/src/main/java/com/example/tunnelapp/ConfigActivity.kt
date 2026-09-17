@@ -7,6 +7,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -50,6 +51,10 @@ import com.example.tunnelapp.model.decryptWholeFileBytes
 import com.example.tunnelapp.model.encryptWholeFileBytes
 import com.example.tunnelapp.model.importConfigsFromText
 import com.example.tunnelapp.model.profilesToJson
+import com.example.tunnelapp.model.toServerConfigOrNull
+import com.example.tunnelapp.tunnel.MyVpnService
+import com.example.tunnelapp.tunnel.PingResult
+import com.example.tunnelapp.tunnel.PingUtil
 import com.example.tunnelapp.tunnel.StatusBus
 import com.example.tunnelapp.tunnel.XrayLinkParser
 import java.io.File
@@ -57,6 +62,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -111,6 +117,21 @@ class ConfigActivity : AppCompatActivity() {
     // supaya sama persis dengan yang menentukan tombol Connect/Disconnect
     // di Dashboard.
     private var vpnConnected = false
+
+    // FITUR BARU (permintaan user, "cek ping/latency server sebelum &
+    // sesudah connect, urutkan dari yang paling cepat"): hasil TCP ping
+    // terakhir per akun (key = SavedProfile.id), diisi lewat
+    // [onTestPingAllClicked]. Tetap tersimpan di memori Activity ini
+    // (BUKAN persisted ke disk -- angka latency cuma relevan sesaat, tidak
+    // ada gunanya dipertahankan lintas sesi app) sehingga tetap bisa dipakai
+    // untuk mengurutkan ulang daftar tiap kali [refreshAccountsList]
+    // dipanggil lagi (mis. akun baru ditambah, pencarian diketik), sampai
+    // Activity ini di-destroy atau tombol ditekan ulang.
+    private val pingResults = mutableMapOf<String, PingResult>()
+
+    // Dipakai [onTestPingAllClicked] mencegah tes ganda tertumpuk kalau
+    // tombolnya sempat ter-tap dua kali sebelum tes pertama selesai.
+    private var pingTestRunning = false
 
     // --- Dialog modern (permintaan user, "profesional, modern, smooth") -
     //
@@ -357,6 +378,10 @@ class ConfigActivity : AppCompatActivity() {
         binding.btnImportConfig.setOnClickListener { onImportClicked() }
         binding.btnExportAllConfig.setOnClickListener { onExportAllClicked() }
 
+        // FITUR BARU (permintaan user, "cek ping/latency server sebelum &
+        // sesudah connect"): lihat onTestPingAllClicked().
+        binding.btnTestPingAll.setOnClickListener { onTestPingAllClicked() }
+
         setupAccountSearch()
         setupBottomNav()
 
@@ -550,6 +575,112 @@ class ConfigActivity : AppCompatActivity() {
         })
     }
 
+    /**
+     * Tentukan host:port sasaran TCP ping untuk satu akun tersimpan --
+     * MENIRU logika [com.example.tunnelapp.model.ServerConfig.usesProxy]/
+     * [com.example.tunnelapp.model.ServerConfig.usesXray] lewat
+     * [toServerConfigOrNull] (bukan menduplikasi manual di sini) supaya
+     * titik yang diuji BENAR-BENAR sama dengan titik TCP connect PERTAMA
+     * yang dipakai [com.example.tunnelapp.tunnel.ConnectRelay]/
+     * [com.example.tunnelapp.tunnel.XrayTunnelManager] saat tombol Connect
+     * sungguhan ditekan -- kalau mode-nya pakai proxy/CDN (proxyHost
+     * terisi), yang diuji proxyHost:proxyPort (itu yang pertama kali
+     * di-TCP-connect), BUKAN host SSH asli di baliknya yang baru dihubungi
+     * SETELAH proxy/TLS/payload beres.
+     *
+     * Null (akun dilewati, tidak ikut dites) kalau:
+     *  - akun terkunci total ([ConfigLockMode.LOCK_ALL]) -- host-nya memang
+     *    sengaja disembunyikan dari UI (lihat bindAccountRow), jangan ikut
+     *    "dibocorkan" lewat percobaan koneksi diam-diam.
+     *  - konfigurasinya belum valid (host/username kosong, link Xray
+     *    kosong/tidak bisa di-parse, dst) -- sama seperti kondisi yang
+     *    bikin tombol Connect sungguhan gagal duluan sebelum sempat konek.
+     */
+    private fun resolvePingTarget(config: SavedConfig): Pair<String, Int>? {
+        if (config.lockMode == ConfigLockMode.LOCK_ALL) return null
+        val serverConfig = config.toServerConfigOrNull() ?: return null
+        return when {
+            serverConfig.usesXray() -> {
+                val parsed = runCatching { XrayLinkParser.parse(serverConfig.xrayLink.orEmpty()) }
+                    .getOrNull() ?: return null
+                parsed.address to parsed.port
+            }
+            serverConfig.usesProxy() && !serverConfig.proxyHost.isNullOrBlank() ->
+                serverConfig.proxyHost!! to (serverConfig.proxyPort ?: serverConfig.port)
+            else -> serverConfig.host to serverConfig.port
+        }
+    }
+
+    /**
+     * FITUR BARU (permintaan user, "cek ping/latency server -- sebelum
+     * connect dan sesudah connect tes semua server tersimpan dan urutkan
+     * dari yang paling cepat"): uji TCP ping ke SEMUA akun tersimpan
+     * ([ProfileStore.getAll], bukan cuma yang lolos filter pencarian) SEKALI
+     * JALAN secara paralel (bukan satu-satu berurutan -- kalau ada banyak
+     * akun, menunggu tiap timeout 4 detik bergiliran bakal terasa lama
+     * sekali), lalu [refreshAccountsList] otomatis mengurutkan ulang
+     * daftarnya dari hasil PALING CEPAT lewat [pingResults].
+     *
+     * Aman ditekan kapan pun -- SEBELUM tunnel mana pun terhubung (socket
+     * biasa memang langsung ke internet asli) MAUPUN SAAT salah satu akun
+     * sedang aktif (socket tes di-protect() lewat
+     * [MyVpnService.protectSocketIfRunning] supaya tidak ikut tertarik masuk
+     * TUN milik tunnel yang sedang jalan -- lihat dokumentasi lengkap di
+     * sana & di [PingUtil.tcpPing]).
+     */
+    private fun onTestPingAllClicked() {
+        if (pingTestRunning) return
+
+        val targets = ProfileStore.getAll(this).mapNotNull { profile ->
+            resolvePingTarget(profile.config)?.let { (host, port) -> Triple(profile.id, host, port) }
+        }
+        if (targets.isEmpty()) {
+            Toast.makeText(
+                this,
+                "Tidak ada server yang bisa diuji (belum ada akun tersimpan, atau semuanya terkunci/belum valid).",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        pingTestRunning = true
+        binding.btnTestPingAll.isEnabled = false
+        binding.btnTestPingAll.text = "Menguji ${targets.size} server..."
+
+        lifecycleScope.launch {
+            val results = withContext(Dispatchers.IO) {
+                targets.map { (id, host, port) ->
+                    async {
+                        id to PingUtil.tcpPing(
+                            host = host,
+                            port = port,
+                            protect = { socket -> MyVpnService.protectSocketIfRunning(socket) }
+                        )
+                    }
+                }.map { it.await() }
+            }
+            results.forEach { (id, result) -> pingResults[id] = result }
+
+            pingTestRunning = false
+            binding.btnTestPingAll.isEnabled = true
+            binding.btnTestPingAll.text = "Tes Ping Semua Server"
+
+            // Refresh SEKALI di akhir (bukan progresif per-server) -- daftar
+            // langsung terurut rapi dari yang paling cepat dalam satu
+            // lompatan, tidak "loncat-loncat" posisinya tiap satu server
+            // selesai dites.
+            refreshAccountsList()
+
+            val gagal = results.count { !it.second.success }
+            Toast.makeText(
+                this@ConfigActivity,
+                if (gagal == 0) "Tes ping selesai untuk ${results.size} server."
+                else "Tes ping selesai. $gagal dari ${results.size} server tidak terjangkau.",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     private fun refreshAccountsList() {
         val allProfiles = ProfileStore.getAll(this)
         val activeId = ProfileStore.getActiveId(this)
@@ -584,6 +715,35 @@ class ConfigActivity : AppCompatActivity() {
         }
         binding.llAccountEmpty.visibility = View.GONE
 
+        // FITUR BARU (permintaan user, "urutkan dari yang paling cepat"):
+        // kalau sudah pernah ada hasil tes ping ([pingResults] tidak kosong),
+        // urutkan ulang daftar SEBELUM dirender -- akun dengan ping sukses
+        // paling KECIL di paling atas, akun yang gagal/timeout di bawahnya,
+        // akun yang BELUM pernah dites (mis. baru ditambah setelah tes
+        // terakhir, atau memang dilewati resolvePingTarget) di paling
+        // bawah. sortedWith stabil, jadi akun-akun dalam grup yang sama
+        // (mis. sama-sama belum dites) tetap mempertahankan urutan
+        // ditambahkan seperti biasa. Kalau belum pernah ada tes sama
+        // sekali, urutan TETAP seperti sebelum fitur ini ada (urutan
+        // ditambahkan), tidak ada yang berubah.
+        val sortedProfiles = if (pingResults.isEmpty()) {
+            profiles
+        } else {
+            profiles.sortedWith(
+                compareBy(
+                    { profile ->
+                        val result = pingResults[profile.id]
+                        when {
+                            result == null -> 2
+                            !result.success -> 1
+                            else -> 0
+                        }
+                    },
+                    { profile -> pingResults[profile.id]?.latencyMs ?: Long.MAX_VALUE }
+                )
+            )
+        }
+
         // REDESIGN (permintaan user: "gabungkan card akun tersimpan, rapikan
         // susunannya"): semua akun sekarang baris biasa di dalam SATU kartu
         // besar "Akun Tersimpan" (lihat activity_config.xml), dipisah garis
@@ -591,15 +751,20 @@ class ConfigActivity : AppCompatActivity() {
         // PERTAMA (index == 0) supaya tidak dobel dengan garis header di
         // atasnya, sama seperti pola divider SSH/Xray di kartu atasnya.
         val inflater = LayoutInflater.from(this)
-        profiles.forEachIndexed { index, profile ->
+        sortedProfiles.forEachIndexed { index, profile ->
             val row = ItemAccountRowBinding.inflate(inflater, binding.llAccountsContainer, false)
             row.dividerRow.visibility = if (index == 0) View.GONE else View.VISIBLE
-            bindAccountRow(row, profile, isActive = profile.id == activeId)
+            bindAccountRow(row, profile, isActive = profile.id == activeId, pingResult = pingResults[profile.id])
             binding.llAccountsContainer.addView(row.root)
         }
     }
 
-    private fun bindAccountRow(row: ItemAccountRowBinding, profile: SavedProfile, isActive: Boolean) {
+    private fun bindAccountRow(
+        row: ItemAccountRowBinding,
+        profile: SavedProfile,
+        isActive: Boolean,
+        pingResult: PingResult?
+    ) {
         val config = profile.config
         val isXray = config.modeIndex == 5
 
@@ -719,6 +884,36 @@ class ConfigActivity : AppCompatActivity() {
                     refreshAccountsList()
                 }
             }
+        }
+
+        // FITUR BARU (permintaan user, "cek ping/latency server sebelum &
+        // sesudah connect, urutkan dari yang paling cepat"): render badge
+        // hasil TCP ping TERAKHIR akun ini (diisi lewat onTestPingAllClicked,
+        // null kalau belum pernah dites SAMA SEKALI sejak Activity ini
+        // dibuka, atau akun ini dilewati resolvePingTarget mis. karena
+        // terkunci total) -- tersembunyi total sampai ada hasil, supaya
+        // tampilan baris tidak berubah sebelum tombol "Tes Ping Semua
+        // Server" pernah ditekan, PERSIS seperti sebelum fitur ini ada.
+        if (pingResult == null) {
+            row.tvRowPing.visibility = View.GONE
+        } else {
+            row.tvRowPing.visibility = View.VISIBLE
+            val latencyMs = pingResult.latencyMs
+            val (bgColorRes, textColorRes, label) = when {
+                !pingResult.success -> Triple(R.color.status_error_bg, R.color.status_error, "Gagal")
+                latencyMs == null -> Triple(R.color.status_error_bg, R.color.status_error, "Gagal")
+                latencyMs < 150 -> Triple(R.color.status_success_bg, R.color.status_success, "${latencyMs} ms")
+                latencyMs < 400 -> Triple(R.color.status_running_bg, R.color.status_running, "${latencyMs} ms")
+                else -> Triple(R.color.status_error_bg, R.color.status_error, "${latencyMs} ms")
+            }
+            // Pola SAMA PERSIS dengan DashboardMainFragment.applyStatusPillColor()
+            // -- background tvRowPing (bg_pill_ping.xml) SENGAJA satu <shape>
+            // <solid> tunggal supaya bisa di-mutate() jadi GradientDrawable
+            // & warnanya ditimpa runtime tanpa kehilangan <corners> aslinya.
+            (row.tvRowPing.background.mutate() as GradientDrawable)
+                .setColor(ContextCompat.getColor(this, bgColorRes))
+            row.tvRowPing.setTextColor(ContextCompat.getColor(this, textColorRes))
+            row.tvRowPing.text = label
         }
 
         // FITUR BARU (permintaan user): bagikan akun ini sendirian sebagai

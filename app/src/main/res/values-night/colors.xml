@@ -24,6 +24,7 @@
     <color name="app_background">#121316</color>
     <color name="card_background">#1C1E22</color>
     <color name="divider">#2E3136</color>
+    <color name="card_stroke">#454A52</color>
 
     <!-- Text -->
     <color name="text_primary">#F3F4F6</color>
