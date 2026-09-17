@@ -179,6 +179,160 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- FITUR BARU (permintaan user: "Statistik pemakaian data & kecepatan
+             real-time, grafik naik-turun, total terpakai, di kiri dan
+             kanannya" — yaitu di kiri & kanan kartu hero/status di atas).
+             Dua kartu berdampingan: "Download" (RX, kiri) & "Upload" (TX,
+             kanan), masing-masing punya kecepatan real-time (KB/s atau MB/s,
+             dihitung dari selisih byte tiap detik lewat TrafficStats — lihat
+             DashboardMainFragment.pollTrafficStats()), grafik garis kecil
+             yang bergerak (SparklineView, lihat ui/SparklineView.kt) dan
+             total data terpakai sepanjang sesi tunnel ini sedang aktif.
+             layout_weight sama supaya lebar keduanya selalu presis separuh-
+             separuh di lebar layar berapa pun. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="16dp">
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Card.Section"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="10dp">
+
+                        <FrameLayout
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:background="@drawable/bg_badge_stat_download"
+                            android:layout_marginEnd="8dp">
+
+                            <ImageView
+                                android:layout_width="14dp"
+                                android:layout_height="14dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_arrow_download"
+                                android:contentDescription="@null" />
+                        </FrameLayout>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Download"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvDownloadSpeed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0 KB/s"
+                        android:textColor="@color/text_primary"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <com.example.tunnelapp.ui.SparklineView
+                        android:id="@+id/sparklineDownload"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:id="@+id/tvDownloadTotal"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Total: 0 MB"
+                        android:textColor="@color/text_hint"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Card.Section"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="10dp">
+
+                        <FrameLayout
+                            android:layout_width="28dp"
+                            android:layout_height="28dp"
+                            android:background="@drawable/bg_badge_stat_upload"
+                            android:layout_marginEnd="8dp">
+
+                            <ImageView
+                                android:layout_width="14dp"
+                                android:layout_height="14dp"
+                                android:layout_gravity="center"
+                                android:src="@drawable/ic_arrow_upload"
+                                android:contentDescription="@null" />
+                        </FrameLayout>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Upload"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12.5sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvUploadSpeed"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0 KB/s"
+                        android:textColor="@color/text_primary"
+                        android:textSize="17sp"
+                        android:textStyle="bold" />
+
+                    <com.example.tunnelapp.ui.SparklineView
+                        android:id="@+id/sparklineUpload"
+                        android:layout_width="match_parent"
+                        android:layout_height="40dp"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:id="@+id/tvUploadTotal"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Total: 0 MB"
+                        android:textColor="@color/text_hint"
+                        android:textSize="11sp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+
         <!-- Card: Kontrol Koneksi (Connect & Disconnect satu tempat) -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"

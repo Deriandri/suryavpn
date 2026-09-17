@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lencana ikon bulat untuk kartu statistik "Upload" (TX) —
+     ungu/indigo, konsisten dengan brand_primary yang dipakai di seluruh
+     app supaya kartu Download/Upload mudah dibedakan sekilas dari
+     warnanya. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/brand_primary" />
+</shape>

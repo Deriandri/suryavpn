@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lencana ikon bulat untuk kartu statistik "Download" (RX) —
+     hijau, konsisten dengan warna status_success yang sudah dipakai
+     di tempat lain untuk hal-hal "positif". -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/status_success" />
+</shape>
