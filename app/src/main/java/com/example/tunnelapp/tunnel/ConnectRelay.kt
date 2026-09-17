@@ -9,6 +9,9 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.SequenceInputStream
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -35,11 +38,179 @@ import kotlin.random.Random
  */
 class ConnectRelay(
     private val config: ServerConfig,
-    private val protect: (Socket) -> Boolean
+    private val protect: (Socket) -> Boolean,
+    private val dnsProtect: (DatagramSocket) -> Boolean
 ) {
     companion object {
         private const val TAG = "ConnectRelay"
         private const val CONNECT_TIMEOUT_MS = 15000
+        // --- Resolusi DNS manual (permintaan user, "samain kayak HTTP
+        // Custom/DarkTunnel") ---
+        // HTTP Custom log-nya kelihatan resolve sendiri ke DNS eksplisit
+        // (Preferred/Alternate DNS 8.8.8.8/8.8.4.4) SEBELUM connect ke server,
+        // bukan pasrah ke resolver sistem Android buat jaringan fisik yang
+        // sedang dianggap default -- itu kenapa dia tidak kena race
+        // "onAvailable() != internet+DNS beneran siap" seperti yang dialami
+        // InetSocketAddress(hostname, port) biasa (lihat MyVpnService,
+        // komentar di onAvailable()/onCapabilitiesChanged()). Di sini kita
+        // tiru pola itu: query A-record MENTAH lewat UDP (DatagramSocket yang
+        // di-protect() -- WAJIB, supaya query DNS-nya sendiri tidak looping
+        // balik ke TUN kita sendiri) ke server DNS eksplisit, urutan coba:
+        // config.dns1 -> config.dns2 -> 8.8.8.8 -> 8.8.4.4 (dua yang
+        // terakhir sama persis dengan Preferred/Alternate DNS default HTTP
+        // Custom). Kalau SEMUA percobaan (termasuk pengulangan sekali lagi
+        // setelah jeda singkat, buat kasus jaringan baru saja berpindah)
+        // tetap gagal, fallback ke resolver sistem seperti sebelumnya
+        // (return null -> caller pakai InetSocketAddress(hostname, port)
+        // apa adanya) -- JADI FITUR INI CUMA MEMPERKUAT, TIDAK PERNAH
+        // membuat resolusi yang sebelumnya jalan jadi tidak jalan.
+        private const val DNS_QUERY_TIMEOUT_MS = 2500
+        private const val DNS_RETRY_ROUNDS = 2
+        private const val DNS_RETRY_DELAY_MS = 900L
+        private val IPV4_LITERAL_REGEX =
+            Regex("""^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$""")
+
+        /**
+         * Resolve [host] ke [InetAddress] lewat query DNS A-record manual,
+         * TANPA lewat resolver sistem Android sama sekali (lihat catatan di
+         * atas). @return null kalau host sudah berupa literal IPv4/IPv6, atau
+         * kalau semua server DNS & percobaan ulang gagal -- caller WAJIB
+         * fallback ke resolusi sistem biasa di kedua kasus itu.
+         */
+        private fun resolveHostExplicit(
+            host: String,
+            config: ServerConfig,
+            dnsProtect: (DatagramSocket) -> Boolean
+        ): InetAddress? {
+            if (IPV4_LITERAL_REGEX.matches(host) || host.contains(':')) {
+                // Sudah literal IPv4 (atau IPv6, jarang dipakai host bug --
+                // dibiarkan lewat jalur sistem apa adanya, tidak didukung
+                // manual di sini) -- tidak perlu, malah tidak boleh, di-query.
+                return null
+            }
+            val servers = linkedSetOf<String>().apply {
+                config.dns1?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+                config.dns2?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
+                add("8.8.8.8")
+                add("8.8.4.4")
+            }
+            repeat(DNS_RETRY_ROUNDS) { round ->
+                for (server in servers) {
+                    try {
+                        val addr = queryDnsA(host, server, dnsProtect)
+                        if (addr != null) {
+                            DebugLog.i(
+                                TAG,
+                                "DNS manual: $host -> ${addr.hostAddress} (server $server, percobaan ke-${round + 1})"
+                            )
+                            return addr
+                        }
+                    } catch (e: Exception) {
+                        DebugLog.w(TAG, "DNS manual ke $server gagal buat $host: ${e.message ?: e.javaClass.simpleName}")
+                    }
+                }
+                if (round < DNS_RETRY_ROUNDS - 1) {
+                    try {
+                        Thread.sleep(DNS_RETRY_DELAY_MS)
+                    } catch (_: InterruptedException) {
+                        return null
+                    }
+                }
+            }
+            DebugLog.w(TAG, "DNS manual gagal total buat $host, fallback ke resolver sistem")
+            return null
+        }
+
+        /** Satu query A-record mentah ke [dnsServer]:53 lewat UDP protected. */
+        private fun queryDnsA(
+            host: String,
+            dnsServer: String,
+            dnsProtect: (DatagramSocket) -> Boolean
+        ): InetAddress? {
+            val socket = DatagramSocket()
+            try {
+                socket.soTimeout = DNS_QUERY_TIMEOUT_MS
+                if (!dnsProtect(socket)) {
+                    throw IOException("protect() DatagramSocket gagal (DNS manual)")
+                }
+                val txId = Random.nextBits(16).toShort()
+                val query = buildDnsQuery(txId, host)
+                val serverAddr = InetAddress.getByName(dnsServer) // literal IP, bukan hostname -- tidak lewat resolver
+                socket.send(DatagramPacket(query, query.size, serverAddr, 53))
+
+                val buf = ByteArray(512)
+                val packet = DatagramPacket(buf, buf.size)
+                socket.receive(packet)
+                return parseDnsAResponse(packet.data, packet.length, txId)
+            } finally {
+                socket.close()
+            }
+        }
+
+        private fun buildDnsQuery(txId: Short, host: String): ByteArray {
+            val out = ByteArrayOutputStream()
+            out.write((txId.toInt() shr 8) and 0xFF)
+            out.write(txId.toInt() and 0xFF)
+            out.write(0x01); out.write(0x00) // flags: standard query, recursion desired
+            out.write(0x00); out.write(0x01) // QDCOUNT=1
+            out.write(0x00); out.write(0x00) // ANCOUNT=0
+            out.write(0x00); out.write(0x00) // NSCOUNT=0
+            out.write(0x00); out.write(0x00) // ARCOUNT=0
+            for (label in host.split(".")) {
+                val bytes = label.toByteArray(StandardCharsets.US_ASCII)
+                out.write(bytes.size)
+                out.write(bytes)
+            }
+            out.write(0x00) // root label
+            out.write(0x00); out.write(0x01) // QTYPE=A
+            out.write(0x00); out.write(0x01) // QCLASS=IN
+            return out.toByteArray()
+        }
+
+        /** @return offset SETELAH field NAME (menangani compression pointer 0xC0). */
+        private fun skipDnsName(buf: ByteArray, startOffset: Int): Int {
+            var offset = startOffset
+            while (offset < buf.size) {
+                val len = buf[offset].toInt() and 0xFF
+                if (len == 0) {
+                    return offset + 1
+                }
+                if ((len and 0xC0) == 0xC0) {
+                    return offset + 2 // pointer: selalu tepat 2 byte, tidak peduli isinya
+                }
+                offset += 1 + len
+            }
+            return offset
+        }
+
+        private fun parseDnsAResponse(buf: ByteArray, length: Int, expectedTxId: Short): InetAddress? {
+            if (length < 12) return null
+            val respTxId = (((buf[0].toInt() and 0xFF) shl 8) or (buf[1].toInt() and 0xFF)).toShort()
+            if (respTxId != expectedTxId) return null
+            val flags = ((buf[2].toInt() and 0xFF) shl 8) or (buf[3].toInt() and 0xFF)
+            val rcode = flags and 0x0F
+            if (rcode != 0) return null // NXDOMAIN/SERVFAIL/dst -- bukan sukses
+            val ancount = ((buf[6].toInt() and 0xFF) shl 8) or (buf[7].toInt() and 0xFF)
+            if (ancount <= 0) return null
+
+            var offset = skipDnsName(buf, 12) // lewati QNAME di question section
+            offset += 4 // QTYPE(2) + QCLASS(2)
+
+            repeat(ancount) {
+                if (offset >= length) return null
+                offset = skipDnsName(buf, offset) // NAME (biasanya pointer 2 byte)
+                if (offset + 10 > length) return null
+                val type = ((buf[offset].toInt() and 0xFF) shl 8) or (buf[offset + 1].toInt() and 0xFF)
+                val rdlength = ((buf[offset + 8].toInt() and 0xFF) shl 8) or (buf[offset + 9].toInt() and 0xFF)
+                offset += 10
+                if (type == 1 && rdlength == 4 && offset + 4 <= length) { // TYPE A
+                    val ipBytes = buf.copyOfRange(offset, offset + 4)
+                    return InetAddress.getByAddress(ipBytes)
+                }
+                offset += rdlength
+            }
+            return null
+        }
         // FITUR BARU (maksimalkan kecepatan): 256KB -- cukup besar untuk
         // bandwidth-delay product jaringan seluler ber-RTT tinggi tanpa
         // boros memori berlebihan per koneksi (tunnel ini biasanya cuma
@@ -234,8 +405,21 @@ class ConnectRelay(
         val connectHost = if (usesProxy) config.proxyHost!!.trim() else config.host
         val connectPort = if (usesProxy) (config.proxyPort ?: config.port) else config.port
 
+        // DNS manual dulu (lihat resolveHostExplicit) -- kalau berhasil, connect
+        // pakai InetAddress hasil resolve itu langsung (SAMA SEKALI tidak
+        // memicu resolver sistem lagi). Kalau null (host sudah literal IP,
+        // ATAU semua percobaan manual gagal), fallback ke perilaku LAMA:
+        // InetSocketAddress(hostname, port) yang resolve lewat resolver
+        // sistem apa adanya -- tidak ada regresi buat kasus yang sebelumnya
+        // sudah jalan normal.
+        val explicitAddr = resolveHostExplicit(connectHost, config, dnsProtect)
+        val targetAddress = if (explicitAddr != null) {
+            InetSocketAddress(explicitAddr, connectPort)
+        } else {
+            InetSocketAddress(connectHost, connectPort)
+        }
         try {
-            rawSocket.connect(InetSocketAddress(connectHost, connectPort), CONNECT_TIMEOUT_MS)
+            rawSocket.connect(targetAddress, CONNECT_TIMEOUT_MS)
         } catch (e: Exception) {
             StatusBus.fail(StepId.CONNECT_SERVER, e.message ?: e.javaClass.simpleName)
             throw e

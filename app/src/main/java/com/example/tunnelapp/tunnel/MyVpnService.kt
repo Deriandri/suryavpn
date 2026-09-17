@@ -1277,6 +1277,14 @@ class MyVpnService : VpnService() {
                         } else {
                             null
                         },
+                        // FITUR BARU (permintaan user, samain kekuatan resolusi DNS
+                        // raw connect dengan HTTP Custom/DarkTunnel): SELALU
+                        // disediakan, TIDAK digerbang oleh customDnsConfigured
+                        // seperti protectDatagram di atas -- ini buat DNS query
+                        // manual di ConnectRelay (jalan duluan sebelum raw TCP
+                        // connect ke server SSH/proxy), bukan buat device-side DNS
+                        // bypass Socks5Server yang memang sengaja opt-in.
+                        dnsProtect = { datagramSocket -> protect(datagramSocket) },
                         performanceMode = performanceMode,
                         compressionEnabled = compressionEnabled,
                         onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }
