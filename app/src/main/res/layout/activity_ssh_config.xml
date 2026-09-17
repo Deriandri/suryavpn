@@ -91,7 +91,7 @@
                      (mis. 1.2.3.4:22@user:pass; port opsional, default 22 kalau
                      dikosongkan). Diparsing otomatis secara real-time (tanpa perlu
                      tombol "Terapkan" lagi) ke field asli etHost/etPort/etUsername/
-                     etPassword yang sekarang disembunyikan di bawah -- lihat
+                     etPassword yang sekarang disembunyikan di bawah - lihat
                      SshConfigActivity.applyServerComboText() & TextWatcher yang
                      dipasang di onCreate(). -->
                 <com.google.android.material.textfield.TextInputLayout
@@ -121,8 +121,8 @@
                     android:layout_marginBottom="4dp" />
 
                 <!-- Field Host/Port/Username/Password ASLI TIDAK DIHAPUS, cuma
-                     disembunyikan (visibility=gone) -- pola yang sama seperti
-                     Card DNS di bawah -- supaya SshConfigActivity.kt
+                     disembunyikan (visibility=gone) - pola yang sama seperti
+                     Card DNS di bawah - supaya SshConfigActivity.kt
                      (restoreSavedConfig/onSaveClicked, yang masih membaca &
                      menulis binding.etHost/etPort/etUsername/etPassword ke
                      SavedConfig) tidak perlu diubah strukturnya & tetap
@@ -408,11 +408,11 @@
                         <!-- FITUR BARU (permintaan user): "Enhanced" DIPINDAH dari chip
                              mode terpisah (dulu chipEnhanced di chipGroupMode, modeIndex 4
                              berdiri sendiri) jadi toggle di sini, satu kelompok dengan Raw
-                             Passthrough -- bisa dihidup/dimatikan sendiri, tidak lagi jadi
+                             Passthrough - bisa dihidup/dimatikan sendiri, tidak lagi jadi
                              pilihan mode eksklusif. Toggle ini menumpuk di atas mode dasar
                              yang sedang dipilih (SSH TLS Payload Proxy / Payload + Remote
                              Proxy, satu-satunya dua mode yang menampilkan blok Remote Proxy
-                             ini) -- begitu dinyalakan, TLS dipaksa selalu aktif & proxy/CDN
+                             ini) - begitu dinyalakan, TLS dipaksa selalu aktif & proxy/CDN
                              wajib diisi kalau Raw Passthrough juga aktif, persis perilaku
                              ConnectionMode.ENHANCED lama; begitu dimatikan, kembali ke
                              perilaku mode dasarnya apa adanya. Lihat
