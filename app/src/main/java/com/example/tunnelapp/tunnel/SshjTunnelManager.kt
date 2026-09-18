@@ -208,6 +208,12 @@ class SshjTunnelManager : SshEngineHandle {
     companion object {
         private const val TAG = "SshjTunnelManager"
         private const val CONNECT_TIMEOUT_MS = 15000
+        // Lihat catatan panjang di connect() -- ini SO_TIMEOUT buat baca
+        // blocking (banner/key-exchange/auth) SETELAH TCP loopback konek,
+        // sengaja jauh lebih longgar dari CONNECT_TIMEOUT_MS supaya ConnectRelay
+        // (proxy+TLS+payload+DNS manual di jaringan NYATA) selalu sempat
+        // selesai duluan sebelum sshj menyerah.
+        private const val READ_TIMEOUT_MS = 40000
 
         // Guard supaya registrasi provider cuma dijalankan SEKALI per proses
         // (bukan per connect()/reconnect) -- Security.insertProviderAt() TIDAK
@@ -280,13 +286,14 @@ class SshjTunnelManager : SshEngineHandle {
         config: ServerConfig,
         protect: (Socket) -> Boolean,
         protectDatagram: ((DatagramSocket) -> Boolean)?,
+        dnsProtect: (DatagramSocket) -> Boolean,
         performanceMode: Boolean,
         compressionEnabled: Boolean,
         onUnexpectedDisconnect: (String) -> Unit
     ) {
         ensureBouncyCastleRegistered()
 
-        val relay = ConnectRelay(config, protect)
+        val relay = ConnectRelay(config, protect, dnsProtect)
         val relayPort = relay.start()
         connectRelay = relay
 
@@ -297,10 +304,34 @@ class SshjTunnelManager : SshEngineHandle {
         // ada timeout sama sekali di level SSHClient -- kalau server tidak
         // jelas membalas saat handshake/auth, client.connect()/authPassword()
         // bisa BLOCKING SELAMANYA. Di sini connectTimeout dipakai utk fase TCP
-        // connect, timeout (SO_TIMEOUT) utk operasi blocking sesudahnya (key
-        // exchange, auth).
+        // connect (ke relay loopback -- SELALU nyaris instan, aman tetap
+        // dibiarkan pendek), timeout (SO_TIMEOUT) utk operasi blocking
+        // sesudahnya (banner, key exchange, auth).
+        //
+        // FIX LANJUTAN (laporan user: "Read timed out" padahal step PAYLOAD di
+        // StatusBus sendiri kelihatan SUKSES -- bukan gagal parsing, race
+        // waktu murni): client.timeout dulu DISAMAKAN dengan connectTimeout
+        // (CONNECT_TIMEOUT_MS, 15 detik) -- padahal keduanya beda beban SAMA
+        // SEKALI. ConnectRelay.handleClient() (thread TERPISAH, baru mulai
+        // KETIKA client.connect() ini memicu accept() di relay lokal) masih
+        // harus: resolve DNS manual (bisa retry 2 putaran, lihat
+        // ConnectRelay.resolveHostExplicit) + TCP connect ke server/proxy asli
+        // + (kalau TLS) handshake TLS + kirim payload + TUNGGU respons
+        // HTTP/banner SSH server asli lewat jaringan NYATA (bisa beberapa
+        // detik di seluler ber-RTT tinggi) -- SEMUA itu baru SELESAI baru
+        // relay mulai menyalurkan byte ke socket loopback yang sedang dibaca
+        // client.timeout ini. Kalau totalnya kebetulan > 15 detik (makin
+        // mungkin sekarang ada tambahan DNS manual), sshj sudah keburu
+        // SocketTimeoutException DULUAN walau ConnectRelay-nya sendiri
+        // beberapa saat kemudian tetap berhasil (persis gejala di laporan:
+        // step PAYLOAD/SSH banner sukses di StatusBus, tapi SSH_HANDSHAKE
+        // tetap gagal "Read timed out"). client.timeout SEKARANG jauh lebih
+        // longgar (READ_TIMEOUT_MS, 40 detik) supaya jelas lebih besar dari
+        // total waktu proses ConnectRelay yang paling lambat sekalipun --
+        // connectTimeout TIDAK ikut dinaikkan (tetap CONNECT_TIMEOUT_MS)
+        // karena itu cuma buat TCP loopback yang memang selalu cepat.
         client.connectTimeout = CONNECT_TIMEOUT_MS
-        client.timeout = CONNECT_TIMEOUT_MS
+        client.timeout = READ_TIMEOUT_MS
         // Performance Mode (TCP_NODELAY) -- lihat javadoc PerformanceModeSocketFactory.
         client.socketFactory = PerformanceModeSocketFactory(performanceMode)
         // MVP: terima host key apa pun.

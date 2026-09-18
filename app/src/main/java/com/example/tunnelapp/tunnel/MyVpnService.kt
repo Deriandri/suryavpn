@@ -132,6 +132,11 @@ class MyVpnService : VpnService() {
         const val EXTRA_WEBSOCKET_ENABLED = "extra_websocket_enabled"
         const val EXTRA_WS_PATH = "extra_ws_path"
         const val EXTRA_PROXY_RAW_MODE = "extra_proxy_raw_mode"
+        // FITUR BARU (permintaan user, "samain kayak checkbox Enhanced & SSL
+        // yang kepisah di HTTP Custom"): dibawa terpisah dari EXTRA_PROXY_RAW_MODE
+        // sekarang -- lihat ServerConfig.enhancedSsl & DashboardMainFragment
+        // (PendingConnection.enhancedSsl/startVpnService) untuk pengirimnya.
+        const val EXTRA_ENHANCED_SSL = "extra_enhanced_ssl"
         const val EXTRA_XRAY_LINK = "extra_xray_link"
         const val EXTRA_CUSTOM_HEADERS = "extra_custom_headers"
         const val EXTRA_IGNORE_CERT_ERRORS = "extra_ignore_cert_errors"
@@ -819,6 +824,7 @@ class MyVpnService : VpnService() {
                     useWebSocket = intent.getBooleanExtra(EXTRA_WEBSOCKET_ENABLED, false),
                     wsPath = intent.getStringExtra(EXTRA_WS_PATH),
                     proxyRawMode = intent.getBooleanExtra(EXTRA_PROXY_RAW_MODE, false),
+                    enhancedSsl = intent.getBooleanExtra(EXTRA_ENHANCED_SSL, false),
                     xrayLink = intent.getStringExtra(EXTRA_XRAY_LINK),
                     customHeaders = intent.getStringExtra(EXTRA_CUSTOM_HEADERS),
                     ignoreCertErrors = intent.getBooleanExtra(EXTRA_IGNORE_CERT_ERRORS, false),
@@ -1277,6 +1283,14 @@ class MyVpnService : VpnService() {
                         } else {
                             null
                         },
+                        // FITUR BARU (permintaan user, samain kekuatan resolusi DNS
+                        // raw connect dengan HTTP Custom/DarkTunnel): SELALU
+                        // disediakan, TIDAK digerbang oleh customDnsConfigured
+                        // seperti protectDatagram di atas -- ini buat DNS query
+                        // manual di ConnectRelay (jalan duluan sebelum raw TCP
+                        // connect ke server SSH/proxy), bukan buat device-side DNS
+                        // bypass Socks5Server yang memang sengaja opt-in.
+                        dnsProtect = { datagramSocket -> protect(datagramSocket) },
                         performanceMode = performanceMode,
                         compressionEnabled = compressionEnabled,
                         onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }
