@@ -228,8 +228,9 @@ class ConnectRelay(
         //     Log.w(TAG, "Gagal naikkan SO_RCVBUF/SO_SNDBUF (lanjut pakai default OS)", e)
         // }
 
-        // (proxy) Kalau mode PROXY, atau ENHANCED dengan host proxy diisi,
-        // TCP connect diarahkan ke proxy dulu -- bukan langsung ke server SSH.
+        // (proxy) Kalau toggle "Gunakan Remote Proxy" aktif & host proxy diisi
+        // (lihat ServerConfig.usesProxy()), TCP connect diarahkan ke proxy
+        // dulu -- bukan langsung ke server SSH.
         val usesProxy = config.usesProxy()
         val connectHost = if (usesProxy) config.proxyHost!!.trim() else config.host
         val connectPort = if (usesProxy) (config.proxyPort ?: config.port) else config.port
@@ -342,7 +343,7 @@ class ConnectRelay(
         }
 
         val payload = config.payload
-        if (!payload.isNullOrEmpty()) {
+        if (config.payloadEnabled && !payload.isNullOrEmpty()) {
             StatusBus.start(StepId.PAYLOAD)
             try {
                 // Semua placeholder didukung sekarang (lihat KDoc buildAndSendPayload

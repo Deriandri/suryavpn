@@ -8,8 +8,11 @@ import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
 
 /**
- * Layar konfigurasi khusus jalur SSH (SSH biasa, SSH SSL, SSH TLS Payload Proxy,
- * Payload + Remote Proxy).
+ * Layar konfigurasi khusus jalur SSH -- REFACTOR (permintaan user, "opsi 1+2,
+ * toggle independen"): TLS/Payload/Remote Proxy sekarang 3 toggle berdiri
+ * sendiri yang bisa dikombinasikan bebas (lihat activity_ssh_config.xml
+ * chipGroupMode & ServerConfig.kt), menggantikan 4 preset mode lama
+ * (SSH/SSH SSL/SSH TLS Payload Proxy/Payload+Remote Proxy).
  * Terpisah dari Xray ([XrayConfigActivity]) & dari Dashboard ([DashboardActivity])
  * yang sekarang jadi satu-satunya tempat tombol Connect/Disconnect berada.
  *
@@ -195,19 +198,19 @@ class SshConfigActivity : AppCompatActivity() {
         }
         tlsChip.isChecked = true
         // modeIndex 5 (Xray) tidak relevan di sini -- kalau profil tersimpan
-        // terakhir adalah Xray, layar ini tetap tampil dengan chip SSH biasa
+        // terakhir adalah Xray, layar ini tetap tampil dengan toggle kosong
         // sebagai default (belum pernah dikonfigurasi SSH-nya).
-        val chip = when (saved.modeIndex) {
-            1 -> binding.chipSshSsl
-            2, 4 -> binding.chipSshEnhanced
-            3 -> binding.chipPayloadRemoteProxy
-            else -> binding.chipSsh
-        }
-        chip.isChecked = true
+        // REFACTOR (opsi 1+2): 3 toggle independen, bukan 1 chip mode lagi --
+        // dibaca lewat resolvedXxxEnabled() supaya akun LAMA (modeIndex based,
+        // belum punya field tlsEnabled/proxyEnabled/payloadEnabled eksplisit)
+        // tetap dipulihkan dengan kombinasi toggle yang setara, lihat SavedConfig.
+        binding.chipToggleTls.isChecked = saved.resolvedTlsEnabled()
+        binding.chipTogglePayload.isChecked = saved.resolvedPayloadEnabled()
+        binding.chipToggleProxy.isChecked = saved.resolvedProxyEnabled()
         binding.chipRawMode.isChecked = saved.proxyRawMode
         // Profil ini SUDAH punya pilihan Raw Passthrough eksplisit tersimpan
-        // -- jangan sampai ditimpa auto-default kalau user gonta-ganti chip
-        // mode selama sesi edit ini (lihat applyDefaultRawModeForEnhancedIfNeeded).
+        // -- jangan sampai ditimpa auto-default kalau user gonta-ganti toggle
+        // selama sesi edit ini (lihat applyDefaultRawModeForEnhancedIfNeeded).
         rawModeHasExplicitValue = true
 
         // PERBAIKAN (permintaan user, "kunci payload & remote proxy malah
@@ -294,76 +297,38 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     /**
-     * FITUR BARU (permintaan user): begitu mode "SSH SSL" (modeIndex 1),
-     * "SSH TLS Payload Proxy" (modeIndex 2), ATAU "Payload + Remote Proxy"
-     * (modeIndex 3) dipilih, chip "Raw Passthrough" otomatis DINYALAKAN
-     * sebagai default -- tapi tetap bisa dimatikan manual lewat chip-nya
-     * sendiri kapan saja. Auto-default ini HANYA berlaku selama
-     * rawModeHasExplicitValue masih false, yaitu: profil baru yang belum
-     * pernah disentuh chip Raw Passthrough-nya sama sekali di sesi ini.
-     * Begitu user tap chip itu sendiri (atau ini profil lama hasil EDIT,
-     * lihat restoreSavedConfig), pilihannya dihormati & tidak ditimpa lagi
-     * walau mode dipindah-pindah.
+     * FITUR BARU (permintaan user): begitu toggle "Gunakan Proxy" dinyalakan,
+     * chip "Raw Passthrough" otomatis DINYALAKAN sebagai default -- tapi
+     * tetap bisa dimatikan manual lewat chip-nya sendiri kapan saja.
+     * Auto-default ini HANYA berlaku selama rawModeHasExplicitValue masih
+     * false, yaitu: profil baru yang belum pernah disentuh chip Raw
+     * Passthrough-nya sama sekali di sesi ini. Begitu user tap chip itu
+     * sendiri (atau ini profil lama hasil EDIT, lihat restoreSavedConfig),
+     * pilihannya dihormati & tidak ditimpa lagi walau toggle proxy
+     * dimatikan-nyalakan lagi.
      */
     private fun applyDefaultRawModeForEnhancedIfNeeded() {
-        val modeIndex = currentModeIndex()
-        // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
-        // mode ini tidak lagi punya Remote Proxy sama sekali, lihat updateFieldVisibilityForMode().
-        if ((modeIndex == 2 || modeIndex == 3) &&
-            !rawModeHasExplicitValue && !binding.chipRawMode.isChecked
-        ) {
+        if (proxyToggleOn() && !rawModeHasExplicitValue && !binding.chipRawMode.isChecked) {
             settingRawModeProgrammatically = true
             binding.chipRawMode.isChecked = true
             settingRawModeProgrammatically = false
         }
     }
 
-    /**
-     * 0 = SSH, 1 = SSH SSL, 2 = SSH TLS Payload Proxy, 3 = Payload + Remote Proxy.
-     *
-     * Mode 3 (Payload + Remote Proxy) memakai [com.example.tunnelapp.model.ConnectionMode.REMOTE_PROXY]:
-     * proxy WAJIB diisi (beda dari mode 1 & 2 yang proxy-nya opsional), payload custom
-     * bisa diisi. TLS/SNI hanya relevan untuk mode payload+proxy biasa; begitu
-     * toggle Raw Passthrough dinyalakan, koneksi jalan apa adanya tanpa
-     * TLS/SNI sama sekali, jadi field itu disembunyikan.
-     *
-     * FITUR BARU (permintaan user): mode 1 (SSH SSL) sekarang juga ikut punya
-     * proxy/CDN opsional + toggle Raw Passthrough, persis seperti mode 2 --
-     * bedanya, begitu chip "SSH SSL" dipilih, Raw Passthrough-nya AKTIF secara
-     * default (lihat applyDefaultRawModeForEnhancedIfNeeded).
-     */
-    private fun currentModeIndex(): Int = when {
-        binding.chipPayloadRemoteProxy.isChecked -> 3
-        binding.chipSshEnhanced.isChecked -> 2
-        binding.chipSshSsl.isChecked -> 1
-        else -> 0
-    }
+    // REFACTOR (opsi 1+2, toggle independen): pengganti currentModeIndex()
+    // lama -- TLS/Proxy/Payload sekarang 3 chip berdiri sendiri
+    // (chipGroupMode multi-select), bisa dikombinasikan bebas, bukan lagi
+    // 1 dari 4 preset mode.
+    private fun tlsToggleOn(): Boolean = binding.chipToggleTls.isChecked
+    private fun payloadToggleOn(): Boolean = binding.chipTogglePayload.isChecked
+    private fun proxyToggleOn(): Boolean = binding.chipToggleProxy.isChecked
 
-    private fun proxyRawModeEnabled(): Boolean =
-        (currentModeIndex() == 2 || currentModeIndex() == 3) &&
-            binding.chipRawMode.isChecked
-
-    /**
-     * PERBAIKAN (bug fix): polaritas mode 3 sebelumnya KEBALIK -- dulu TLS/SNI
-     * dianggap aktif justru saat Raw Passthrough MATI, dan mati saat Raw
-     * Passthrough NYALA. Yang benar (konsisten dengan dokumentasi
-     * [ConnectionMode.REMOTE_PROXY] & [ServerConfig.usesTls]): mode 3 tanpa Raw
-     * Passthrough = CONNECT klasik ke proxy HTTP, TANPA TLS; mode 3 DENGAN Raw
-     * Passthrough = TCP langsung ke proxy/CDN DIIKUTI TLS+SNI (skenario
-     * reverse-proxy/CDN). Lihat [currentModeIndex].
-     */
-    private fun usesTlsForMode(modeIndex: Int): Boolean =
-        modeIndex == 1 || modeIndex == 2 || (modeIndex == 3 && proxyRawModeEnabled())
+    private fun proxyRawModeEnabled(): Boolean = proxyToggleOn() && binding.chipRawMode.isChecked
 
     private fun updateFieldVisibilityForMode() {
-        val modeIndex = currentModeIndex()
-        val usesTls = usesTlsForMode(modeIndex)
-        val usesPayload = modeIndex == 2 || modeIndex == 3
-        // DIKEMBALIKAN (permintaan user): mode 1 (SSH SSL) tidak lagi menampilkan
-        // blok Remote Proxy/Raw Passthrough -- kembali ke perilaku SSH SSL polos
-        // (TLS wrap langsung ke host, tanpa proxy/CDN sama sekali).
-        val usesProxy = modeIndex == 2 || modeIndex == 3
-        val proxyMandatory = modeIndex == 3
+        val usesTls = tlsToggleOn()
+        val usesPayload = payloadToggleOn()
+        val usesProxy = proxyToggleOn()
         val usesRawMode = proxyRawModeEnabled()
 
         binding.tilSni.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
@@ -377,10 +342,14 @@ class SshConfigActivity : AppCompatActivity() {
         binding.containerRemoteProxy.visibility = if (usesProxy) android.view.View.VISIBLE else android.view.View.GONE
 
         binding.tilSni.hint = "SNI / Host WebSocket (kosongkan jika tidak perlu)"
-        binding.tilProxyHost.hint = when {
-            usesRawMode -> "Host / IP Proxy atau CDN (wajib)"
-            proxyMandatory -> "Host / IP Proxy (wajib)"
-            else -> "Host / IP Proxy (opsional)"
+        // REFACTOR (opsi 1+2): proxy TIDAK lagi wajib di kombinasi apa pun --
+        // begitu toggle "Gunakan Remote Proxy" dinyalakan, host wajib diisi
+        // (baru divalidasi saat Simpan, lihat onSaveClicked), makanya hint-nya
+        // selalu bilang "wajib" begitu blok ini kelihatan sama sekali.
+        binding.tilProxyHost.hint = if (usesRawMode) {
+            "Host / IP Proxy atau CDN (wajib)"
+        } else {
+            "Host / IP Proxy (wajib)"
         }
 
         updateWsAndHeaderFieldState(usesPayload, usesProxy, usesRawMode)
@@ -447,7 +416,9 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     private fun onSaveClicked() {
-        val modeIndex = currentModeIndex()
+        val usesTls = tlsToggleOn()
+        val usesPayload = payloadToggleOn()
+        val usesProxy = proxyToggleOn()
 
         val accountName = binding.etAccountName.text.toString().trim()
         val host = binding.etHost.text.toString().trim()
@@ -481,13 +452,12 @@ class SshConfigActivity : AppCompatActivity() {
 
         val payloadProxyLocked = originalConfig?.lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY
 
-        val usesPayload = modeIndex == 2 || modeIndex == 3
         // PERBAIKAN (permintaan user, "kunci payload & remote proxy malah
         // kebuka semua"): kalau field ini sedang dikunci (lihat
         // [applyPayloadProxyLockIfNeeded]), form-nya SENGAJA dikosongkan &
         // dinonaktifkan di layar -- nilai yang benar-benar disimpan HARUS
         // diambil dari [originalConfig], bukan dari form, supaya nilai
-        // ASLI-nya tidak ikut terhapus cuma karena user menyimpan
+        // ASLI-nya tidak ikut hilang cuma karena user menyimpan
         // perubahan lain (mis. ganti nama akun) selagi field ini terkunci.
         val payload = when {
             payloadProxyLocked -> originalConfig?.payload.orEmpty()
@@ -495,9 +465,6 @@ class SshConfigActivity : AppCompatActivity() {
             else -> ""
         }
 
-        // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
-        // lihat updateFieldVisibilityForMode().
-        val usesProxy = modeIndex == 2 || modeIndex == 3
         val proxyHost = when {
             payloadProxyLocked -> originalConfig?.proxyHost.orEmpty()
             usesProxy -> binding.etProxyHost.text.toString().trim()
@@ -514,24 +481,25 @@ class SshConfigActivity : AppCompatActivity() {
             else -> false
         }
 
-        // Validasi Raw Passthrough/Payload+Remote Proxy di bawah ini cuma
-        // relevan kalau field-nya memang diisi lewat FORM -- kalau sedang
-        // terkunci ([payloadProxyLocked]), nilai aslinya sudah pasti valid
-        // (tersimpan begitu saat pertama kali diimpor), jadi dilewati saja.
+        // Validasi Raw Passthrough/Remote Proxy di bawah ini cuma relevan
+        // kalau field-nya memang diisi lewat FORM -- kalau sedang terkunci
+        // ([payloadProxyLocked]), nilai aslinya sudah pasti valid (tersimpan
+        // begitu saat pertama kali diimpor), jadi dilewati saja.
         if (!payloadProxyLocked) {
             if (proxyRawMode && proxyHost.isEmpty()) {
                 binding.etProxyHost.error = "Raw Passthrough butuh host/IP proxy atau CDN diisi"
                 return
             }
-            // Mode 3 (Payload + Remote Proxy) mewajibkan proxy diisi walau raw mode
-            // tidak aktif -- beda dari mode 2 yang proxy-nya opsional.
-            if (modeIndex == 3 && proxyHost.isEmpty()) {
-                binding.etProxyHost.error = "Payload + Remote Proxy butuh host/IP proxy diisi"
+            // REFACTOR (opsi 1+2): proxy TIDAK lagi wajib di kombinasi/mode
+            // apa pun secara bawaan -- tapi begitu toggle "Gunakan Remote
+            // Proxy" DINYALAKAN, host proxy tetap wajib diisi (toggle nyala +
+            // host kosong dianggap konfigurasi belum lengkap).
+            if (usesProxy && proxyHost.isEmpty()) {
+                binding.etProxyHost.error = "Toggle Remote Proxy aktif, host/IP proxy wajib diisi"
                 return
             }
         }
 
-        val usesTls = usesTlsForMode(modeIndex)
         val tlsVersion = if (usesTls) selectedTlsVersion() else null
         val ignoreCertErrors = usesTls && binding.chipIgnoreCertErrors.isChecked
 
@@ -557,7 +525,12 @@ class SshConfigActivity : AppCompatActivity() {
                 port = port,
                 username = username,
                 password = password,
-                modeIndex = modeIndex,
+                // REFACTOR (opsi 1+2): modeIndex 0 tetap dipakai (cuma untuk
+                // bedakan akun SSH vs Xray, lihat modeIndex==5 di tempat
+                // lain) -- kombinasi TLS/Proxy/Payload yang sebenarnya
+                // SEKARANG disimpan eksplisit lewat tlsEnabled/proxyEnabled/
+                // payloadEnabled di bawah, bukan lewat modeIndex lagi.
+                modeIndex = 0,
                 sni = sni,
                 payload = payload,
                 proxyHost = proxyHost,
@@ -579,7 +552,10 @@ class SshConfigActivity : AppCompatActivity() {
                 // sama seperti isLocked/lockMode di atas -- tanpa ini,
                 // catatan akun hasil impor ke-reset diam-diam jadi kosong
                 // tiap kali profil ini disimpan ulang lewat layar edit ini.
-                note = originalConfig?.note ?: ""
+                note = originalConfig?.note ?: "",
+                tlsEnabled = usesTls,
+                proxyEnabled = usesProxy,
+                payloadEnabled = usesPayload
             )
         )
 

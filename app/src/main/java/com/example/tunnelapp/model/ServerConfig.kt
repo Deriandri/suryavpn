@@ -84,6 +84,14 @@ object PayloadPlaceholders {
 /**
  * Metode koneksi yang didukung.
  *
+ * REFACTOR (opsi 1+2, toggle independen): SSH_SSL/SSH_SSL_PAYLOAD/REMOTE_PROXY/
+ * ENHANCED di bawah ini SUDAH PENSIUN dari UI (SshConfigActivity sekarang pakai
+ * 3 toggle independen tlsEnabled/proxyEnabled/payloadEnabled di ServerConfig &
+ * SavedConfig, bisa dikombinasikan bebas) -- nilainya dipertahankan di enum ini
+ * HANYA supaya SavedConfig.modeIndex dari akun lama masih bisa dibaca & dipetakan
+ * ke toggle yang setara (lihat SavedConfig.resolvedTlsEnabled() dkk). Deskripsi
+ * di bawah ini historis, gambaran perilaku SEBELUM refactor:
+ *
  *  - SSH:             TCP langsung ke server, protokol SSH mentah (tanpa bungkus apa pun).
  *  - SSH_SSL:         TCP langsung + TLS wrap (mirip stunnel) sebelum SSH dimulai,
  *                      langsung ke [ServerConfig.host]. Tidak punya opsi proxy/CDN
@@ -285,6 +293,23 @@ data class ServerConfig(
     val dns1: String? = null,
     val dns2: String? = null,
     val udpgwPort: Int = 0,
+    // REFACTOR (permintaan user, "opsi 1+2"): TLS/Proxy/Payload sekarang
+    // TIGA TOGGLE INDEPENDEN, bisa dikombinasikan bebas (tidak lagi terikat
+    // ke satu [mode] preset seperti SSH_SSL/SSH_SSL_PAYLOAD/REMOTE_PROXY/
+    // ENHANCED -- nilai-nilai itu dipertahankan di [ConnectionMode] cuma
+    // untuk baca config lama, sudah tidak dipakai UI lagi). [mode] sekarang
+    // cuma membedakan jalur SSH vs [ConnectionMode.XRAY].
+    //   - [tlsEnabled]: bungkus TLS (stunnel-style) sebelum SSH/payload.
+    //   - [proxyEnabled]: lewat [proxyHost]/[proxyPort] dulu (CONNECT biasa
+    //     atau raw passthrough kalau [proxyRawMode] true) sebelum ke [host].
+    //     Proxy tetap TIDAK aktif walau true kalau [proxyHost] kosong --
+    //     lihat [usesProxy].
+    //   - [payloadEnabled]: kirim [payload] custom. Disimpan terpisah dari
+    //     isi teks [payload] sendiri supaya user bisa simpan draft payload
+    //     tanpa langsung memakainya.
+    val tlsEnabled: Boolean = false,
+    val proxyEnabled: Boolean = false,
+    val payloadEnabled: Boolean = false,
     // FITUR BARU (permintaan user, "sembunyikan payload di Log untuk akun
     // terkunci total"): true kalau [SavedConfig.lockMode] akun ini adalah
     // [ConfigLockMode.LOCK_ALL] -- lihat [toServerConfigOrNull] &
@@ -331,36 +356,33 @@ data class ServerConfig(
      */
     fun usesProxy(): Boolean {
         if (mode == ConnectionMode.XRAY) return false
-        // DIKEMBALIKAN (permintaan user): menu Remote Proxy/Raw Passthrough dicopot
-        // lagi dari SSH_SSL -- mode ini sekarang murni TLS wrap ke [host] langsung,
-        // tanpa opsi proxy/CDN sama sekali (seperti sebelum FITUR BARU terkait
-        // ditambahkan, lihat dokumentasi ConnectionMode.SSH_SSL di atas).
-        val optionalProxyMode = mode == ConnectionMode.SSH_SSL_PAYLOAD ||
-            mode == ConnectionMode.ENHANCED
-        return mode == ConnectionMode.REMOTE_PROXY || (optionalProxyMode && !proxyHost.isNullOrBlank())
+        // REFACTOR (opsi 1+2): proxy independen dari mode/TLS/payload --
+        // aktif kalau togglenya nyala DAN host proxy memang diisi (host
+        // kosong = proxy dianggap belum siap dipakai walau togglenya on,
+        // sama seperti perilaku "opsional" SSH_SSL_PAYLOAD/ENHANCED lama).
+        return proxyEnabled && !proxyHost.isNullOrBlank()
     }
 
     /**
      * Apakah koneksi harus dibungkus TLS sebelum SSH/handshake WebSocket dimulai.
      *
-     * PERBAIKAN (bug fix): REMOTE_PROXY + proxyRawMode=true SEKARANG ikut
-     * menghasilkan true -- sesuai dokumentasi [ConnectionMode.REMOTE_PROXY],
-     * varian raw-nya memang harus TCP langsung ke proxyHost:proxyPort DIIKUTI
-     * TLS dengan SNI (persis "varian raw di ENHANCED"), bukan TCP polos tanpa
-     * TLS sama sekali seperti sebelumnya -- sebelumnya fungsi ini (dan
-     * dokumentasinya) malah bilang REMOTE_PROXY tidak pernah pakai TLS apa pun,
-     * yang membuat skenario CDN/reverse-proxy (butuh SNI buat routing) gagal
-     * diam-diam walau Raw Passthrough sudah dinyalakan dan proxyHost sudah diisi.
-     * REMOTE_PROXY + proxyRawMode=false (CONNECT klasik) tetap TIDAK pakai TLS,
-     * sesuai perilaku lama. Selalu false untuk mode XRAY -- TLS (kalau dipakai)
-     * sudah ditangani di dalam Xray-core sendiri berdasarkan security yang
-     * tertulis di link share, bukan lewat jalur TLS punya SSH ([ConnectRelay]).
+     * REMOTE_PROXY + proxyRawMode TIDAK ikut menghasilkan true -- di mode ini Raw
+     * Passthrough berarti TCP polos ke proxyHost:proxyPort tanpa TLS/SNI sama sekali
+     * (payload custom dikirim plaintext langsung). Selalu false untuk mode XRAY --
+     * TLS (kalau dipakai) sudah ditangani di dalam Xray-core sendiri berdasarkan
+     * security yang tertulis di link share, bukan lewat jalur TLS punya SSH
+     * ([ConnectRelay]).
      */
     fun usesTls(): Boolean {
         if (mode == ConnectionMode.XRAY) return false
-        return mode == ConnectionMode.SSH_SSL || mode == ConnectionMode.SSH_SSL_PAYLOAD ||
-            mode == ConnectionMode.ENHANCED ||
-            (mode == ConnectionMode.REMOTE_PROXY && proxyRawMode)
+        // REFACTOR (opsi 1+2): TLS sekarang toggle berdiri sendiri, bisa
+        // dikombinasikan dengan proxy raw-passthrough (SNI ke CDN/reverse-
+        // proxy) maupun tanpa proxy sama sekali -- BUKAN lagi turunan dari
+        // [mode] preset seperti sebelumnya (bug lama: REMOTE_PROXY +
+        // proxyRawMode=true seharusnya TLS+SNI tapi fungsi ini selalu
+        // mengembalikan false untuk REMOTE_PROXY, tidak pernah diperbaiki
+        // karena mode itu sekarang dipensiunkan).
+        return tlsEnabled
     }
 
     /**
@@ -408,7 +430,7 @@ data class ServerConfig(
      * user mengisi payload sendiri, payload itu dipercaya penuh sebagai satu-satunya
      * trik HTTP yang dipakai, sama seperti perilaku DarkTunnel/HTTP Custom.
      */
-    fun attemptsFormalWebSocket(): Boolean = usesWebSocket() && payload.isNullOrEmpty()
+    fun attemptsFormalWebSocket(): Boolean = usesWebSocket() && !(payloadEnabled && !payload.isNullOrEmpty())
 
     /** Apakah mode ini pakai jalur Xray-core, bukan jalur SSH. */
     fun usesXray(): Boolean = mode == ConnectionMode.XRAY
@@ -440,34 +462,26 @@ fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
 
     if (host.isBlank() || username.isBlank()) return null
 
-    val mode = when (modeIndex) {
-        1 -> ConnectionMode.SSH_SSL
-        2 -> ConnectionMode.SSH_SSL_PAYLOAD
-        3 -> ConnectionMode.REMOTE_PROXY
-        else -> ConnectionMode.SSH
-    }
-    val usesPayload = modeIndex == 2 || modeIndex == 3
-    // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi dari
-    // usesProxy -- lihat ServerConfig.usesProxy().
-    val usesProxy = modeIndex == 2 || modeIndex == 3
+    // REFACTOR (opsi 1+2, toggle independen): tidak ada lagi pemetaan ke
+    // mode preset -- TLS/proxy/payload dibaca langsung dari toggle masing-
+    // masing (dengan fallback ke modeIndex lama lewat resolvedXxxEnabled()
+    // untuk akun yang disimpan sebelum refactor ini, lihat SavedConfig).
+    val usesTls = resolvedTlsEnabled()
+    val usesProxy = resolvedProxyEnabled()
+    val usesPayload = resolvedPayloadEnabled()
     val proxyRawModeResolved = usesProxy && proxyRawMode
-    // PERBAIKAN (bug fix, konsisten dengan ServerConfig.usesTls()): modeIndex 3
-    // (REMOTE_PROXY) + Raw Passthrough aktif SEKARANG juga dianggap pakai TLS --
-    // sebelumnya tlsVersion/ignoreCertErrors selalu ikut dibuang (null/false) di
-    // kombinasi ini walau koneksi sebenarnya (lewat ServerConfig.usesTls()) tetap
-    // butuh TLS, jadi versi TLS paksa yang dipilih user tidak pernah benar-benar
-    // dipakai.
-    val usesTls = modeIndex == 1 || modeIndex == 2 || (modeIndex == 3 && proxyRawModeResolved)
 
-    if (usesProxy && proxyRawModeResolved && proxyHost.isBlank()) return null
-    if (modeIndex == 3 && proxyHost.isBlank()) return null
+    // Proxy TIDAK lagi wajib di mode/kombinasi apa pun -- tapi kalau
+    // togglenya nyala, host proxy tetap wajib diisi (toggle nyala + host
+    // kosong dianggap konfigurasi belum lengkap, bukan diam-diam diabaikan).
+    if (usesProxy && proxyHost.isBlank()) return null
 
     return ServerConfig(
         host = host,
         port = port,
         username = username,
         password = password,
-        mode = mode,
+        mode = ConnectionMode.SSH,
         sslSni = sni,
         payload = if (usesPayload) payload else "",
         proxyHost = if (usesProxy) proxyHost else "",
@@ -476,6 +490,9 @@ fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
         useWebSocket = true,
         wsPath = wsPath,
         proxyRawMode = proxyRawModeResolved,
+        tlsEnabled = usesTls,
+        proxyEnabled = usesProxy,
+        payloadEnabled = usesPayload,
         xrayLink = "",
         customHeaders = customHeaders,
         ignoreCertErrors = ignoreCertErrors,

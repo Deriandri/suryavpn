@@ -141,6 +141,12 @@ class MyVpnService : VpnService() {
         // terkunci total"): true kalau akun aktif lockMode-nya LOCK_ALL --
         // lihat KDoc [ServerConfig.hideSensitiveLogs] & DashboardMainFragment.
         const val EXTRA_HIDE_SENSITIVE_LOGS = "extra_hide_sensitive_logs"
+        // REFACTOR (opsi 1+2, toggle independen): pengganti pemetaan
+        // EXTRA_MODE -> preset lama -- dikirim langsung dari
+        // DashboardMainFragment (SavedConfig.resolvedXxxEnabled()).
+        const val EXTRA_TLS_ENABLED = "extra_tls_enabled"
+        const val EXTRA_PROXY_ENABLED = "extra_proxy_enabled"
+        const val EXTRA_PAYLOAD_ENABLED = "extra_payload_enabled"
         // FIX/FITUR BARU (fallback akun cadangan): id profil ProfileStore yang
         // lagi dipakai -- dikirim dari DashboardMainFragment supaya
         // MyVpnService tahu profil mana yang HARUS DIKECUALIKAN saat menyusun
@@ -152,6 +158,11 @@ class MyVpnService : VpnService() {
         private const val NOTIFICATION_CHANNEL_ID = "vpn_service_channel"
         private const val NOTIFICATION_ID = 1
         private const val TUN_ADDRESS = "10.10.0.2"
+        // Fallback TERAKHIR kalau VpnSettings.defaultDns kosong/belum pernah
+        // diisi user (data lama) -- nilai aktif yang dipakai sehari-hari ada
+        // di VpnSettings.defaultDns (bisa diubah lewat field "Default DNS"
+        // di kartu VPN Setting), lihat applyDnsServers() di bawah.
+        private const val DEFAULT_DNS = com.example.tunnelapp.model.VpnSettings.DEFAULT_DNS_FALLBACK
         private const val WAKE_LOCK_TAG = "TunnelApp:VpnKeepAwake"
 
         // --- Deteksi & reconnect otomatis kalau tunnel mati sendiri ---
@@ -819,6 +830,12 @@ class MyVpnService : VpnService() {
                     ignoreCertErrors = intent.getBooleanExtra(EXTRA_IGNORE_CERT_ERRORS, false),
                     dns1 = intent.getStringExtra(EXTRA_DNS1),
                     dns2 = intent.getStringExtra(EXTRA_DNS2),
+                    // REFACTOR (opsi 1+2, toggle independen): dibaca langsung
+                    // dari Intent, bukan diturunkan dari [mode] lagi -- lihat
+                    // EXTRA_TLS_ENABLED/EXTRA_PROXY_ENABLED/EXTRA_PAYLOAD_ENABLED.
+                    tlsEnabled = intent.getBooleanExtra(EXTRA_TLS_ENABLED, false),
+                    proxyEnabled = intent.getBooleanExtra(EXTRA_PROXY_ENABLED, false),
+                    payloadEnabled = intent.getBooleanExtra(EXTRA_PAYLOAD_ENABLED, false),
                     hideSensitiveLogs = intent.getBooleanExtra(EXTRA_HIDE_SENSITIVE_LOGS, false)
                 )
                 startVpn(config, intent.getStringExtra(EXTRA_PROFILE_ID))
@@ -1061,19 +1078,18 @@ class MyVpnService : VpnService() {
      * diisi di layar Konfigurasi SSH/Xray masing-masing profil).
      *
      * Kalau DNS1/DNS2 per-server kosong dua-duanya, DNS default
-     * ([VpnSettings.defaultDns], field "Default DNS" di kartu VPN Setting)
-     * dipasang sebagai gantinya -- KECUALI switch "DNS Default Otomatis"
+     * ([VpnSettings.defaultDns], field "Default DNS" di kartu VPN Setting --
+     * [DEFAULT_DNS] cuma fallback kalau field itu sendiri kosong) dipasang
+     * sebagai gantinya -- KECUALI switch "DNS Default Otomatis"
      * ([VpnSettings.dnsFallbackEnabled], kartu VPN Setting) dimatikan user
-     * sendiri, ATAU field "Default DNS"-nya sendiri masih kosong, ATAU
-     * profilnya mode Xray (lihat catatan [ConnectionMode.XRAY] di bawah).
-     * TIDAK ADA fallback hardcode lagi -- default switch ini MATI dan field
-     * "Default DNS" kosong sampai user mengisinya sendiri. Kalau switch mati,
-     * atau menyala tapi field "Default DNS" masih kosong, atau DNS1/DNS2
-     * kosong, TIDAK ADA addDnsServer() dipanggil sama sekali -- perlu diingat
-     * addRoute("0.0.0.0", 0) tetap menangkap SEMUA trafik ke TUN termasuk DNS
-     * bawaan operator/wifi (yang sering berupa IP privat, tidak bisa dicapai
-     * server SSH), jadi resolusi domain kemungkinan besar gagal total buat
-     * profil yang tidak diisi DNS1/DNS2 manual DAN belum diisi "Default DNS".
+     * sendiri, ATAU profilnya mode Xray (lihat catatan [ConnectionMode.XRAY]
+     * di bawah). Default switch ini NYALA. Kalau
+     * dimatikan dan DNS1/DNS2 kosong, TIDAK ADA addDnsServer() dipanggil
+     * sama sekali -- perlu diingat addRoute("0.0.0.0", 0) tetap menangkap
+     * SEMUA trafik ke TUN termasuk DNS bawaan operator/wifi (yang sering
+     * berupa IP privat, tidak bisa dicapai server SSH), jadi resolusi
+     * domain kemungkinan besar gagal total buat profil yang tidak diisi
+     * DNS1/DNS2 manual selama switch ini mati.
      *
      * FIX (laporan user: "DNS default diaktifkan -> internet mode Xray
      * hilang total, dimatikan -> jalan lagi"): untuk profil [ConnectionMode.XRAY]
@@ -1118,12 +1134,15 @@ class MyVpnService : VpnService() {
                 // internal (XrayTunnelManager.resolveDnsAddr), independen
                 // dari builder ini.
                 StatusBus.log("[DNS] DNS1/DNS2 kosong -- mode Xray pakai resolver DNS internal Xray sendiri (bukan TUN)")
-            } else if (vpnSettings.dnsFallbackEnabled && vpnSettings.defaultDns.isNotBlank()) {
-                // DNS1/DNS2 per-server kosong, switch "DNS Default Otomatis"
-                // nyala, DAN field "Default DNS" sudah diisi user -- pasang
-                // nilai itu. TIDAK ADA fallback hardcode lagi kalau field ini
-                // kosong (lihat cabang else di bawah).
-                val effectiveDefaultDns = vpnSettings.defaultDns.trim()
+            } else if (vpnSettings.dnsFallbackEnabled) {
+                // DNS1/DNS2 per-server kosong -- pasang DNS default supaya
+                // resolusi domain tidak gagal total ("connect tapi internet
+                // tidak jalan"). Bisa dimatikan lewat switch "DNS Default
+                // Otomatis" di kartu VPN Setting kalau user memang tidak mau
+                // ada DNS default sama sekali. Nilainya sendiri dari field
+                // "Default DNS" (VpnSettings.defaultDns, bisa diubah user) --
+                // blank berarti belum pernah diisi, fallback ke DEFAULT_DNS.
+                val effectiveDefaultDns = vpnSettings.defaultDns.trim().ifEmpty { DEFAULT_DNS }
                 try {
                     builder.addDnsServer(effectiveDefaultDns)
                     StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $effectiveDefaultDns")
@@ -1132,11 +1151,10 @@ class MyVpnService : VpnService() {
                     StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $effectiveDefaultDns gagal dipasang -- TIDAK ada DNS di TUN")
                 }
             } else {
-                // User mematikan switch "DNS Default Otomatis", ATAU switch
-                // itu nyala tapi field "Default DNS" masih kosong -- TIDAK
-                // ADA addDnsServer() dipanggil sama sekali, TIDAK ADA fallback
-                // hardcode. Lihat catatan risiko di kdoc applyDnsServers().
-                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS Default Otomatis mati/belum diisi -- TIDAK ada DNS dipasang ke TUN")
+                // User mematikan switch "DNS Default Otomatis" -- TIDAK ADA
+                // addDnsServer() dipanggil sama sekali. Lihat catatan risiko
+                // di kdoc applyDnsServers().
+                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS Default Otomatis dimatikan -- TIDAK ada DNS dipasang ke TUN")
             }
         }
 

@@ -257,6 +257,13 @@ object ProfileStore {
         editor.putBoolean(k(id, "isLocked"), c.isLocked)
         editor.putString(k(id, "lockMode"), c.lockMode.name)
         editor.putString(k(id, "note"), c.note)
+        // REFACTOR (opsi 1+2, toggle independen): lihat SavedConfig.tlsEnabled
+        // dkk -- ditulis lewat resolvedXxxEnabled() supaya akun lama yang
+        // baru pertama kali disimpan ulang lewat versi baru ini langsung
+        // dapat nilai eksplisit (bukan null/fallback lagi) sejak saat itu.
+        editor.putBoolean(k(id, "tlsEnabled"), c.resolvedTlsEnabled())
+        editor.putBoolean(k(id, "proxyEnabled"), c.resolvedProxyEnabled())
+        editor.putBoolean(k(id, "payloadEnabled"), c.resolvedPayloadEnabled())
     }
 
     private fun readConfig(prefs: android.content.SharedPreferences, id: String): SavedConfig? {
@@ -283,7 +290,10 @@ object ProfileStore {
             accountName = prefs.getString(k(id, "accountName"), "").orEmpty(),
             isLocked = prefs.getBoolean(k(id, "isLocked"), false),
             lockMode = ConfigLockMode.fromName(prefs.getString(k(id, "lockMode"), null)),
-            note = prefs.getString(k(id, "note"), "").orEmpty()
+            note = prefs.getString(k(id, "note"), "").orEmpty(),
+            tlsEnabled = if (prefs.contains(k(id, "tlsEnabled"))) prefs.getBoolean(k(id, "tlsEnabled"), false) else null,
+            proxyEnabled = if (prefs.contains(k(id, "proxyEnabled"))) prefs.getBoolean(k(id, "proxyEnabled"), false) else null,
+            payloadEnabled = if (prefs.contains(k(id, "payloadEnabled"))) prefs.getBoolean(k(id, "payloadEnabled"), false) else null
         )
     }
 
@@ -292,7 +302,8 @@ object ProfileStore {
             "host", "port", "username", "password", "modeIndex", "sni", "payload",
             "proxyHost", "proxyPort", "tlsVersion", "useWebSocket", "wsPath",
             "proxyRawMode", "xrayLink", "customHeaders", "ignoreCertErrors", "dns1", "dns2",
-            "accountName", "isLocked", "lockMode", "note"
+            "accountName", "isLocked", "lockMode", "note",
+            "tlsEnabled", "proxyEnabled", "payloadEnabled"
         )) {
             editor.remove(k(id, field))
         }

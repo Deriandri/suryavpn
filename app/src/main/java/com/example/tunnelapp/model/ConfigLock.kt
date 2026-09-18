@@ -73,11 +73,18 @@ private fun lockedFieldsFor(mode: ConfigLockMode): Set<String> = when (mode) {
     ConfigLockMode.LOCK_ALL -> setOf(
         "host", "port", "username", "password", "sni", "payload",
         "proxyHost", "proxyPort", "tlsVersion", "wsPath", "proxyRawMode",
-        "xrayLink", "customHeaders", "dns1", "dns2"
+        "xrayLink", "customHeaders", "dns1", "dns2",
+        "tlsEnabled", "proxyEnabled", "payloadEnabled"
     )
 
+    // REFACTOR (opsi 1+2): proxyEnabled/payloadEnabled ikut disamarkan di
+    // sini juga -- kalau tidak, orang yang menerima akun terkunci masih
+    // bisa tahu apakah payload/proxy dipakai atau tidak dari dua boolean
+    // ini walau proxyHost/payload teksnya sendiri sudah tersembunyi.
+    // tlsEnabled TIDAK ikut (bukan bagian "payload & proxy").
     ConfigLockMode.LOCK_PAYLOAD_PROXY -> setOf(
-        "payload", "proxyHost", "proxyPort", "proxyRawMode"
+        "payload", "proxyHost", "proxyPort", "proxyRawMode",
+        "proxyEnabled", "payloadEnabled"
     )
 }
 

@@ -62,42 +62,40 @@
                     android:layout_height="wrap_content"
                     android:text="Metode Koneksi" />
 
+                <!-- REFACTOR (permintaan user, "opsi 1+2, toggle independen"):
+                     dulu 4 chip preset (SSH/SSH SSL/SSH TLS Payload Proxy/
+                     Payload+Remote Proxy, single-select) -- sekarang 3 toggle
+                     BERDIRI SENDIRI yang bisa dikombinasikan bebas (multi-
+                     select), mirip HTTP Custom/DarkTunnel. Lihat
+                     SshConfigActivity.updateFieldVisibilityForMode(). -->
                 <com.google.android.material.chip.ChipGroup
                     android:id="@+id/chipGroupMode"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:singleSelection="true"
-                    app:selectionRequired="true"
+                    app:singleSelection="false"
+                    app:selectionRequired="false"
                     app:chipSpacingHorizontal="8dp">
 
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/chipSsh"
+                        android:id="@+id/chipToggleTls"
                         style="@style/Widget.TunnelApp.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:checked="true"
-                        android:text="SSH" />
+                        android:text="Gunakan TLS" />
 
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/chipSshSsl"
+                        android:id="@+id/chipTogglePayload"
                         style="@style/Widget.TunnelApp.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="SSH SSL" />
+                        android:text="Gunakan Payload" />
 
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/chipSshEnhanced"
+                        android:id="@+id/chipToggleProxy"
                         style="@style/Widget.TunnelApp.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="SSH TLS Payload Proxy" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/chipPayloadRemoteProxy"
-                        style="@style/Widget.TunnelApp.Chip.Filter"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Payload + Remote Proxy" />
+                        android:text="Gunakan Remote Proxy" />
                 </com.google.android.material.chip.ChipGroup>
 
                 <com.google.android.material.textfield.TextInputLayout

@@ -58,6 +58,17 @@ data class SavedConfig(
     // lagi lewat ikon gembok di baris yang sama -- murni proteksi UI dari
     // ketidaksengajaan, TIDAK mengenkripsi/menyembunyikan data & TIDAK
     // memengaruhi logika koneksi sama sekali.
+    // REFACTOR (permintaan user, "opsi 1+2, toggle independen"): pengganti
+    // modeIndex 1/2/3/4 untuk jalur SSH (modeIndex 0/5 tetap dipakai apa
+    // adanya, cuma buat bedakan SSH vs Xray sekarang). Null = akun LAMA
+    // yang disimpan sebelum field ini ada -- nilainya diturunkan otomatis
+    // dari modeIndex lama sekali saja saat dibaca, lihat [legacyTlsEnabled]/
+    // [legacyProxyEnabled]/[legacyPayloadEnabled] di bawah, supaya akun
+    // lama tetap konek dengan cara yang sama seperti sebelumnya sampai
+    // user membuka & menyimpan ulang lewat SshConfigActivity yang baru.
+    val tlsEnabled: Boolean? = null,
+    val proxyEnabled: Boolean? = null,
+    val payloadEnabled: Boolean? = null,
     val isLocked: Boolean = false,
     // FITUR BARU (permintaan user, "kunci konfig saat ekspor seperti HTTP
     // Custom"): lihat dokumentasi lengkap di [ConfigLockMode]. NONE untuk
@@ -83,7 +94,26 @@ data class SavedConfig(
     // Catatan tetap menampilkan log koneksi seperti biasa. Kosong = akun
     // biasa yang belum pernah diberi catatan saat ekspor.
     val note: String = ""
-)
+) {
+    /** Nilai TLS efektif: [tlsEnabled] kalau sudah diisi, kalau tidak diturunkan dari modeIndex lama. */
+    fun resolvedTlsEnabled(): Boolean = tlsEnabled ?: legacyTlsEnabled(modeIndex)
+
+    /** Nilai proxy efektif: [proxyEnabled] kalau sudah diisi, kalau tidak diturunkan dari modeIndex lama. */
+    fun resolvedProxyEnabled(): Boolean = proxyEnabled ?: legacyProxyEnabled(modeIndex)
+
+    /** Nilai payload efektif: [payloadEnabled] kalau sudah diisi, kalau tidak diturunkan dari modeIndex lama. */
+    fun resolvedPayloadEnabled(): Boolean = payloadEnabled ?: legacyPayloadEnabled(modeIndex)
+}
+
+/**
+ * Turunan toggle TLS/Proxy/Payload dari [SavedConfig.modeIndex] LAMA (0=SSH,
+ * 1=SSH SSL, 2=SSH TLS Payload Proxy, 3=Payload+Remote Proxy, 4=Enhanced) --
+ * dipakai SEKALI SAJA untuk akun yang disimpan sebelum refactor toggle
+ * independen ini ada (lihat [SavedConfig.resolvedTlsEnabled] dkk).
+ */
+internal fun legacyTlsEnabled(modeIndex: Int): Boolean = modeIndex == 1 || modeIndex == 2 || modeIndex == 4
+internal fun legacyProxyEnabled(modeIndex: Int): Boolean = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
+internal fun legacyPayloadEnabled(modeIndex: Int): Boolean = modeIndex == 2 || modeIndex == 3
 
 object ConfigStore {
     private const val PREFS_NAME = "tunnelapp_prefs"
@@ -107,6 +137,9 @@ object ConfigStore {
     private const val KEY_DNS2 = "dns2"
     private const val KEY_ACCOUNT_NAME = "account_name"
     private const val KEY_LOCK_MODE = "lock_mode"
+    private const val KEY_TLS_ENABLED = "tls_enabled"
+    private const val KEY_PROXY_ENABLED = "proxy_enabled"
+    private const val KEY_PAYLOAD_ENABLED = "payload_enabled"
 
     fun save(context: Context, config: SavedConfig) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -131,6 +164,9 @@ object ConfigStore {
             .putString(KEY_DNS2, config.dns2)
             .putString(KEY_ACCOUNT_NAME, config.accountName)
             .putString(KEY_LOCK_MODE, config.lockMode.name)
+            .putBoolean(KEY_TLS_ENABLED, config.resolvedTlsEnabled())
+            .putBoolean(KEY_PROXY_ENABLED, config.resolvedProxyEnabled())
+            .putBoolean(KEY_PAYLOAD_ENABLED, config.resolvedPayloadEnabled())
             .apply()
     }
 
@@ -157,7 +193,10 @@ object ConfigStore {
             dns1 = prefs.getString(KEY_DNS1, "").orEmpty(),
             dns2 = prefs.getString(KEY_DNS2, "").orEmpty(),
             accountName = prefs.getString(KEY_ACCOUNT_NAME, "").orEmpty(),
-            lockMode = ConfigLockMode.fromName(prefs.getString(KEY_LOCK_MODE, null))
+            lockMode = ConfigLockMode.fromName(prefs.getString(KEY_LOCK_MODE, null)),
+            tlsEnabled = if (prefs.contains(KEY_TLS_ENABLED)) prefs.getBoolean(KEY_TLS_ENABLED, false) else null,
+            proxyEnabled = if (prefs.contains(KEY_PROXY_ENABLED)) prefs.getBoolean(KEY_PROXY_ENABLED, false) else null,
+            payloadEnabled = if (prefs.contains(KEY_PAYLOAD_ENABLED)) prefs.getBoolean(KEY_PAYLOAD_ENABLED, false) else null
         )
     }
 

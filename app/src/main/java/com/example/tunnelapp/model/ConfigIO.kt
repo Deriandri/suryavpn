@@ -96,6 +96,13 @@ fun SavedConfig.toConfigJson(exportLockMode: ConfigLockMode = lockMode, noteOver
         put("dns2", dns2)
         put("accountName", accountName)
         put("note", noteOverride ?: note)
+        // REFACTOR (opsi 1+2, toggle independen): ditulis lewat
+        // resolvedXxxEnabled() supaya hasil ekspor SELALU eksplisit (bukan
+        // null) -- termasuk untuk akun lama yang tlsEnabled/proxyEnabled/
+        // payloadEnabled aslinya belum pernah diisi, lihat SavedConfig.
+        put("tlsEnabled", resolvedTlsEnabled())
+        put("proxyEnabled", resolvedProxyEnabled())
+        put("payloadEnabled", resolvedPayloadEnabled())
     }
     return applyLockMode(json, exportLockMode)
 }
@@ -165,7 +172,13 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
         // sini -- akun dengan mode ini harus langsung bisa diedit begitu
         // diimpor, tanpa perlu buka gembok manual dulu.
         isLocked = lockMode == ConfigLockMode.LOCK_ALL,
-        lockMode = lockMode
+        lockMode = lockMode,
+        // REFACTOR (opsi 1+2): field baru -- null (fallback ke modeIndex
+        // lama lewat resolvedXxxEnabled()) kalau tidak ada di JSON sama
+        // sekali, yaitu hasil ekspor dari versi app SEBELUM refactor ini.
+        tlsEnabled = if (o.has("tlsEnabled")) o.optBoolean("tlsEnabled") else null,
+        proxyEnabled = if (o.has("proxyEnabled")) o.optBoolean("proxyEnabled") else null,
+        payloadEnabled = if (o.has("payloadEnabled")) o.optBoolean("payloadEnabled") else null
     )
 }
 

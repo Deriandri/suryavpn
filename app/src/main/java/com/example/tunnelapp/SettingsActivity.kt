@@ -496,10 +496,13 @@ class SettingsActivity : AppCompatActivity() {
     private fun loadVpnSettingsIntoForm() {
         val settings = VpnSettingsStore.load(this)
         binding.switchDnsFallback.isChecked = settings.dnsFallbackEnabled
-        // Kosong == belum diisi -- TIDAK ADA fallback hardcode lagi, jadi
-        // kalau user belum pernah simpan field ini, field tampil kosong di
-        // layar (sama seperti socksPort/httpPort/udpgwPort yang kosong
-        // berarti "tidak diisi/nonaktif").
+        // Sama seperti dnsFallbackEnabled: kosong == belum diisi (perilaku
+        // lama "1.1.1.1" tetap dipakai di belakang layar lewat
+        // VpnSettings.DEFAULT_DNS_FALLBACK), tampilkan apa adanya dari
+        // penyimpanan -- kalau user belum pernah simpan field ini,
+        // VpnSettingsStore.load() sudah mengembalikan "1.1.1.1" persis,
+        // jadi field TIDAK kosong di layar (beda dari socksPort/httpPort/
+        // udpgwPort yang default-nya memang "aktif dengan port standar").
         binding.etVpnDefaultDns.setText(settings.defaultDns)
         binding.etVpnMtu.setText(settings.mtu.toString())
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
@@ -545,15 +548,16 @@ class SettingsActivity : AppCompatActivity() {
 
         // Validasi format sama seperti DNS1/DNS2 per-profil di
         // SshConfigActivity (literal IPv4 lewat Patterns.IP_ADDRESS) --
-        // kosong DIPERBOLEHKAN (berarti "tidak ada DNS default", TIDAK ADA
-        // fallback hardcode lagi di MyVpnService/XrayTunnelManager), cuma
+        // kosong DIPERBOLEHKAN (dianggap "reset ke default", ditangani
+        // sebagai VpnSettings.DEFAULT_DNS_FALLBACK di VpnSettingsStore.load()
+        // & di titik pemakaiannya di MyVpnService/XrayTunnelManager), cuma
         // yang diisi tapi bukan IP valid yang ditolak.
         val defaultDnsText = binding.etVpnDefaultDns.text.toString().trim()
         if (defaultDnsText.isNotEmpty() && !android.util.Patterns.IP_ADDRESS.matcher(defaultDnsText).matches()) {
             binding.etVpnDefaultDns.error = getString(R.string.error_default_dns)
             return
         }
-        val defaultDns = defaultDnsText
+        val defaultDns = defaultDnsText.ifEmpty { VpnSettings.DEFAULT_DNS_FALLBACK }
 
         val mtuText = binding.etVpnMtu.text.toString().trim()
 
