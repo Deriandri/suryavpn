@@ -110,22 +110,16 @@ object PayloadPlaceholders {
  *                          dipakai kalau proxyHost sebenarnya CDN/reverse-proxy yang
  *                          butuh SNI buat routing ke origin yang benar.
  *  - ENHANCED:        mode dengan proxy/CDN (WAJIB diisi kalau [ServerConfig.proxyRawMode]
- *                      aktif). UPDATE (permintaan user, "samain logikanya kayak HTTP
- *                      Custom/DarkTunnel"): TLS SEKARANG IKUT [ServerConfig.proxyRawMode],
- *                      SAMA PERSIS seperti REMOTE_PROXY di atas -- bukan lagi selalu aktif:
+ *                      aktif) + TLS (selalu aktif). Dua varian proxy, dikontrol
+ *                      oleh [ServerConfig.proxyRawMode]:
  *                        * proxyRawMode=false (proxy HTTP klasik, mis. Squid): kirim HTTP
  *                          CONNECT ke proxyHost dulu, tunggu balasan "200", baru TLS+SSH
  *                          dijalankan di atas tunnel itu.
- *                        * proxyRawMode=true (reverse-proxy/CDN/host bug tujuan yang
- *                          expose port plaintext, mis. :80 -- default begitu chip ini
- *                          dipilih): TCP connect langsung ke proxyHost:proxyPort (tanpa
- *                          CONNECT), TANPA TLS -- payload custom dikirim plaintext langsung
- *                          di atas TCP itu, PERSIS mode "Proxy" (bukan "Proxy with SNI") di
- *                          DarkTunnel/HTTP Custom. Kalau butuh varian raw YANG TETAP pakai
- *                          TLS+SNI (mis. proxy tujuannya CDN yang justru butuh SNI buat
- *                          routing), itu belum ada togglenya sendiri -- pakai REMOTE_PROXY
- *                          kalau perlu kombinasi itu (lihat catatan di REMOTE_PROXY),
- *                          bukan ENHANCED.
+ *                        * proxyRawMode=true (reverse-proxy/CDN, mis. Cloudflare & sejenisnya,
+ *                          default begitu chip ini dipilih): TCP connect langsung ke
+ *                          proxyHost:proxyPort (tanpa CONNECT -- CDN tidak paham semantik
+ *                          itu), lalu TLS dengan SNI = [ServerConfig.sslSni] (atau host asli)
+ *                          supaya CDN bisa routing berbasis SNI ke origin yang benar.
  *  - XRAY:            mode terpisah dari jalur SSH di atas -- TIDAK dikonek pakai
  *                      engine SSH sama sekali. Server diisi lewat satu link
  *                      share ([ServerConfig.xrayLink], format vmess://, vless://,
@@ -358,14 +352,6 @@ data class ServerConfig(
      */
     fun usesTls(): Boolean {
         if (mode == ConnectionMode.XRAY) return false
-        // FIX: ENHANCED + proxyRawMode = raw passthrough plaintext (persis seperti
-        // REMOTE_PROXY + proxyRawMode di atas) -- payload/HTTP Upgrade dikirim
-        // langsung tanpa TLS, sama seperti perilaku HTTP Custom terhadap host:port
-        // plaintext (mis. CDN/host di port 80). Sebelumnya ENHANCED SELALU true di
-        // sini walau proxyRawMode aktif, sehingga app ini memaksa TLS ClientHello ke
-        // host yang sebenarnya plaintext -> handshake timeout ("Read timed out")
-        // padahal HTTP Custom dengan konfigurasi yang sama jalan normal.
-        if (mode == ConnectionMode.ENHANCED && usesProxy() && proxyRawMode) return false
         return mode == ConnectionMode.SSH_SSL || mode == ConnectionMode.SSH_SSL_PAYLOAD ||
             mode == ConnectionMode.ENHANCED
     }
@@ -451,21 +437,14 @@ fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
         1 -> ConnectionMode.SSH_SSL
         2 -> ConnectionMode.SSH_SSL_PAYLOAD
         3 -> ConnectionMode.REMOTE_PROXY
-        4 -> ConnectionMode.ENHANCED
         else -> ConnectionMode.SSH
     }
-    val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
+    val usesPayload = modeIndex == 2 || modeIndex == 3
     // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi dari
     // usesProxy -- lihat ServerConfig.usesProxy().
-    // modeIndex 4 (ENHANCED) ditambahkan supaya konsisten dengan
-    // ServerConfig.usesProxy()/usesTls() -- lihat dokumentasi di sana. Proxy-nya
-    // tetap opsional (falls back ke "" kalau proxyHost kosong, sama seperti
-    // modeIndex 2), bukan wajib seperti REMOTE_PROXY.
-    val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
+    val usesProxy = modeIndex == 2 || modeIndex == 3
     val proxyRawModeResolved = usesProxy && proxyRawMode
-    // modeIndex 4 (ENHANCED): TLS ikut proxyRawModeResolved sekarang, samain
-    // dengan ServerConfig.usesTls() -- lihat dokumentasi ConnectionMode.ENHANCED.
-    val usesTls = modeIndex == 1 || modeIndex == 2 || (modeIndex == 4 && !proxyRawModeResolved)
+    val usesTls = modeIndex == 1 || modeIndex == 2
 
     if (usesProxy && proxyRawModeResolved && proxyHost.isBlank()) return null
     if (modeIndex == 3 && proxyHost.isBlank()) return null

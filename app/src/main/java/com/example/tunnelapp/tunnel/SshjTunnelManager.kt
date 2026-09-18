@@ -280,14 +280,13 @@ class SshjTunnelManager : SshEngineHandle {
         config: ServerConfig,
         protect: (Socket) -> Boolean,
         protectDatagram: ((DatagramSocket) -> Boolean)?,
-        dnsProtect: (DatagramSocket) -> Boolean,
         performanceMode: Boolean,
         compressionEnabled: Boolean,
         onUnexpectedDisconnect: (String) -> Unit
     ) {
         ensureBouncyCastleRegistered()
 
-        val relay = ConnectRelay(config, protect, dnsProtect)
+        val relay = ConnectRelay(config, protect)
         val relayPort = relay.start()
         connectRelay = relay
 

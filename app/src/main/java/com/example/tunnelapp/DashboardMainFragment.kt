@@ -523,21 +523,15 @@ class DashboardMainFragment : Fragment() {
             1 -> ConnectionMode.SSH_SSL
             2 -> ConnectionMode.SSH_SSL_PAYLOAD
             3 -> ConnectionMode.REMOTE_PROXY
-            4 -> ConnectionMode.ENHANCED
             else -> ConnectionMode.SSH
         }
-        val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
+        val usesPayload = modeIndex == 2 || modeIndex == 3
         // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
         // disalin dari SshConfigActivity/ServerConfig.toServerConfigOrNull supaya
         // konsisten, lihat catatan lengkap di ServerConfig.kt.
-        // modeIndex 4 (ENHANCED) ditambahkan di sini juga supaya konsisten
-        // dengan mapping kembarannya di ServerConfig.toServerConfigOrNull.
-        val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
+        val usesProxy = modeIndex == 2 || modeIndex == 3
         val proxyRawMode = usesProxy && saved.proxyRawMode
-        // modeIndex 4 (ENHANCED): TLS ikut proxyRawMode sekarang, samain dengan
-        // ServerConfig.usesTls()/toServerConfigOrNull() -- lihat dokumentasi
-        // ConnectionMode.ENHANCED.
-        val usesTls = modeIndex == 1 || modeIndex == 2 || (modeIndex == 4 && !proxyRawMode)
+        val usesTls = modeIndex == 1 || modeIndex == 2
 
         if (usesProxy && proxyRawMode && saved.proxyHost.isBlank()) {
             StatusBus.state.value = "Raw Passthrough butuh host/IP proxy atau CDN diisi"
