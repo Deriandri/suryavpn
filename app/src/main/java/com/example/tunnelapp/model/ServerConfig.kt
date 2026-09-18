@@ -110,25 +110,16 @@ object PayloadPlaceholders {
  *                          dipakai kalau proxyHost sebenarnya CDN/reverse-proxy yang
  *                          butuh SNI buat routing ke origin yang benar.
  *  - ENHANCED:        mode dengan proxy/CDN (WAJIB diisi kalau [ServerConfig.proxyRawMode]
- *                      aktif). UPDATE KE-2 (permintaan user, "samain kayak HTTP Custom yang
- *                      checkbox Enhanced & SSL-nya kepisah sendiri-sendiri"): TLS SEKARANG
- *                      dikontrol [ServerConfig.enhancedSsl] SENDIRI, TIDAK LAGI ikut/terkunci
- *                      ke [ServerConfig.proxyRawMode] -- dua toggle independen, sama persis
- *                      seperti dua checkbox "Enhanced" & "SSL" di HTTP Custom, jadi ada 4
- *                      kombinasi valid (raw x SSL), bukan cuma 2 seperti update sebelumnya:
- *                        * proxyRawMode=false, enhancedSsl=false: proxy HTTP klasik (CONNECT
- *                          + tunggu "200"), TANPA TLS di atas tunnel-nya.
- *                        * proxyRawMode=false, enhancedSsl=true: proxy HTTP klasik (CONNECT
- *                          + tunggu "200"), TLS+SNI dijalankan di atas tunnel-nya.
- *                        * proxyRawMode=true, enhancedSsl=false: TCP connect langsung ke
- *                          proxyHost:proxyPort (tanpa CONNECT), TANPA TLS -- payload custom
- *                          plaintext langsung, PERSIS mode "Proxy" (checkbox SSL kosong) di
- *                          DarkTunnel/HTTP Custom.
- *                        * proxyRawMode=true, enhancedSsl=true: TCP connect langsung (tanpa
- *                          CONNECT) TAPI TETAP pakai TLS+SNI di atasnya -- kombinasi yang
- *                          SEBELUMNYA cuma bisa dicapai lewat REMOTE_PROXY, sekarang bisa
- *                          langsung dari ENHANCED juga (mis. proxy tujuannya CDN yang justru
- *                          butuh SNI buat routing walau tidak paham semantik CONNECT).
+ *                      aktif) + TLS (selalu aktif). Dua varian proxy, dikontrol
+ *                      oleh [ServerConfig.proxyRawMode]:
+ *                        * proxyRawMode=false (proxy HTTP klasik, mis. Squid): kirim HTTP
+ *                          CONNECT ke proxyHost dulu, tunggu balasan "200", baru TLS+SSH
+ *                          dijalankan di atas tunnel itu.
+ *                        * proxyRawMode=true (reverse-proxy/CDN, mis. Cloudflare & sejenisnya,
+ *                          default begitu chip ini dipilih): TCP connect langsung ke
+ *                          proxyHost:proxyPort (tanpa CONNECT -- CDN tidak paham semantik
+ *                          itu), lalu TLS dengan SNI = [ServerConfig.sslSni] (atau host asli)
+ *                          supaya CDN bisa routing berbasis SNI ke origin yang benar.
  *  - XRAY:            mode terpisah dari jalur SSH di atas -- TIDAK dikonek pakai
  *                      engine SSH sama sekali. Server diisi lewat satu link
  *                      share ([ServerConfig.xrayLink], format vmess://, vless://,
@@ -206,14 +197,6 @@ enum class ConnectionMode {
  *                   tersendiri lagi.
  * @param wsPath     path HTTP yang dipakai saat request upgrade WebSocket (dipakai kalau
  *                   [useWebSocket] true), mis. "/ws" atau "/". Kosong/null berarti pakai "/".
- * @param enhancedSsl kalau true DAN [mode] adalah [ConnectionMode.ENHANCED], TLS+SNI
- *                   dijalankan di atas tunnel (proxy atau raw, tergantung [proxyRawMode]) --
- *                   kalau false, TIDAK ADA TLS sama sekali untuk mode ini. Field ini SENGAJA
- *                   independen dari [proxyRawMode] (beda dari perilaku ENHANCED versi
- *                   sebelumnya yang TLS-nya ikut kebalikan proxyRawMode) -- sama persis
- *                   seperti dua checkbox terpisah "Enhanced" & "SSL" di HTTP Custom, lihat
- *                   dokumentasi lengkap kombinasinya di [ConnectionMode.ENHANCED]. Diabaikan
- *                   untuk mode selain ENHANCED (mode lain punya aturan TLS-nya sendiri).
  * @param proxyRawMode kalau true, [proxyHost]:[proxyPort] TIDAK diperlakukan sebagai proxy
  *                   HTTP asli -- tidak ada request/verifikasi CONNECT sama sekali. TCP
  *                   connect langsung ke proxyHost:proxyPort, lalu SNI TLS / Host header
@@ -267,10 +250,7 @@ enum class ConnectionMode {
  *                   device diarahkan ke sini (lewat SOCKS5 UDP ASSOCIATE, lihat
  *                   [com.example.tunnelapp.tunnel.Socks5Server], jadi tetap lewat
  *                   tunnel, bukan bocor ke DNS jaringan lokal). Kosong/null berarti
- *                   tidak ada DNS1 per-profil -- lihat VpnSettings.dnsFallbackEnabled/
- *                   defaultDns (kartu VPN Setting) untuk fallback opsional, kosong
- *                   dua-duanya (dns1 & dns2) DAN switch itu mati berarti tidak ada
- *                   DNS yang dipasang sama sekali.
+ *                   pakai default "1.1.1.1" (Cloudflare).
  * @param dns2       DNS sekunder (opsional), cuma dipasang ke TUN kalau diisi --
  *                   tidak ada fallback otomatis, murni tambahan resolver kedua untuk
  *                   OS pilih sendiri kalau yang pertama tidak merespons.
@@ -298,7 +278,6 @@ data class ServerConfig(
     val tlsVersion: String? = null,
     val useWebSocket: Boolean = false,
     val wsPath: String? = null,
-    val enhancedSsl: Boolean = false,
     val proxyRawMode: Boolean = false,
     val xrayLink: String? = null,
     val customHeaders: String? = null,
@@ -364,23 +343,24 @@ data class ServerConfig(
     /**
      * Apakah koneksi harus dibungkus TLS sebelum SSH/handshake WebSocket dimulai.
      *
-     * REMOTE_PROXY + proxyRawMode TIDAK ikut menghasilkan true -- di mode ini Raw
-     * Passthrough berarti TCP polos ke proxyHost:proxyPort tanpa TLS/SNI sama sekali
-     * (payload custom dikirim plaintext langsung). Selalu false untuk mode XRAY --
-     * TLS (kalau dipakai) sudah ditangani di dalam Xray-core sendiri berdasarkan
-     * security yang tertulis di link share, bukan lewat jalur TLS punya SSH
-     * ([ConnectRelay]).
-     *
-     * UPDATE KE-2 (permintaan user, "samain kayak checkbox Enhanced & SSL yang
-     * kepisah di HTTP Custom"): ENHANCED TIDAK LAGI menurunkan TLS dari kebalikan
-     * [proxyRawMode] -- sekarang murni mengikuti [enhancedSsl], independen dari
-     * raw atau tidaknya proxy. Lihat 4 kombinasi lengkapnya di dokumentasi
-     * [ConnectionMode.ENHANCED].
+     * PERBAIKAN (bug fix): REMOTE_PROXY + proxyRawMode=true SEKARANG ikut
+     * menghasilkan true -- sesuai dokumentasi [ConnectionMode.REMOTE_PROXY],
+     * varian raw-nya memang harus TCP langsung ke proxyHost:proxyPort DIIKUTI
+     * TLS dengan SNI (persis "varian raw di ENHANCED"), bukan TCP polos tanpa
+     * TLS sama sekali seperti sebelumnya -- sebelumnya fungsi ini (dan
+     * dokumentasinya) malah bilang REMOTE_PROXY tidak pernah pakai TLS apa pun,
+     * yang membuat skenario CDN/reverse-proxy (butuh SNI buat routing) gagal
+     * diam-diam walau Raw Passthrough sudah dinyalakan dan proxyHost sudah diisi.
+     * REMOTE_PROXY + proxyRawMode=false (CONNECT klasik) tetap TIDAK pakai TLS,
+     * sesuai perilaku lama. Selalu false untuk mode XRAY -- TLS (kalau dipakai)
+     * sudah ditangani di dalam Xray-core sendiri berdasarkan security yang
+     * tertulis di link share, bukan lewat jalur TLS punya SSH ([ConnectRelay]).
      */
     fun usesTls(): Boolean {
         if (mode == ConnectionMode.XRAY) return false
-        if (mode == ConnectionMode.ENHANCED) return enhancedSsl
-        return mode == ConnectionMode.SSH_SSL || mode == ConnectionMode.SSH_SSL_PAYLOAD
+        return mode == ConnectionMode.SSH_SSL || mode == ConnectionMode.SSH_SSL_PAYLOAD ||
+            mode == ConnectionMode.ENHANCED ||
+            (mode == ConnectionMode.REMOTE_PROXY && proxyRawMode)
     }
 
     /**
@@ -464,22 +444,20 @@ fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
         1 -> ConnectionMode.SSH_SSL
         2 -> ConnectionMode.SSH_SSL_PAYLOAD
         3 -> ConnectionMode.REMOTE_PROXY
-        4 -> ConnectionMode.ENHANCED
         else -> ConnectionMode.SSH
     }
-    val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
+    val usesPayload = modeIndex == 2 || modeIndex == 3
     // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi dari
     // usesProxy -- lihat ServerConfig.usesProxy().
-    // modeIndex 4 (ENHANCED) ditambahkan supaya konsisten dengan
-    // ServerConfig.usesProxy()/usesTls() -- lihat dokumentasi di sana. Proxy-nya
-    // tetap opsional (falls back ke "" kalau proxyHost kosong, sama seperti
-    // modeIndex 2), bukan wajib seperti REMOTE_PROXY.
-    val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
+    val usesProxy = modeIndex == 2 || modeIndex == 3
     val proxyRawModeResolved = usesProxy && proxyRawMode
-    // modeIndex 4 (ENHANCED): TLS SEKARANG murni dari enhancedSsl (checkbox SSL
-    // independen), TIDAK LAGI diturunkan dari proxyRawModeResolved -- lihat
-    // dokumentasi ConnectionMode.ENHANCED & ServerConfig.enhancedSsl.
-    val usesTls = modeIndex == 1 || modeIndex == 2 || (modeIndex == 4 && enhancedSsl)
+    // PERBAIKAN (bug fix, konsisten dengan ServerConfig.usesTls()): modeIndex 3
+    // (REMOTE_PROXY) + Raw Passthrough aktif SEKARANG juga dianggap pakai TLS --
+    // sebelumnya tlsVersion/ignoreCertErrors selalu ikut dibuang (null/false) di
+    // kombinasi ini walau koneksi sebenarnya (lewat ServerConfig.usesTls()) tetap
+    // butuh TLS, jadi versi TLS paksa yang dipilih user tidak pernah benar-benar
+    // dipakai.
+    val usesTls = modeIndex == 1 || modeIndex == 2 || (modeIndex == 3 && proxyRawModeResolved)
 
     if (usesProxy && proxyRawModeResolved && proxyHost.isBlank()) return null
     if (modeIndex == 3 && proxyHost.isBlank()) return null
@@ -497,7 +475,6 @@ fun SavedConfig.toServerConfigOrNull(): ServerConfig? {
         tlsVersion = if (usesTls) tlsVersion.ifEmpty { null } else null,
         useWebSocket = true,
         wsPath = wsPath,
-        enhancedSsl = enhancedSsl,
         proxyRawMode = proxyRawModeResolved,
         xrayLink = "",
         customHeaders = customHeaders,

@@ -89,7 +89,6 @@ fun SavedConfig.toConfigJson(exportLockMode: ConfigLockMode = lockMode, noteOver
         put("useWebSocket", useWebSocket)
         put("wsPath", wsPath)
         put("proxyRawMode", proxyRawMode)
-        put("enhancedSsl", enhancedSsl)
         put("xrayLink", xrayLink)
         put("customHeaders", customHeaders)
         put("ignoreCertErrors", ignoreCertErrors)
@@ -142,10 +141,6 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
         useWebSocket = o.optBoolean("useWebSocket", false),
         wsPath = o.optString("wsPath", ""),
         proxyRawMode = o.optBoolean("proxyRawMode", false),
-        // Kompatibilitas mundur: kode/file ekspor LAMA (sebelum checkbox SSL
-        // Enhanced kepisah) belum punya field ini -- default ke kebalikan
-        // proxyRawMode, sama seperti ConfigStore.load(). Lihat SavedConfig.enhancedSsl.
-        enhancedSsl = o.optBoolean("enhancedSsl", !o.optBoolean("proxyRawMode", false)),
         xrayLink = xrayLink,
         customHeaders = o.optString("customHeaders", ""),
         ignoreCertErrors = o.optBoolean("ignoreCertErrors", false),

@@ -14,19 +14,19 @@ import android.content.Context
  * dnsFallbackEnabled MENGONTROL apakah MyVpnService boleh memasang DNS
  * default ([defaultDns]) ke TUN interface waktu DNS1/DNS2 per-server
  * ([ServerConfig.dns1]/[ServerConfig.dns2], diisi di layar Konfigurasi SSH)
- * kosong dua-duanya. Default FALSE (MATI) -- tidak ada DNS bawaan/hardcode
- * apa pun lagi di app ini; kalau DNS per-server kosong dan switch ini juga
- * mati, TIDAK ADA addDnsServer() dipanggil sama sekali (lihat
- * MyVpnService.applyDnsServers) -- risikonya resolusi domain bisa gagal
- * total buat profil yang tidak diisi DNS1/DNS2 manual. User bisa
- * menyalakan switch ini sendiri kalau mau DNS default dipasang otomatis.
+ * kosong dua-duanya. Default FALSE (mati) -- TIDAK ADA DNS bawaan/hardcode
+ * apa pun lagi di app ini. Kalau switch ini mati (default) DAN DNS1/DNS2
+ * per-server juga kosong, TIDAK ADA DNS yang dipasang ke TUN sama sekali
+ * (lihat MyVpnService.applyDnsServers) -- risikonya resolusi domain bisa
+ * gagal buat profil yang tidak diisi DNS1/DNS2 manual DAN switch ini tidak
+ * dinyalakan sendiri oleh user.
  *
- * [defaultDns] adalah alamat IP yang dipakai sebagai DNS default itu kalau
- * [dnsFallbackEnabled] dinyalakan -- diisi user sendiri lewat field
+ * [defaultDns] adalah alamat IP yang dipakai sebagai DNS default itu KALAU
+ * [dnsFallbackEnabled] dinyalakan user -- MURNI diisi manual lewat field
  * "Default DNS" di kartu VPN Setting (dipakai di KEDUA jalur, SSH maupun
  * Xray/VLESS -- lihat catatan resolveDnsAddr di XrayTunnelManager). TIDAK
- * ADA hardcode bawaan lagi -- kosong/blank berarti "tidak ada DNS default
- * yang dipasang", baik di sini waktu load() maupun di titik pemakaiannya.
+ * ADA lagi fallback hardcode ("1.1.1.1") kalau field ini kosong -- kosong
+ * berarti benar-benar kosong, tidak ada DNS default yang dipasang diam-diam.
  * Tidak divalidasi format IPv6 di sini (layar Pengaturan cuma terima
  * IPv4 lewat Patterns.IP_ADDRESS, sama seperti DNS1/DNS2 per-profil di
  * SshConfigActivity) -- kalau butuh DNS default IPv6, isi manual lewat
@@ -85,13 +85,13 @@ import android.content.Context
  * exchange SSH lewat SshjTunnelManager.useCompression().
  */
 data class VpnSettings(
-    // Default FALSE (mati): tidak ada DNS default yang dipasang otomatis
-    // kalau DNS1/DNS2 per-server kosong dua-duanya. User bisa nyalakan
-    // sendiri lewat switch "DNS Default Otomatis" di kartu VPN Setting
-    // kalau memang mau ada DNS default. Lihat MyVpnService.applyDnsServers.
+    // Default FALSE (mati): TIDAK ADA DNS bawaan yang dipasang otomatis.
+    // User harus menyalakan sendiri switch "DNS Default Otomatis" di kartu
+    // VPN Setting DAN mengisi field "Default DNS" kalau memang mau ada DNS
+    // default saat DNS1/DNS2 per-server kosong. Lihat MyVpnService.applyDnsServers.
     val dnsFallbackEnabled: Boolean = false,
-    // Lihat catatan [defaultDns] di kdoc atas. Kosong/blank == tidak ada
-    // DNS default yang dipasang, tidak ada hardcode bawaan lagi.
+    // Lihat catatan [defaultDns] di kdoc atas. Kosong/blank == belum diisi,
+    // TIDAK ADA fallback hardcode lagi -- kosong tetap kosong di titik pemakaiannya.
     val defaultDns: String = "",
     val mtu: Int = DEFAULT_MTU,
     // Default true: WakeLock aktif dari awal supaya tunnel tidak putus-putus
@@ -158,9 +158,7 @@ object VpnSettingsStore {
             // Default false kalau belum pernah disimpan -- lihat catatan
             // dnsFallbackEnabled di atas.
             dnsFallbackEnabled = prefs.getBoolean(KEY_DNS_FALLBACK_ENABLED, false),
-            // Kosong/blank == tidak ada DNS default, tidak ada hardcode
-            // bawaan lagi. trim() murni jaga-jaga (mis. user isi spasi
-            // doang lalu Simpan).
+            // Kosong/blank tetap kosong -- tidak ada fallback hardcode lagi.
             defaultDns = (prefs.getString(KEY_DEFAULT_DNS, "") ?: "").trim(),
             mtu = prefs.getInt(KEY_MTU, VpnSettings.DEFAULT_MTU),
             keepCpuAwake = prefs.getBoolean(KEY_KEEP_CPU_AWAKE, true),

@@ -248,7 +248,6 @@ object ProfileStore {
         editor.putBoolean(k(id, "useWebSocket"), c.useWebSocket)
         editor.putString(k(id, "wsPath"), c.wsPath)
         editor.putBoolean(k(id, "proxyRawMode"), c.proxyRawMode)
-        editor.putBoolean(k(id, "enhancedSsl"), c.enhancedSsl)
         editor.putString(k(id, "xrayLink"), c.xrayLink)
         editor.putString(k(id, "customHeaders"), c.customHeaders)
         editor.putBoolean(k(id, "ignoreCertErrors"), c.ignoreCertErrors)
@@ -262,12 +261,6 @@ object ProfileStore {
 
     private fun readConfig(prefs: android.content.SharedPreferences, id: String): SavedConfig? {
         val host = prefs.getString(k(id, "host"), null) ?: return null
-        // Kompatibilitas mundur: akun tersimpan SEBELUM checkbox SSL Enhanced
-        // ada sendiri belum punya key "enhancedSsl" -- default-nya dihitung
-        // dari proxyRawMode LAMA (kebalikannya), sama seperti ConfigStore.load(),
-        // supaya akun lama tetap konek dengan perilaku TLS yang sama seperti
-        // sebelum update ini.
-        val proxyRawModeLoaded = prefs.getBoolean(k(id, "proxyRawMode"), false)
         return SavedConfig(
             host = host,
             port = prefs.getInt(k(id, "port"), 22),
@@ -281,8 +274,7 @@ object ProfileStore {
             tlsVersion = prefs.getString(k(id, "tlsVersion"), "").orEmpty(),
             useWebSocket = prefs.getBoolean(k(id, "useWebSocket"), false),
             wsPath = prefs.getString(k(id, "wsPath"), "").orEmpty(),
-            proxyRawMode = proxyRawModeLoaded,
-            enhancedSsl = prefs.getBoolean(k(id, "enhancedSsl"), !proxyRawModeLoaded),
+            proxyRawMode = prefs.getBoolean(k(id, "proxyRawMode"), false),
             xrayLink = prefs.getString(k(id, "xrayLink"), "").orEmpty(),
             customHeaders = prefs.getString(k(id, "customHeaders"), "").orEmpty(),
             ignoreCertErrors = prefs.getBoolean(k(id, "ignoreCertErrors"), false),
@@ -299,7 +291,7 @@ object ProfileStore {
         for (field in listOf(
             "host", "port", "username", "password", "modeIndex", "sni", "payload",
             "proxyHost", "proxyPort", "tlsVersion", "useWebSocket", "wsPath",
-            "proxyRawMode", "enhancedSsl", "xrayLink", "customHeaders", "ignoreCertErrors", "dns1", "dns2",
+            "proxyRawMode", "xrayLink", "customHeaders", "ignoreCertErrors", "dns1", "dns2",
             "accountName", "isLocked", "lockMode", "note"
         )) {
             editor.remove(k(id, field))

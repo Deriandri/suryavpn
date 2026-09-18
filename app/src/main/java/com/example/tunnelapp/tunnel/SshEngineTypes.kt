@@ -51,14 +51,6 @@ interface SshEngineHandle {
         config: ServerConfig,
         protect: (Socket) -> Boolean,
         protectDatagram: ((DatagramSocket) -> Boolean)?,
-        // FITUR BARU (permintaan user, "bikin resolusi DNS untuk raw connect
-        // sekuat HTTP Custom/DarkTunnel yang resolve sendiri ke DNS eksplisit,
-        // bukan gantung ke resolver sistem"): SELALU disediakan (tidak null,
-        // beda dari protectDatagram di atas yang sengaja opsional/gated khusus
-        // fitur device-side DNS bypass Socks5Server) -- dipakai ConnectRelay
-        // buat query DNS manual (UDP mentah ke config.dns1/dns2 atau fallback
-        // publik) sebelum raw TCP connect, lihat ConnectRelay.resolveHostExplicit.
-        dnsProtect: (DatagramSocket) -> Boolean,
         performanceMode: Boolean,
         compressionEnabled: Boolean,
         onUnexpectedDisconnect: (String) -> Unit

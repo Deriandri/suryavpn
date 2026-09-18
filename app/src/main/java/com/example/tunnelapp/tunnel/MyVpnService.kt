@@ -132,11 +132,6 @@ class MyVpnService : VpnService() {
         const val EXTRA_WEBSOCKET_ENABLED = "extra_websocket_enabled"
         const val EXTRA_WS_PATH = "extra_ws_path"
         const val EXTRA_PROXY_RAW_MODE = "extra_proxy_raw_mode"
-        // FITUR BARU (permintaan user, "samain kayak checkbox Enhanced & SSL
-        // yang kepisah di HTTP Custom"): dibawa terpisah dari EXTRA_PROXY_RAW_MODE
-        // sekarang -- lihat ServerConfig.enhancedSsl & DashboardMainFragment
-        // (PendingConnection.enhancedSsl/startVpnService) untuk pengirimnya.
-        const val EXTRA_ENHANCED_SSL = "extra_enhanced_ssl"
         const val EXTRA_XRAY_LINK = "extra_xray_link"
         const val EXTRA_CUSTOM_HEADERS = "extra_custom_headers"
         const val EXTRA_IGNORE_CERT_ERRORS = "extra_ignore_cert_errors"
@@ -157,9 +152,6 @@ class MyVpnService : VpnService() {
         private const val NOTIFICATION_CHANNEL_ID = "vpn_service_channel"
         private const val NOTIFICATION_ID = 1
         private const val TUN_ADDRESS = "10.10.0.2"
-        // Tidak ada lagi DNS bawaan/hardcode -- nilai aktif satu-satunya ada
-        // di VpnSettings.defaultDns (diisi user lewat field "Default DNS"
-        // di kartu VPN Setting), lihat applyDnsServers() di bawah.
         private const val WAKE_LOCK_TAG = "TunnelApp:VpnKeepAwake"
 
         // --- Deteksi & reconnect otomatis kalau tunnel mati sendiri ---
@@ -822,7 +814,6 @@ class MyVpnService : VpnService() {
                     useWebSocket = intent.getBooleanExtra(EXTRA_WEBSOCKET_ENABLED, false),
                     wsPath = intent.getStringExtra(EXTRA_WS_PATH),
                     proxyRawMode = intent.getBooleanExtra(EXTRA_PROXY_RAW_MODE, false),
-                    enhancedSsl = intent.getBooleanExtra(EXTRA_ENHANCED_SSL, false),
                     xrayLink = intent.getStringExtra(EXTRA_XRAY_LINK),
                     customHeaders = intent.getStringExtra(EXTRA_CUSTOM_HEADERS),
                     ignoreCertErrors = intent.getBooleanExtra(EXTRA_IGNORE_CERT_ERRORS, false),
@@ -1070,20 +1061,19 @@ class MyVpnService : VpnService() {
      * diisi di layar Konfigurasi SSH/Xray masing-masing profil).
      *
      * Kalau DNS1/DNS2 per-server kosong dua-duanya, DNS default
-     * ([VpnSettings.defaultDns], field "Default DNS" di kartu VPN Setting --
-     * TIDAK ADA hardcode bawaan lagi, murni nilai yang diisi user di situ)
-     * dipasang sebagai gantinya -- KALAU DAN HANYA KALAU switch "DNS Default
-     * Otomatis" ([VpnSettings.dnsFallbackEnabled], kartu VPN Setting)
-     * dinyalakan user sendiri DAN field "Default DNS"-nya terisi, dan
-     * profilnya BUKAN mode Xray (lihat catatan [ConnectionMode.XRAY] di
-     * bawah). Default switch ini MATI. Kalau switch mati, atau field
-     * "Default DNS" kosong, atau DNS1/DNS2 kosong tapi tidak masuk kondisi
-     * di atas, TIDAK ADA addDnsServer() dipanggil sama sekali -- perlu
-     * diingat addRoute("0.0.0.0", 0) tetap menangkap
-     * SEMUA trafik ke TUN termasuk DNS bawaan operator/wifi (yang sering
-     * berupa IP privat, tidak bisa dicapai server SSH), jadi resolusi
-     * domain kemungkinan besar gagal total buat profil yang tidak diisi
-     * DNS1/DNS2 manual selama switch ini mati.
+     * ([VpnSettings.defaultDns], field "Default DNS" di kartu VPN Setting)
+     * dipasang sebagai gantinya -- KECUALI switch "DNS Default Otomatis"
+     * ([VpnSettings.dnsFallbackEnabled], kartu VPN Setting) dimatikan user
+     * sendiri, ATAU field "Default DNS"-nya sendiri masih kosong, ATAU
+     * profilnya mode Xray (lihat catatan [ConnectionMode.XRAY] di bawah).
+     * TIDAK ADA fallback hardcode lagi -- default switch ini MATI dan field
+     * "Default DNS" kosong sampai user mengisinya sendiri. Kalau switch mati,
+     * atau menyala tapi field "Default DNS" masih kosong, atau DNS1/DNS2
+     * kosong, TIDAK ADA addDnsServer() dipanggil sama sekali -- perlu diingat
+     * addRoute("0.0.0.0", 0) tetap menangkap SEMUA trafik ke TUN termasuk DNS
+     * bawaan operator/wifi (yang sering berupa IP privat, tidak bisa dicapai
+     * server SSH), jadi resolusi domain kemungkinan besar gagal total buat
+     * profil yang tidak diisi DNS1/DNS2 manual DAN belum diisi "Default DNS".
      *
      * FIX (laporan user: "DNS default diaktifkan -> internet mode Xray
      * hilang total, dimatikan -> jalan lagi"): untuk profil [ConnectionMode.XRAY]
@@ -1128,29 +1118,25 @@ class MyVpnService : VpnService() {
                 // internal (XrayTunnelManager.resolveDnsAddr), independen
                 // dari builder ini.
                 StatusBus.log("[DNS] DNS1/DNS2 kosong -- mode Xray pakai resolver DNS internal Xray sendiri (bukan TUN)")
-            } else if (vpnSettings.dnsFallbackEnabled) {
-                // DNS1/DNS2 per-server kosong DAN switch "DNS Default
-                // Otomatis" dinyalakan user -- pasang DNS default dari field
-                // "Default DNS" (VpnSettings.defaultDns) kalau field itu
-                // sendiri terisi. TIDAK ADA hardcode bawaan lagi -- kalau
-                // field kosong, tidak ada apa pun yang dipasang.
+            } else if (vpnSettings.dnsFallbackEnabled && vpnSettings.defaultDns.isNotBlank()) {
+                // DNS1/DNS2 per-server kosong, switch "DNS Default Otomatis"
+                // nyala, DAN field "Default DNS" sudah diisi user -- pasang
+                // nilai itu. TIDAK ADA fallback hardcode lagi kalau field ini
+                // kosong (lihat cabang else di bawah).
                 val effectiveDefaultDns = vpnSettings.defaultDns.trim()
-                if (effectiveDefaultDns.isEmpty()) {
-                    StatusBus.log("[DNS] DNS1/DNS2 kosong DAN field \"Default DNS\" di Pengaturan belum diisi -- TIDAK ada DNS dipasang ke TUN")
-                } else {
-                    try {
-                        builder.addDnsServer(effectiveDefaultDns)
-                        StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $effectiveDefaultDns")
-                    } catch (e: IllegalArgumentException) {
-                        DebugLog.w(TAG, "DNS default \"$effectiveDefaultDns\" gagal dipasang ke TUN", e)
-                        StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $effectiveDefaultDns gagal dipasang -- TIDAK ada DNS di TUN")
-                    }
+                try {
+                    builder.addDnsServer(effectiveDefaultDns)
+                    StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $effectiveDefaultDns")
+                } catch (e: IllegalArgumentException) {
+                    DebugLog.w(TAG, "DNS default \"$effectiveDefaultDns\" gagal dipasang ke TUN", e)
+                    StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $effectiveDefaultDns gagal dipasang -- TIDAK ada DNS di TUN")
                 }
             } else {
-                // Switch "DNS Default Otomatis" mati (default sekarang) --
-                // TIDAK ADA addDnsServer() dipanggil sama sekali. Lihat
-                // catatan risiko di kdoc applyDnsServers().
-                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS Default Otomatis mati -- TIDAK ada DNS dipasang ke TUN")
+                // User mematikan switch "DNS Default Otomatis", ATAU switch
+                // itu nyala tapi field "Default DNS" masih kosong -- TIDAK
+                // ADA addDnsServer() dipanggil sama sekali, TIDAK ADA fallback
+                // hardcode. Lihat catatan risiko di kdoc applyDnsServers().
+                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS Default Otomatis mati/belum diisi -- TIDAK ada DNS dipasang ke TUN")
             }
         }
 
@@ -1285,14 +1271,6 @@ class MyVpnService : VpnService() {
                         } else {
                             null
                         },
-                        // FITUR BARU (permintaan user, samain kekuatan resolusi DNS
-                        // raw connect dengan HTTP Custom/DarkTunnel): SELALU
-                        // disediakan, TIDAK digerbang oleh customDnsConfigured
-                        // seperti protectDatagram di atas -- ini buat DNS query
-                        // manual di ConnectRelay (jalan duluan sebelum raw TCP
-                        // connect ke server SSH/proxy), bukan buat device-side DNS
-                        // bypass Socks5Server yang memang sengaja opt-in.
-                        dnsProtect = { datagramSocket -> protect(datagramSocket) },
                         performanceMode = performanceMode,
                         compressionEnabled = compressionEnabled,
                         onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }
