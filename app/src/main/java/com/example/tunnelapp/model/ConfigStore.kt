@@ -34,11 +34,6 @@ data class SavedConfig(
     val wsPath: String = "",
     // true = proxyHost:proxyPort raw passthrough (tanpa CONNECT), lihat ServerConfig.proxyRawMode.
     val proxyRawMode: Boolean = false,
-    // FITUR BARU (permintaan user, "samain kayak checkbox Enhanced & SSL yang
-    // kepisah di HTTP Custom"): khusus modeIndex == 4 (Enhanced), true = TLS+SNI
-    // dipakai di atas tunnel (proxy atau raw) -- independen dari proxyRawMode,
-    // BUKAN lagi kebalikannya. Lihat ServerConfig.enhancedSsl.
-    val enhancedSsl: Boolean = false,
     // Link share Xray (vmess://, vless://, trojan://), khusus modeIndex == 5.
     val xrayLink: String = "",
     // Header HTTP tambahan (satu per baris, format "Nama: Nilai") yang disisipkan
@@ -105,7 +100,6 @@ object ConfigStore {
     private const val KEY_WEBSOCKET_ENABLED = "websocket_enabled"
     private const val KEY_WS_PATH = "ws_path"
     private const val KEY_PROXY_RAW_MODE = "proxy_raw_mode"
-    private const val KEY_ENHANCED_SSL = "enhanced_ssl"
     private const val KEY_XRAY_LINK = "xray_link"
     private const val KEY_CUSTOM_HEADERS = "custom_headers"
     private const val KEY_IGNORE_CERT_ERRORS = "ignore_cert_errors"
@@ -130,7 +124,6 @@ object ConfigStore {
             .putBoolean(KEY_WEBSOCKET_ENABLED, config.useWebSocket)
             .putString(KEY_WS_PATH, config.wsPath)
             .putBoolean(KEY_PROXY_RAW_MODE, config.proxyRawMode)
-            .putBoolean(KEY_ENHANCED_SSL, config.enhancedSsl)
             .putString(KEY_XRAY_LINK, config.xrayLink)
             .putString(KEY_CUSTOM_HEADERS, config.customHeaders)
             .putBoolean(KEY_IGNORE_CERT_ERRORS, config.ignoreCertErrors)
@@ -144,12 +137,6 @@ object ConfigStore {
     fun load(context: Context): SavedConfig? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val host = prefs.getString(KEY_HOST, null) ?: return null
-        // Kompatibilitas mundur: profil lama (disimpan SEBELUM checkbox SSL
-        // Enhanced ada sendiri) belum punya KEY_ENHANCED_SSL sama sekali --
-        // default-nya dihitung dari proxyRawMode LAMA (kebalikannya), supaya
-        // profil itu tetap konek dengan perilaku TLS yang SAMA seperti
-        // sebelum update ini, bukan tiba-tiba berubah jadi selalu false.
-        val proxyRawModeLoaded = prefs.getBoolean(KEY_PROXY_RAW_MODE, false)
         return SavedConfig(
             host = host,
             port = prefs.getInt(KEY_PORT, 22),
@@ -163,8 +150,7 @@ object ConfigStore {
             tlsVersion = prefs.getString(KEY_TLS_VERSION, "").orEmpty(),
             useWebSocket = prefs.getBoolean(KEY_WEBSOCKET_ENABLED, false),
             wsPath = prefs.getString(KEY_WS_PATH, "").orEmpty(),
-            proxyRawMode = proxyRawModeLoaded,
-            enhancedSsl = prefs.getBoolean(KEY_ENHANCED_SSL, !proxyRawModeLoaded),
+            proxyRawMode = prefs.getBoolean(KEY_PROXY_RAW_MODE, false),
             xrayLink = prefs.getString(KEY_XRAY_LINK, "").orEmpty(),
             customHeaders = prefs.getString(KEY_CUSTOM_HEADERS, "").orEmpty(),
             ignoreCertErrors = prefs.getBoolean(KEY_IGNORE_CERT_ERRORS, false),

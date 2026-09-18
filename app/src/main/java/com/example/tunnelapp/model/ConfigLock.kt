@@ -73,11 +73,11 @@ private fun lockedFieldsFor(mode: ConfigLockMode): Set<String> = when (mode) {
     ConfigLockMode.LOCK_ALL -> setOf(
         "host", "port", "username", "password", "sni", "payload",
         "proxyHost", "proxyPort", "tlsVersion", "wsPath", "proxyRawMode",
-        "enhancedSsl", "xrayLink", "customHeaders", "dns1", "dns2"
+        "xrayLink", "customHeaders", "dns1", "dns2"
     )
 
     ConfigLockMode.LOCK_PAYLOAD_PROXY -> setOf(
-        "payload", "proxyHost", "proxyPort", "proxyRawMode", "enhancedSsl"
+        "payload", "proxyHost", "proxyPort", "proxyRawMode"
     )
 }
 
