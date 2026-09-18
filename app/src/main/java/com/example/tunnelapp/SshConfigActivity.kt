@@ -33,6 +33,29 @@ class SshConfigActivity : AppCompatActivity() {
         /** Extra Intent opsional: id [com.example.tunnelapp.model.SavedProfile]
          *  yang sedang di-edit. Kosong/tidak ada = mode tambah akun baru. */
         const val EXTRA_PROFILE_ID = "profile_id"
+
+        // REVISI (permintaan user, "cabut logika TLS+Proxy-paksa, jadikan
+        // Enhanced cuma nyisipkan payload contoh"): changelog resmi
+        // DarkTunnel v1.0.20 bilang "Enhanced" itu fitur PAYLOAD ("payload
+        // enhanced" + "payload enhanced template"), BUKAN gabungan TLS+Proxy
+        // seperti tebakan pertama saya. Mekanisme PERSIS di baliknya tidak
+        // bisa dipastikan (DarkTunnel/HTTP Custom closed-source) -- jadi
+        // REVISI KE-2 (bukti baru dari log koneksi HTTP Custom yang user
+        // kirim -- BUKAN tebakan lagi): pola request-nya beda dari template
+        // pertama saya (HEAD+PATCH+[split]) -- yang kelihatan di log adalah
+        // method ACL + DUA header Host berbeda + X-Forward-Host, teknik
+        // "header confusion" (CDN di depan baca Host pertama/X-Forward-Host
+        // buat routing ke target ASLI, ISP/DPI di depan cuma lihat header
+        // Host KEDUA yang didekoi ke domain gratisan). [host] otomatis diisi
+        // host server SSH asli (dipakai 2x: Host pertama & X-Forward-Host,
+        // sama seperti "ayrp.online" muncul 2x di log). Domain dekoi
+        // SENGAJA dikosongkan (bukan "line.me" dari log user -- itu spesifik
+        // ke kuota gratis ISP tertentu) -- user isi sendiri sesuai domain
+        // gratisan yang dipakai.
+        private const val ENHANCED_PAYLOAD_TEMPLATE =
+            "ACL / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: keep-alive[crlf]" +
+                "Proxy-Connection: keep-alive[crlf]Host: [ISI_DOMAIN_GRATIS_ISP_DISINI][crlf]" +
+                "X-Forward-Host: [host][crlf]User-Agent: [ua][crlf][crlf]"
     }
 
     private lateinit var binding: ActivitySshConfigBinding
@@ -207,6 +230,7 @@ class SshConfigActivity : AppCompatActivity() {
         binding.chipToggleTls.isChecked = saved.resolvedTlsEnabled()
         binding.chipTogglePayload.isChecked = saved.resolvedPayloadEnabled()
         binding.chipToggleProxy.isChecked = saved.resolvedProxyEnabled()
+        binding.chipToggleEnhanced.isChecked = saved.resolvedEnhancedEnabled()
         binding.chipRawMode.isChecked = saved.proxyRawMode
         // Profil ini SUDAH punya pilihan Raw Passthrough eksplisit tersimpan
         // -- jangan sampai ditimpa auto-default kalau user gonta-ganti toggle
@@ -270,6 +294,13 @@ class SshConfigActivity : AppCompatActivity() {
             applyDefaultRawModeForEnhancedIfNeeded()
             updateFieldVisibilityForMode()
         }
+        // Listener KHUSUS di chip-nya sendiri (bukan lewat listener grup di
+        // atas) supaya applyEnhancedPayloadTemplateIfNeeded() cuma jalan
+        // TEPAT saat Enhanced baru dicentang, bukan tiap kali chip lain
+        // (TLS/Payload/Proxy) di grup yang sama berubah.
+        binding.chipToggleEnhanced.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) applyEnhancedPayloadTemplateIfNeeded()
+        }
         binding.chipGroupEnhancedToggle.setOnCheckedStateChangeListener { _, _ -> updateFieldVisibilityForMode() }
         // Raw Passthrough dulu tidak punya listener sama sekali -- toggle-nya
         // KETAHUAN memengaruhi apakah Header HTTP tambahan kepakai (lihat
@@ -322,6 +353,24 @@ class SshConfigActivity : AppCompatActivity() {
     private fun tlsToggleOn(): Boolean = binding.chipToggleTls.isChecked
     private fun payloadToggleOn(): Boolean = binding.chipTogglePayload.isChecked
     private fun proxyToggleOn(): Boolean = binding.chipToggleProxy.isChecked
+    private fun enhancedToggleOn(): Boolean = binding.chipToggleEnhanced.isChecked
+
+    /**
+     * REVISI (permintaan user, "cabut logika TLS+Proxy-paksa, jadikan
+     * Enhanced cuma nyisipkan payload contoh"): dipanggil HANYA saat chip
+     * Enhanced baru saja DICENTANG (bukan tiap kali grup chip berubah) --
+     * lihat listener khusus chipToggleEnhanced di setupModeChips(). Field
+     * Payload diisi [ENHANCED_PAYLOAD_TEMPLATE] KALAU masih kosong saja
+     * (tidak menimpa payload yang sudah ditulis user), lalu toggle
+     * "Gunakan Payload" ikut dinyalakan otomatis supaya field-nya langsung
+     * kelihatan. TLS & Proxy TIDAK disentuh sama sekali di sini lagi.
+     */
+    private fun applyEnhancedPayloadTemplateIfNeeded() {
+        if (binding.etPayload.text.isNullOrEmpty()) {
+            binding.etPayload.setText(ENHANCED_PAYLOAD_TEMPLATE)
+        }
+        binding.chipTogglePayload.isChecked = true
+    }
 
     private fun proxyRawModeEnabled(): Boolean = proxyToggleOn() && binding.chipRawMode.isChecked
 
@@ -419,6 +468,7 @@ class SshConfigActivity : AppCompatActivity() {
         val usesTls = tlsToggleOn()
         val usesPayload = payloadToggleOn()
         val usesProxy = proxyToggleOn()
+        val usesEnhanced = enhancedToggleOn()
 
         val accountName = binding.etAccountName.text.toString().trim()
         val host = binding.etHost.text.toString().trim()
@@ -555,7 +605,8 @@ class SshConfigActivity : AppCompatActivity() {
                 note = originalConfig?.note ?: "",
                 tlsEnabled = usesTls,
                 proxyEnabled = usesProxy,
-                payloadEnabled = usesPayload
+                payloadEnabled = usesPayload,
+                enhancedEnabled = usesEnhanced
             )
         )
 

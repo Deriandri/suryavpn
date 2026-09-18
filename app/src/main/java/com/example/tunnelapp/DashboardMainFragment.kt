@@ -423,9 +423,13 @@ class DashboardMainFragment : Fragment() {
         // dirakit dari 3 toggle (bisa kombinasi apa pun), bukan lagi 1
         // nama preset per modeIndex -- lihat SavedConfig.resolvedXxxEnabled().
         val parts = buildList {
+            // REVISI (permintaan user, "cabut logika TLS+Proxy-paksa"):
+            // Enhanced sekarang cuma tag TAMBAHAN, bukan pengganti TLS/Proxy
+            // lagi -- ketiganya independen, ditampilkan apa adanya.
             if (config.resolvedTlsEnabled()) add("TLS")
-            if (config.resolvedPayloadEnabled()) add("Payload")
             if (config.resolvedProxyEnabled()) add("Proxy")
+            if (config.resolvedPayloadEnabled()) add("Payload")
+            if (config.resolvedEnhancedEnabled()) add("Enhanced")
         }
         val modeName = if (parts.isEmpty()) "SSH" else "SSH (${parts.joinToString(" + ")})"
         return "$modeName — ${config.host}:${config.port}"

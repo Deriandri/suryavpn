@@ -96,6 +96,18 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Gunakan Remote Proxy" />
+
+                    <!-- FITUR BARU (permintaan user, "tambahkan fungsi enhanced" --
+                         meniru toggle Enhanced di DarkTunnel/HTTP Custom): pintasan
+                         yang memaksa chipToggleTls & chipToggleProxy nyala bareng &
+                         terkunci (tidak bisa di-uncheck manual) selama chip ini aktif
+                         -- lihat SshConfigActivity.applyEnhancedLockIfNeeded(). -->
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/chipToggleEnhanced"
+                        style="@style/Widget.TunnelApp.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Enhanced" />
                 </com.google.android.material.chip.ChipGroup>
 
                 <com.google.android.material.textfield.TextInputLayout

@@ -103,6 +103,7 @@ fun SavedConfig.toConfigJson(exportLockMode: ConfigLockMode = lockMode, noteOver
         put("tlsEnabled", resolvedTlsEnabled())
         put("proxyEnabled", resolvedProxyEnabled())
         put("payloadEnabled", resolvedPayloadEnabled())
+        put("enhancedEnabled", resolvedEnhancedEnabled())
     }
     return applyLockMode(json, exportLockMode)
 }
@@ -178,7 +179,8 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
         // sekali, yaitu hasil ekspor dari versi app SEBELUM refactor ini.
         tlsEnabled = if (o.has("tlsEnabled")) o.optBoolean("tlsEnabled") else null,
         proxyEnabled = if (o.has("proxyEnabled")) o.optBoolean("proxyEnabled") else null,
-        payloadEnabled = if (o.has("payloadEnabled")) o.optBoolean("payloadEnabled") else null
+        payloadEnabled = if (o.has("payloadEnabled")) o.optBoolean("payloadEnabled") else null,
+        enhancedEnabled = if (o.has("enhancedEnabled")) o.optBoolean("enhancedEnabled") else null
     )
 }
 

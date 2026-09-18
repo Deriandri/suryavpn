@@ -69,6 +69,18 @@ data class SavedConfig(
     val tlsEnabled: Boolean? = null,
     val proxyEnabled: Boolean? = null,
     val payloadEnabled: Boolean? = null,
+    // REVISI (permintaan user, "cabut logika TLS+Proxy-paksa, jadikan
+    // Enhanced cuma nyisipkan payload contoh"): changelog resmi DarkTunnel
+    // v1.0.20 ("Added payload enhanced (menu > inject config > enhanced >
+    // true)") menunjukkan Enhanced itu fitur PAYLOAD, bukan gabungan
+    // TLS+Proxy seperti tebakan pertama saya -- jadi field ini SEKARANG
+    // flag independen murni, TIDAK memengaruhi resolvedTlsEnabled()/
+    // resolvedProxyEnabled() sama sekali. Efeknya cuma di UI
+    // (SshConfigActivity): begitu dicentang & field Payload masih kosong,
+    // otomatis diisi contoh template payload ala DarkTunnel. Mekanisme
+    // PERSIS di balik toggle "Enhanced" versi DarkTunnel/HTTP Custom
+    // sendiri tetap tidak bisa dipastikan (closed-source, tidak dibongkar).
+    val enhancedEnabled: Boolean? = null,
     val isLocked: Boolean = false,
     // FITUR BARU (permintaan user, "kunci konfig saat ekspor seperti HTTP
     // Custom"): lihat dokumentasi lengkap di [ConfigLockMode]. NONE untuk
@@ -103,16 +115,33 @@ data class SavedConfig(
 
     /** Nilai payload efektif: [payloadEnabled] kalau sudah diisi, kalau tidak diturunkan dari modeIndex lama. */
     fun resolvedPayloadEnabled(): Boolean = payloadEnabled ?: legacyPayloadEnabled(modeIndex)
+
+    /** Nilai Enhanced efektif -- flag independen murni (lihat catatan di [enhancedEnabled]), modeIndex lama tidak pernah menghasilkan Enhanced jadi fallback-nya selalu false. */
+    fun resolvedEnhancedEnabled(): Boolean = enhancedEnabled ?: false
 }
 
 /**
  * Turunan toggle TLS/Proxy/Payload dari [SavedConfig.modeIndex] LAMA (0=SSH,
- * 1=SSH SSL, 2=SSH TLS Payload Proxy, 3=Payload+Remote Proxy, 4=Enhanced) --
- * dipakai SEKALI SAJA untuk akun yang disimpan sebelum refactor toggle
- * independen ini ada (lihat [SavedConfig.resolvedTlsEnabled] dkk).
+ * 1=SSH SSL, 2=SSH TLS Payload Proxy, 3=Payload+Remote Proxy) -- dipakai
+ * SEKALI SAJA untuk akun yang disimpan sebelum refactor toggle independen ini
+ * ada (lihat [SavedConfig.resolvedTlsEnabled] dkk).
+ *
+ * modeIndex 4 (ENHANCED) SENGAJA diperlakukan sama seperti 0 (SSH polos,
+ * semua false) di ketiga fungsi ini -- BUKAN typo. ENHANCED memang ada di
+ * enum [ConnectionMode] dan sempat didokumentasikan sebagai "TLS+proxy wajib",
+ * tapi tidak pernah benar-benar bisa dipilih dari UI manapun (SshConfigActivity
+ * cuma pernah punya 4 chip untuk modeIndex 0-3, XrayConfigActivity selalu
+ * modeIndex 5) -- jadi fungsi konversi SavedConfig->ServerConfig yang lama
+ * ([toServerConfigOrNull], versi sebelum refactor ini) sebenarnya SELALU jatuh
+ * ke cabang "else -> SSH" untuk modeIndex 4, membuat TLS/proxy/payload-nya
+ * false semua di praktiknya -- beda dari yang didokumentasikan. Fallback di
+ * sini mengikuti perilaku NYATA yang lama itu, bukan dokumentasinya, supaya
+ * kalau ada akun modeIndex=4 yang entah bagaimana pernah tersimpan (mis. dari
+ * migrasi versi yang lebih lama lagi), hasilnya tetap identik dengan sebelum
+ * refactor -- tidak tiba-tiba "ke-upgrade" jadi TLS+proxy aktif.
  */
-internal fun legacyTlsEnabled(modeIndex: Int): Boolean = modeIndex == 1 || modeIndex == 2 || modeIndex == 4
-internal fun legacyProxyEnabled(modeIndex: Int): Boolean = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
+internal fun legacyTlsEnabled(modeIndex: Int): Boolean = modeIndex == 1 || modeIndex == 2
+internal fun legacyProxyEnabled(modeIndex: Int): Boolean = modeIndex == 2 || modeIndex == 3
 internal fun legacyPayloadEnabled(modeIndex: Int): Boolean = modeIndex == 2 || modeIndex == 3
 
 object ConfigStore {
@@ -140,6 +169,7 @@ object ConfigStore {
     private const val KEY_TLS_ENABLED = "tls_enabled"
     private const val KEY_PROXY_ENABLED = "proxy_enabled"
     private const val KEY_PAYLOAD_ENABLED = "payload_enabled"
+    private const val KEY_ENHANCED_ENABLED = "enhanced_enabled"
 
     fun save(context: Context, config: SavedConfig) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -167,6 +197,7 @@ object ConfigStore {
             .putBoolean(KEY_TLS_ENABLED, config.resolvedTlsEnabled())
             .putBoolean(KEY_PROXY_ENABLED, config.resolvedProxyEnabled())
             .putBoolean(KEY_PAYLOAD_ENABLED, config.resolvedPayloadEnabled())
+            .putBoolean(KEY_ENHANCED_ENABLED, config.resolvedEnhancedEnabled())
             .apply()
     }
 
@@ -196,7 +227,8 @@ object ConfigStore {
             lockMode = ConfigLockMode.fromName(prefs.getString(KEY_LOCK_MODE, null)),
             tlsEnabled = if (prefs.contains(KEY_TLS_ENABLED)) prefs.getBoolean(KEY_TLS_ENABLED, false) else null,
             proxyEnabled = if (prefs.contains(KEY_PROXY_ENABLED)) prefs.getBoolean(KEY_PROXY_ENABLED, false) else null,
-            payloadEnabled = if (prefs.contains(KEY_PAYLOAD_ENABLED)) prefs.getBoolean(KEY_PAYLOAD_ENABLED, false) else null
+            payloadEnabled = if (prefs.contains(KEY_PAYLOAD_ENABLED)) prefs.getBoolean(KEY_PAYLOAD_ENABLED, false) else null,
+            enhancedEnabled = if (prefs.contains(KEY_ENHANCED_ENABLED)) prefs.getBoolean(KEY_ENHANCED_ENABLED, false) else null
         )
     }
 

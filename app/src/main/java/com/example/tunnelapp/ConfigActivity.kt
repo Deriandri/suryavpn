@@ -828,8 +828,9 @@ class ConfigActivity : AppCompatActivity() {
             // lihat SavedConfig.resolvedXxxEnabled().
             val parts = buildList {
                 if (config.resolvedTlsEnabled()) add("TLS")
-                if (config.resolvedPayloadEnabled()) add("PAYLOAD")
                 if (config.resolvedProxyEnabled()) add("PROXY")
+                if (config.resolvedPayloadEnabled()) add("PAYLOAD")
+                if (config.resolvedEnhancedEnabled()) add("ENHANCED")
             }
             val modeName = if (parts.isEmpty()) "SSH" else "SSH ${parts.joinToString(" ")}"
             row.ivRowAvatarBg.setBackgroundResource(R.drawable.bg_avatar_ssh)
