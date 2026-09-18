@@ -64,7 +64,7 @@
 
                 <!-- REFACTOR (permintaan user, "opsi 1+2, toggle independen"):
                      dulu 4 chip preset (SSH/SSH SSL/SSH TLS Payload Proxy/
-                     Payload+Remote Proxy, single-select) -- sekarang 3 toggle
+                     Payload+Remote Proxy, single-select) - sekarang 3 toggle
                      BERDIRI SENDIRI yang bisa dikombinasikan bebas (multi-
                      select), mirip HTTP Custom/DarkTunnel. Lihat
                      SshConfigActivity.updateFieldVisibilityForMode(). -->
@@ -97,11 +97,11 @@
                         android:layout_height="wrap_content"
                         android:text="Gunakan Remote Proxy" />
 
-                    <!-- FITUR BARU (permintaan user, "tambahkan fungsi enhanced" --
+                    <!-- FITUR BARU (permintaan user, "tambahkan fungsi enhanced" -
                          meniru toggle Enhanced di DarkTunnel/HTTP Custom): pintasan
                          yang memaksa chipToggleTls & chipToggleProxy nyala bareng &
                          terkunci (tidak bisa di-uncheck manual) selama chip ini aktif
-                         -- lihat SshConfigActivity.applyEnhancedLockIfNeeded(). -->
+                         - lihat SshConfigActivity.applyEnhancedLockIfNeeded(). -->
                     <com.google.android.material.chip.Chip
                         android:id="@+id/chipToggleEnhanced"
                         style="@style/Widget.TunnelApp.Chip.Filter"
