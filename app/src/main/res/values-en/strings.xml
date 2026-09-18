@@ -64,10 +64,10 @@
     <!-- Card: VPN Setting -->
     <string name="section_vpn">VPN Setting</string>
     <string name="dns_label">DNS</string>
-    <string name="dns_desc">A default DNS (1.1.1.1, changeable in the field below) is applied automatically when the SSH/Xray profile\'s DNS 1/DNS 2 (set on the Configuration screen) are both empty, so domain resolution doesn\'t fail entirely.</string>
+    <string name="dns_desc">When turned on, the default DNS below is applied when the SSH/Xray profile\'s DNS 1/DNS 2 (set on the Configuration screen) are both empty. There is no built-in default -- enter the address yourself in the field below.</string>
     <string name="dns_fallback_title">Automatic Default DNS</string>
-    <string name="dns_fallback_desc">On by default. Turn off if you don\'t want any default DNS at all when the profile DNS is empty.</string>
-    <string name="default_dns_hint">Default DNS (optional, default 1.1.1.1)</string>
+    <string name="dns_fallback_desc">Off by default. Turn on if you want a default DNS applied when the profile DNS is empty.</string>
+    <string name="default_dns_hint">Default DNS (optional, e.g. 1.1.1.1)</string>
     <string name="error_default_dns">Must be an IP address (e.g. 1.1.1.1), not a domain</string>
     <string name="mtu_hint">MTU (default 1500)</string>
     <string name="ports_desc">Leave the ports below blank to use each profile\'s default. SOCKS5 Port overrides the port for every profile. HTTP Port turns on an additional local HTTP proxy (chained to SOCKS5) for apps that only support an HTTP proxy. UDPGW Port, if filled in, forwards non-DNS UDP (games, QUIC/HTTP3, VoIP) through a badvpn-udpgw process on the server (the server MUST already be running badvpn-udpgw on this port).</string>

@@ -172,17 +172,7 @@ class XrayTunnelManager(private val context: Context) {
      * Kalau cuma `setDNS()` yang dipanggil (seperti sebelumnya), socket TCP asli
      * ke server proxy TIDAK PERNAH di-protect -> ikut ke-loop balik ke TUN
      * interface milik app sendiri -> tunnel "connect" (runXray sukses) tapi
-     * internet macet total. Makanya WAJIB panggil registerDialerController()
-     * di sini.
-     *
-     * setDNS() sendiri SEKARANG kondisional -- lihat resolveDnsAddr(): kalau
-     * tidak ada DNS yang bisa dipakai (manual kosong, physicalNetworkDns()
-     * gagal, DAN "DNS Default Otomatis" di Pengaturan mati/belum diisi),
-     * resolveDnsAddr() mengembalikan null dan setDNS() TIDAK dipanggil sama
-     * sekali -- TIDAK ADA fallback hardcode ("1.1.1.1") lagi. Risikonya:
-     * resolver DNS internal Xray bisa gagal/loop balik ke TUN di kondisi
-     * langka itu (lihat kdoc resolveDnsAddr) -- diterima sebagai trade-off
-     * permintaan user untuk menghapus semua DNS bawaan aplikasi.
+     * internet macet total. Makanya WAJIB panggil KEDUANYA di sini.
      */
     private fun registerProtect(protectFd: (Int) -> Boolean, config: ServerConfig) {
         val controller = object : DialerController {
@@ -190,10 +180,16 @@ class XrayTunnelManager(private val context: Context) {
         }
         LibXray.registerDialerController(controller)
         val dnsAddr = resolveDnsAddr(config)
-        if (dnsAddr != null) {
+        if (dnsAddr.isNotEmpty()) {
             LibXray.setDNS(controller, dnsAddr)
         } else {
-            Log.w(TAG, "Tidak ada DNS yang bisa dipakai -- LibXray.setDNS() dilewati (tidak ada fallback DNS bawaan)")
+            // Tidak ada DNS1/DNS2 per-server, deteksi DNS jaringan fisik
+            // gagal, DAN field "Default DNS" di kartu VPN Setting kosong --
+            // tidak ada hardcode bawaan lagi utk dipasang, jadi setDNS()
+            // SENGAJA TIDAK dipanggil. Lihat catatan risiko di kdoc
+            // resolveDnsAddr() di bawah (DNS Xray-core bisa loop balik ke
+            // TUN kalau sampai tahap ini tanpa DNS eksplisit sama sekali).
+            Log.w(TAG, "Tidak ada DNS yang bisa dipakai untuk resolver internal Xray (DNS1/DNS2 kosong, deteksi DNS jaringan fisik gagal, dan \"Default DNS\" di Pengaturan kosong) -- LibXray.setDNS TIDAK dipanggil")
         }
     }
 
@@ -226,14 +222,14 @@ class XrayTunnelManager(private val context: Context) {
      *      app sendiri) -- inilah yang bikin trik bug-SNI berbasis DNS operator tetap
      *      jalan, karena precise resolver yang dipakai persis DNS bawaan SIM/operator.
      *   3. Field "Default DNS" (VpnSettings.defaultDns, kartu VPN Setting -- SAMA
-     *      persis yang dipakai jalur SSH di MyVpnService.applyDnsServers), HANYA
-     *      kalau switch "DNS Default Otomatis" (VpnSettings.dnsFallbackEnabled)
-     *      dinyalakan user DAN field itu sudah diisi -- TIDAK ADA lagi fallback
-     *      hardcode ("1.1.1.1") kalau field itu kosong/switch mati; di kasus itu
-     *      fungsi ini mengembalikan null dan registerProtect() TIDAK memanggil
-     *      LibXray.setDNS() sama sekali (lihat catatan risiko di sana).
+     *      persis yang dipakai jalur SSH di MyVpnService.applyDnsServers) cuma sebagai
+     *      fallback TERAKHIR kalau device gagal dideteksi (mis. WiFi tanpa DNS custom
+     *      & API di bawah minSdk). TIDAK ADA hardcode bawaan lagi -- murni nilai yang
+     *      diisi user sendiri di field itu; kalau field itu JUGA kosong, fungsi ini
+     *      mengembalikan string kosong dan registerProtect() akan SENGAJA TIDAK
+     *      memanggil LibXray.setDNS() sama sekali (lihat catatan risiko di sana).
      */
-    private fun resolveDnsAddr(config: ServerConfig): String? {
+    private fun resolveDnsAddr(config: ServerConfig): String {
         val manual = config.dns1?.trim()?.takeIf { it.isNotEmpty() }
             ?: config.dns2?.trim()?.takeIf { it.isNotEmpty() }
         if (manual != null) {
@@ -245,23 +241,20 @@ class XrayTunnelManager(private val context: Context) {
             Log.i(TAG, "DNS internal Xray pakai DNS jaringan fisik device (WWAN/WiFi): $physicalDns")
             return formatDnsAddr(physicalDns)
         }
-        // Field "Default DNS" (kartu VPN Setting, nilai yang sama dipakai
-        // jalur SSH di MyVpnService.applyDnsServers) -- TIDAK ADA fallback
-        // hardcode lagi. Dipakai HANYA kalau switch "DNS Default Otomatis"
-        // nyala DAN field-nya sudah diisi user. Tetap lewat formatDnsAddr()
-        // supaya kalau user isi field itu pakai port/format IPv6, tetap
-        // diformat benar sama seperti dijelaskan di kdoc formatDnsAddr() di atas.
-        val vpnSettings = com.example.tunnelapp.model.VpnSettingsStore.load(context)
-        if (vpnSettings.dnsFallbackEnabled && vpnSettings.defaultDns.isNotBlank()) {
-            val globalDefaultDns = vpnSettings.defaultDns.trim()
-            Log.w(TAG, "Gagal deteksi DNS jaringan fisik device, fallback ke DNS default " +
-                "\"$globalDefaultDns\" -- akun berbasis bug-SNI/domain-fronting kemungkinan " +
-                "TIDAK akan jalan dengan DNS ini")
-            return formatDnsAddr(globalDefaultDns)
+        // Fallback TERAKHIR: field "Default DNS" (kartu VPN Setting, nilai
+        // yang sama dipakai jalur SSH di MyVpnService.applyDnsServers) --
+        // TIDAK ADA hardcode bawaan lagi. Kosong/belum pernah diisi -> tidak
+        // ada DNS yang bisa dipakai di titik ini sama sekali (lihat
+        // registerProtect()).
+        val globalDefaultDns = com.example.tunnelapp.model.VpnSettingsStore.load(context).defaultDns.trim()
+        if (globalDefaultDns.isEmpty()) {
+            Log.w(TAG, "Gagal deteksi DNS jaringan fisik device DAN field \"Default DNS\" di Pengaturan kosong -- tidak ada DNS default yang bisa dipakai")
+            return ""
         }
-        Log.w(TAG, "Gagal deteksi DNS jaringan fisik device DAN DNS Default Otomatis " +
-            "mati/belum diisi -- Xray-core TIDAK diberi resolver DNS eksplisit")
-        return null
+        Log.w(TAG, "Gagal deteksi DNS jaringan fisik device, fallback ke DNS default dari Pengaturan " +
+            "\"$globalDefaultDns\" -- akun berbasis bug-SNI/domain-fronting kemungkinan " +
+            "TIDAK akan jalan dengan DNS ini")
+        return formatDnsAddr(globalDefaultDns)
     }
 
     /**

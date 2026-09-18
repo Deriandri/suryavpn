@@ -73,6 +73,10 @@ class DashboardMainFragment : Fragment() {
         val useWebSocket: Boolean,
         val wsPath: String,
         val proxyRawMode: Boolean,
+        // FITUR BARU (permintaan user, "samain kayak checkbox Enhanced & SSL
+        // yang kepisah di HTTP Custom"): dibawa terpisah dari proxyRawMode di
+        // atas sekarang -- lihat ServerConfig.enhancedSsl.
+        val enhancedSsl: Boolean,
         val xrayLink: String,
         val customHeaders: String,
         val ignoreCertErrors: Boolean,
@@ -502,7 +506,8 @@ class DashboardMainFragment : Fragment() {
                 PendingConnection(
                     host = "", port = 0, username = "", password = "", mode = ConnectionMode.XRAY,
                     sni = "", payload = "", proxyHost = "", proxyPort = null, tlsVersion = null,
-                    useWebSocket = false, wsPath = "", proxyRawMode = false, xrayLink = saved.xrayLink,
+                    useWebSocket = false, wsPath = "", proxyRawMode = false, enhancedSsl = false,
+                    xrayLink = saved.xrayLink,
                     customHeaders = "", ignoreCertErrors = false,
                     dns1 = saved.dns1, dns2 = saved.dns2,
                     hideSensitiveLogs = saved.lockMode == ConfigLockMode.LOCK_ALL ||
@@ -523,15 +528,23 @@ class DashboardMainFragment : Fragment() {
             1 -> ConnectionMode.SSH_SSL
             2 -> ConnectionMode.SSH_SSL_PAYLOAD
             3 -> ConnectionMode.REMOTE_PROXY
+            4 -> ConnectionMode.ENHANCED
             else -> ConnectionMode.SSH
         }
-        val usesPayload = modeIndex == 2 || modeIndex == 3
+        val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
         // disalin dari SshConfigActivity/ServerConfig.toServerConfigOrNull supaya
         // konsisten, lihat catatan lengkap di ServerConfig.kt.
-        val usesProxy = modeIndex == 2 || modeIndex == 3
+        // modeIndex 4 (ENHANCED) ditambahkan di sini juga supaya konsisten
+        // dengan mapping kembarannya di ServerConfig.toServerConfigOrNull.
+        val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         val proxyRawMode = usesProxy && saved.proxyRawMode
-        val usesTls = modeIndex == 1 || modeIndex == 2
+        // modeIndex 4 (ENHANCED): TLS SEKARANG murni dari saved.enhancedSsl
+        // (checkbox SSL independen), TIDAK LAGI diturunkan dari proxyRawMode --
+        // samain dengan ServerConfig.usesTls()/toServerConfigOrNull() yang
+        // sudah diperbarui. Lihat dokumentasi ConnectionMode.ENHANCED.
+        val enhancedSsl = modeIndex == 4 && saved.enhancedSsl
+        val usesTls = modeIndex == 1 || modeIndex == 2 || enhancedSsl
 
         if (usesProxy && proxyRawMode && saved.proxyHost.isBlank()) {
             StatusBus.state.value = "Raw Passthrough butuh host/IP proxy atau CDN diisi"
@@ -557,6 +570,7 @@ class DashboardMainFragment : Fragment() {
                 useWebSocket = true,
                 wsPath = saved.wsPath,
                 proxyRawMode = proxyRawMode,
+                enhancedSsl = enhancedSsl,
                 xrayLink = "",
                 customHeaders = saved.customHeaders,
                 ignoreCertErrors = saved.ignoreCertErrors,
@@ -607,6 +621,7 @@ class DashboardMainFragment : Fragment() {
             putExtra(MyVpnService.EXTRA_WEBSOCKET_ENABLED, c.useWebSocket)
             if (c.wsPath.isNotEmpty()) putExtra(MyVpnService.EXTRA_WS_PATH, c.wsPath)
             putExtra(MyVpnService.EXTRA_PROXY_RAW_MODE, c.proxyRawMode)
+            putExtra(MyVpnService.EXTRA_ENHANCED_SSL, c.enhancedSsl)
             if (c.xrayLink.isNotEmpty()) putExtra(MyVpnService.EXTRA_XRAY_LINK, c.xrayLink)
             if (c.customHeaders.isNotEmpty()) putExtra(MyVpnService.EXTRA_CUSTOM_HEADERS, c.customHeaders)
             putExtra(MyVpnService.EXTRA_IGNORE_CERT_ERRORS, c.ignoreCertErrors)
