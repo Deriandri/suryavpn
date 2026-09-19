@@ -2,7 +2,9 @@ package com.example.tunnelapp.tunnel
 
 import android.util.Log
 import com.example.tunnelapp.model.ServerConfig
+import net.schmizz.sshj.DefaultConfig
 import net.schmizz.sshj.SSHClient
+import net.schmizz.sshj.common.Factory
 import net.schmizz.sshj.common.SecurityUtils
 import net.schmizz.sshj.connection.channel.direct.Parameters
 import net.schmizz.sshj.transport.verification.PromiscuousVerifier
@@ -292,7 +294,15 @@ class SshjTunnelManager : SshEngineHandle {
 
         StatusBus.start(StepId.SSH_HANDSHAKE)
 
-        val client = SSHClient()
+        // DIAGNOSIS (log 19:38): server cuma sempat mengirim banner (42 byte),
+        // sshj mengirim 2685 byte (ident + KEXINIT dengan SEMUA algoritma
+        // Bouncy Castle), lalu koneksi di-RESET pihak seberang dalam ~50 ms
+        // sebelum server sempat membalas KEXINIT. HTTP Custom ke server yang
+        // sama berhasil hanya dengan diffie-hellman-group-exchange-sha256 +
+        // aes256-ctr + hmac-sha2-512. Daftar algoritma dipersempit dan ident
+        // dibuat umum (lihat buildCompactConfig) untuk menguji apakah ukuran/isi
+        // paket pertama itu penyebab reset.
+        val client = SSHClient(buildCompactConfig())
         // FIX (bug potensial "menggantung tanpa batas"): SEBELUMNYA tidak
         // ada timeout sama sekali di level SSHClient -- kalau server tidak
         // jelas membalas saat handshake/auth, client.connect()/authPassword()
@@ -426,6 +436,54 @@ class SshjTunnelManager : SshEngineHandle {
         }, "sshj-disconnect-watch").apply { isDaemon = true; start() }
 
         Log.i(TAG, "SSH (sshj) tersambung via relay lokal. SOCKS5 di 127.0.0.1:${config.socksPort}")
+    }
+
+    /**
+     * Ambil hanya algoritma bernama [wanted] (urut sesuai [wanted]), yang tidak
+     * tersedia di [all] dilewati. Kalau hasilnya kosong, daftar asli dipakai
+     * supaya negosiasi tidak mustahil.
+     */
+    private fun <T> pickNamed(all: List<Factory.Named<T>>, wanted: List<String>): List<Factory.Named<T>> {
+        val picked = wanted.mapNotNull { name -> all.firstOrNull { it.name == name } }
+        return if (picked.isNotEmpty()) picked else all
+    }
+
+    /**
+     * Konfigurasi sshj dengan daftar algoritma ringkas (KEXINIT jauh lebih
+     * kecil dari default yang memuat semua algoritma Bouncy Castle) dan ident
+     * umum "SSH-2.0-OpenSSH_8.9p1". Urutan kex sengaja mengutamakan
+     * diffie-hellman-group-exchange-sha256, kombinasi yang terbukti berhasil
+     * di HTTP Custom ke server yang sama. Tetap ada cadangan
+     * curve25519/group14/ecdh dan hmac-sha1 untuk server lain (mis. Dropbear).
+     */
+    private fun buildCompactConfig(): DefaultConfig {
+        val cfg = DefaultConfig()
+        cfg.setKeyExchangeFactories(
+            pickNamed(
+                cfg.getKeyExchangeFactories(),
+                listOf(
+                    "diffie-hellman-group-exchange-sha256",
+                    "curve25519-sha256",
+                    "curve25519-sha256@libssh.org",
+                    "diffie-hellman-group14-sha256",
+                    "ecdh-sha2-nistp256"
+                )
+            )
+        )
+        cfg.setCipherFactories(
+            pickNamed(
+                cfg.getCipherFactories(),
+                listOf("aes256-ctr", "aes128-ctr", "aes256-gcm@openssh.com", "aes128-gcm@openssh.com")
+            )
+        )
+        cfg.setMACFactories(
+            pickNamed(
+                cfg.getMACFactories(),
+                listOf("hmac-sha2-512", "hmac-sha2-256", "hmac-sha1")
+            )
+        )
+        cfg.setVersion("OpenSSH_8.9p1")
+        return cfg
     }
 
     /** Versi sederhana dari explainHandshakeFailure. */
