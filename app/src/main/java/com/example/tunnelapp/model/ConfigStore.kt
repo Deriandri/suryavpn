@@ -69,17 +69,20 @@ data class SavedConfig(
     val tlsEnabled: Boolean? = null,
     val proxyEnabled: Boolean? = null,
     val payloadEnabled: Boolean? = null,
-    // REVISI (permintaan user, "cabut logika TLS+Proxy-paksa, jadikan
-    // Enhanced cuma nyisipkan payload contoh"): changelog resmi DarkTunnel
-    // v1.0.20 ("Added payload enhanced (menu > inject config > enhanced >
-    // true)") menunjukkan Enhanced itu fitur PAYLOAD, bukan gabungan
-    // TLS+Proxy seperti tebakan pertama saya -- jadi field ini SEKARANG
-    // flag independen murni, TIDAK memengaruhi resolvedTlsEnabled()/
-    // resolvedProxyEnabled() sama sekali. Efeknya cuma di UI
-    // (SshConfigActivity): begitu dicentang & field Payload masih kosong,
-    // otomatis diisi contoh template payload ala DarkTunnel. Mekanisme
-    // PERSIS di balik toggle "Enhanced" versi DarkTunnel/HTTP Custom
-    // sendiri tetap tidak bisa dipastikan (closed-source, tidak dibongkar).
+    // REVISI (permintaan user, "perbaiki fungsi enhanced"): flag ini
+    // SEKARANG benar-benar dibaca mesin tunnel (sebelumnya cuma memengaruhi
+    // UI). Tetap independen dari TLS/Proxy (tidak memengaruhi
+    // resolvedTlsEnabled()/resolvedProxyEnabled()). Dua efek:
+    //  1. UI (SshConfigActivity): begitu dicentang & field Payload masih
+    //     kosong, diisi template payload contoh.
+    //  2. Runtime (ConnectRelay, lewat ServerConfig.enhanced): mengatur cara
+    //     membaca respons HTTP setelah payload dikirim, sebelum SSH dimulai.
+    //     ON  = buang SEMUA baris/respons non-SSH sampai banner "SSH-".
+    //     OFF = mode standar, hanya SATU respons HTTP yang dibuang.
+    // Mekanisme persis toggle "Enhanced" di HTTP Custom/DarkTunnel tidak
+    // didokumentasikan (closed-source); dua mode di atas adalah tafsiran
+    // dari perbandingan log koneksi, bukan spesifikasi resmi.
+    // Null = akun lama/impor tanpa field ini: lihat [resolvedEnhancedEnabled].
     val enhancedEnabled: Boolean? = null,
     val isLocked: Boolean = false,
     // FITUR BARU (permintaan user, "kunci konfig saat ekspor seperti HTTP
@@ -116,8 +119,15 @@ data class SavedConfig(
     /** Nilai payload efektif: [payloadEnabled] kalau sudah diisi, kalau tidak diturunkan dari modeIndex lama. */
     fun resolvedPayloadEnabled(): Boolean = payloadEnabled ?: legacyPayloadEnabled(modeIndex)
 
-    /** Nilai Enhanced efektif -- flag independen murni (lihat catatan di [enhancedEnabled]), modeIndex lama tidak pernah menghasilkan Enhanced jadi fallback-nya selalu false. */
-    fun resolvedEnhancedEnabled(): Boolean = enhancedEnabled ?: false
+    /**
+     * Nilai Enhanced efektif. Kalau [enhancedEnabled] belum pernah diisi
+     * (akun lama atau hasil impor tanpa field ini), fallback-nya mengikuti
+     * [resolvedPayloadEnabled]: sebelum flag ini dibaca mesin tunnel, semua
+     * akun dengan payload SELALU memakai perilaku "buang semua respons
+     * sampai banner SSH", jadi akun lama tetap berperilaku sama dan tidak
+     * tiba-tiba putus setelah update.
+     */
+    fun resolvedEnhancedEnabled(): Boolean = enhancedEnabled ?: resolvedPayloadEnabled()
 }
 
 /**

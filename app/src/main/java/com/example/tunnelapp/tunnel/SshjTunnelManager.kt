@@ -435,7 +435,8 @@ class SshjTunnelManager : SshEngineHandle {
             .replace(Regex("""127\.0\.0\.1:\d+"""), "server")
         return "Server ${config.host}:${config.port} tidak membalas dengan protokol SSH yang valid lewat engine sshj. " +
             "Kalau server butuh koneksi terenkripsi/proxy, coba mode transport lain (SSH SSL/Payload/Remote " +
-            "Proxy/Enhanced) di Konfigurasi. ($rawDetail)"
+            "Proxy) di Konfigurasi. Kalau memakai payload dengan dua request atau lewat CDN, " +
+            "coba centang Enhanced. ($rawDetail)"
     }
 
     override fun disconnectForReconnect() {

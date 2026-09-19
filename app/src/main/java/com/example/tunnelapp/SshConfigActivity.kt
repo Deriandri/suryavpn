@@ -52,9 +52,12 @@ class SshConfigActivity : AppCompatActivity() {
         // SENGAJA dikosongkan (bukan "line.me" dari log user -- itu spesifik
         // ke kuota gratis ISP tertentu) -- user isi sendiri sesuai domain
         // gratisan yang dipakai.
+        // Token yang HARUS diganti user sebelum Simpan (divalidasi di onSaveClicked).
+        private const val DECOY_PLACEHOLDER = "[ISI_DOMAIN_GRATIS_ISP_DISINI]"
+
         private const val ENHANCED_PAYLOAD_TEMPLATE =
             "ACL / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: keep-alive[crlf]" +
-                "Proxy-Connection: keep-alive[crlf]Host: [ISI_DOMAIN_GRATIS_ISP_DISINI][crlf]" +
+                "Proxy-Connection: keep-alive[crlf]Host: " + DECOY_PLACEHOLDER + "[crlf]" +
                 "X-Forward-Host: [host][crlf]User-Agent: [ua][crlf][crlf]"
     }
 
@@ -291,6 +294,13 @@ class SshConfigActivity : AppCompatActivity() {
 
         binding.chipRawMode.isChecked = false
         binding.chipRawMode.isEnabled = false
+
+        // Toggle Payload/Proxy/Enhanced ikut terkunci (ketiganya masuk daftar
+        // field terkunci di ConfigLock.lockedFieldsFor). Saat Simpan, nilainya
+        // diambil dari originalConfig, bukan dari chip ini.
+        binding.chipTogglePayload.isEnabled = false
+        binding.chipToggleProxy.isEnabled = false
+        binding.chipToggleEnhanced.isEnabled = false
     }
 
     private fun setupModeChips() {
@@ -526,6 +536,22 @@ class SshConfigActivity : AppCompatActivity() {
             else -> false
         }
 
+        // Toggle Payload/Proxy/Enhanced juga diambil dari config asli kalau
+        // terkunci (chip-nya dinonaktifkan, lihat applyPayloadProxyLockIfNeeded).
+        val savedPayloadEnabled =
+            if (payloadProxyLocked) (originalConfig?.resolvedPayloadEnabled() ?: usesPayload) else usesPayload
+        val savedProxyEnabled =
+            if (payloadProxyLocked) (originalConfig?.resolvedProxyEnabled() ?: usesProxy) else usesProxy
+        val savedEnhancedEnabled =
+            if (payloadProxyLocked) (originalConfig?.resolvedEnhancedEnabled() ?: usesEnhanced) else usesEnhanced
+
+        // Template Enhanced punya token yang wajib diganti -- kalau dibiarkan,
+        // teksnya terkirim apa adanya sebagai nilai header Host.
+        if (!payloadProxyLocked && usesPayload && payload.contains(DECOY_PLACEHOLDER)) {
+            binding.etPayload.error = "Ganti $DECOY_PLACEHOLDER dengan domain bug/gratisan dulu"
+            return
+        }
+
         // Validasi Raw Passthrough/Remote Proxy di bawah ini cuma relevan
         // kalau field-nya memang diisi lewat FORM -- kalau sedang terkunci
         // ([payloadProxyLocked]), nilai aslinya sudah pasti valid (tersimpan
@@ -604,9 +630,9 @@ class SshConfigActivity : AppCompatActivity() {
                 // tiap kali profil ini disimpan ulang lewat layar edit ini.
                 note = originalConfig?.note ?: "",
                 tlsEnabled = usesTls,
-                proxyEnabled = usesProxy,
-                payloadEnabled = usesPayload,
-                enhancedEnabled = usesEnhanced
+                proxyEnabled = savedProxyEnabled,
+                payloadEnabled = savedPayloadEnabled,
+                enhancedEnabled = savedEnhancedEnabled
             )
         )
 

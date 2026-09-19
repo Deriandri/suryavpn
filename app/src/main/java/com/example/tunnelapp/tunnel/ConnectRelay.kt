@@ -46,6 +46,10 @@ class ConnectRelay(
         // pegang 1 koneksi TCP utama ke server, jadi aman dinaikkan).
         private const val SOCKET_BUFFER_SIZE_BYTES = 262_144
         private const val MAX_PROXY_RESPONSE_BYTES = 8192
+        // Batas baca baris pertama setelah payload di mode standar (non-Enhanced).
+        // Banner SSH maksimal 255 byte (RFC 4253 SS4.2); 512 cukup untuk
+        // status line HTTP juga.
+        private const val MAX_FIRST_LINE_BYTES = 512
 
         // --- Placeholder payload custom (lihat KDoc ServerConfig.payload &
         // fungsi buildAndSendPayload/applyCommonPlaceholders/dst di bawah) ---
@@ -389,7 +393,19 @@ class ConnectRelay(
                 // Sekarang byte mentah baris banner itu ditangkap balik, lalu
                 // "ditempel" lagi di depan stream lewat PrefixedSocket supaya
                 // sshj tetap melihatnya persis seolah belum pernah dibaca.
-                val bannerLine = consumeUntilSshBanner(socket.getInputStream())
+                // REVISI (permintaan user, "perbaiki fungsi enhanced"): cara
+                // membaca respons sekarang ditentukan flag Enhanced.
+                //  - Enhanced ON : buang SEMUA baris non-SSH sampai banner
+                //    (payload dua request / respons CDN berlapis).
+                //  - Enhanced OFF: mode standar, buang SATU respons HTTP saja.
+                //    Payload yang menghasilkan lebih dari satu respons
+                //    butuh Enhanced, kalau tidak sisa respons masuk ke sshj.
+                val bannerLine = if (config.enhanced) {
+                    StatusBus.log("Enhanced aktif: buang respons HTTP sampai banner SSH")
+                    consumeUntilSshBanner(socket.getInputStream())
+                } else {
+                    consumeSingleHttpResponse(socket.getInputStream())
+                }
                 socket = PrefixedSocket(socket, bannerLine)
             } catch (e: Exception) {
                 StatusBus.fail(StepId.PAYLOAD, "Server tidak mengirim banner SSH setelah payload: ${e.message}")
@@ -593,6 +609,61 @@ class ConnectRelay(
             "Tidak menemukan banner SSH setelah $maxLines baris respons non-SSH " +
                 "(total $totalBytes byte diterima)"
         )
+    }
+
+    /**
+     * Mode standar (Enhanced OFF): baca baris pertama setelah payload dikirim.
+     *  - Diawali "SSH-"  : itu banner, kembalikan apa adanya (tidak ada respons HTTP).
+     *  - Diawali "HTTP/" : catat status, lalu buang header sampai baris kosong.
+     *    Hanya SATU respons yang dibuang, isi (body) tidak dibaca. Kembalikan
+     *    array kosong: byte berikutnya langsung diserahkan ke sshj.
+     *  - Selain itu      : bukan HTTP dan bukan banner. JANGAN dibuang, kembalikan
+     *    byte yang sudah terbaca supaya ditempel balik di depan stream sshj.
+     * Dibaca byte demi byte supaya tidak memakan byte SSH sesudahnya.
+     *
+     * @return byte yang harus ditempel balik di depan stream (bisa kosong).
+     */
+    @Throws(IOException::class)
+    private fun consumeSingleHttpResponse(input: InputStream): ByteArray {
+        val firstLine = readRawLine(input, MAX_FIRST_LINE_BYTES)
+        val firstText = firstLine.toString(StandardCharsets.ISO_8859_1).trimEnd('\r', '\n')
+        if (firstText.startsWith("SSH-")) {
+            StatusBus.log(firstText)
+            return firstLine
+        }
+        if (!Regex("""^HTTP/\d\.\d\s+\d{3}""").containsMatchIn(firstText)) {
+            return firstLine
+        }
+        StatusBus.log("Response: ${StatusBus.summarizeLongText(httpStatusDetail(firstText), maxLines = 1, maxCharsPerLine = 120)}")
+        var headerBytes = firstLine.size
+        while (true) {
+            val line = readRawLine(input, MAX_PROXY_RESPONSE_BYTES)
+            headerBytes += line.size
+            val text = line.toString(StandardCharsets.ISO_8859_1).trimEnd('\r', '\n')
+            if (text.isEmpty()) break
+            if (headerBytes > MAX_PROXY_RESPONSE_BYTES) {
+                throw IOException("Header respons HTTP terlalu besar atau tidak valid")
+            }
+        }
+        return ByteArray(0)
+    }
+
+    /** Baca satu baris mentah (termasuk '\n') byte demi byte, maksimal [maxBytes]. */
+    @Throws(IOException::class)
+    private fun readRawLine(input: InputStream, maxBytes: Int): ByteArray {
+        val buf = ByteArrayOutputStream()
+        while (buf.size() < maxBytes) {
+            val b = input.read()
+            if (b == -1) {
+                if (buf.size() == 0) {
+                    throw IOException("Koneksi ditutup server sebelum mengirim data apa pun setelah payload")
+                }
+                break
+            }
+            buf.write(b)
+            if (b == '\n'.code) break
+        }
+        return buf.toByteArray()
     }
 
     private fun readUntilDoubleCrlf(input: InputStream): ByteArray {

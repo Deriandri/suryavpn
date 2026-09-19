@@ -149,6 +149,9 @@ class MyVpnService : VpnService() {
         const val EXTRA_TLS_ENABLED = "extra_tls_enabled"
         const val EXTRA_PROXY_ENABLED = "extra_proxy_enabled"
         const val EXTRA_PAYLOAD_ENABLED = "extra_payload_enabled"
+        // Mode Enhanced (lihat ServerConfig.enhanced). Default true kalau
+        // Intent tidak membawanya (pemanggil lama) = perilaku lama.
+        const val EXTRA_ENHANCED_ENABLED = "extra_enhanced_enabled"
         // FIX/FITUR BARU (fallback akun cadangan): id profil ProfileStore yang
         // lagi dipakai -- dikirim dari DashboardMainFragment supaya
         // MyVpnService tahu profil mana yang HARUS DIKECUALIKAN saat menyusun
@@ -840,6 +843,7 @@ class MyVpnService : VpnService() {
                     tlsEnabled = intent.getBooleanExtra(EXTRA_TLS_ENABLED, false),
                     proxyEnabled = intent.getBooleanExtra(EXTRA_PROXY_ENABLED, false),
                     payloadEnabled = intent.getBooleanExtra(EXTRA_PAYLOAD_ENABLED, false),
+                    enhanced = intent.getBooleanExtra(EXTRA_ENHANCED_ENABLED, true),
                     hideSensitiveLogs = intent.getBooleanExtra(EXTRA_HIDE_SENSITIVE_LOGS, false)
                 )
                 startVpn(config, intent.getStringExtra(EXTRA_PROFILE_ID))

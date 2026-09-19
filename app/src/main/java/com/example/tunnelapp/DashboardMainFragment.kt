@@ -87,6 +87,8 @@ class DashboardMainFragment : Fragment() {
         val tlsEnabled: Boolean = false,
         val proxyEnabled: Boolean = false,
         val payloadEnabled: Boolean = false,
+        // Mode Enhanced, diteruskan lewat EXTRA_ENHANCED_ENABLED.
+        val enhancedEnabled: Boolean = true,
         // FITUR BARU (permintaan user, "sembunyikan payload di Log untuk akun
         // terkunci total"): diteruskan ke Service lewat
         // EXTRA_HIDE_SENSITIVE_LOGS -- lihat KDoc [ServerConfig.hideSensitiveLogs].
@@ -572,6 +574,7 @@ class DashboardMainFragment : Fragment() {
                 tlsEnabled = usesTls,
                 proxyEnabled = usesProxy,
                 payloadEnabled = usesPayload,
+                enhancedEnabled = saved.resolvedEnhancedEnabled(),
                 hideSensitiveLogs = saved.lockMode == ConfigLockMode.LOCK_ALL ||
                     saved.lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY,
                 profileId = activeProfile.id
@@ -631,6 +634,7 @@ class DashboardMainFragment : Fragment() {
             putExtra(MyVpnService.EXTRA_TLS_ENABLED, c.tlsEnabled)
             putExtra(MyVpnService.EXTRA_PROXY_ENABLED, c.proxyEnabled)
             putExtra(MyVpnService.EXTRA_PAYLOAD_ENABLED, c.payloadEnabled)
+            putExtra(MyVpnService.EXTRA_ENHANCED_ENABLED, c.enhancedEnabled)
             if (!c.profileId.isNullOrEmpty()) putExtra(MyVpnService.EXTRA_PROFILE_ID, c.profileId)
         }
         ctx.startForegroundService(intent)
