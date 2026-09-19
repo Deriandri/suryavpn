@@ -165,7 +165,9 @@ class ConnectRelay(
             clientSocket.close()
             return
         }
-        StreamPump.pumpBothWays(clientSocket, realSocket)
+        // Diagnosis: laporkan ke log arah mana yang berhenti duluan & kenapa
+        // (lihat KDoc StreamPump.pumpBothWays).
+        StreamPump.pumpBothWays(clientSocket, realSocket) { StatusBus.log(it) }
     }
 
     /**

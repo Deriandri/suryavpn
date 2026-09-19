@@ -11,12 +11,23 @@ object StreamPump {
     // REVERT (laporan user, sama seperti Socks5Server.kt): dikembalikan ke 8KB.
     private const val BUFFER_SIZE_BYTES = 8192
 
-    fun pumpBothWays(a: Socket, b: Socket) {
-        Thread({ copy(a, b) }, "pump-a-to-b").apply { isDaemon = true; start() }
-        Thread({ copy(b, a) }, "pump-b-to-a").apply { isDaemon = true; start() }
+    /**
+     * @param report opsional: dipanggil SEKALI per arah saat arah itu berhenti,
+     *   berisi label arah, jumlah byte yang sempat lewat, alasan berhenti
+     *   (EOF = sisi sumber menutup koneksi dengan normal, atau error) dan
+     *   waktu sejak pump mulai. Dipakai untuk mendiagnosis siapa yang menutup
+     *   koneksi lebih dulu. Baris yang muncul PERTAMA di log adalah penyebabnya;
+     *   arah satunya biasanya ikut berhenti karena socket ditutup.
+     */
+    fun pumpBothWays(a: Socket, b: Socket, report: ((String) -> Unit)? = null) {
+        val t0 = System.currentTimeMillis()
+        Thread({ copy(a, b, "sshj -> server", t0, report) }, "pump-a-to-b").apply { isDaemon = true; start() }
+        Thread({ copy(b, a, "server -> sshj", t0, report) }, "pump-b-to-a").apply { isDaemon = true; start() }
     }
 
-    private fun copy(from: Socket, to: Socket) {
+    private fun copy(from: Socket, to: Socket, label: String, t0: Long, report: ((String) -> Unit)?) {
+        var total = 0L
+        var reason = "EOF (sumber menutup koneksi)"
         try {
             val buffer = ByteArray(BUFFER_SIZE_BYTES)
             val input = from.getInputStream()
@@ -26,10 +37,13 @@ object StreamPump {
                 if (n == -1) break
                 output.write(buffer, 0, n)
                 output.flush()
+                total += n
             }
         } catch (e: Exception) {
+            reason = "error ${e.javaClass.simpleName}: ${e.message}"
             Log.d(TAG, "Pump berhenti: ${e.message}")
         } finally {
+            report?.invoke("[Relay] $label berhenti: $reason, $total byte lewat, +${System.currentTimeMillis() - t0} ms")
             try { from.close() } catch (_: Exception) {}
             try { to.close() } catch (_: Exception) {}
         }

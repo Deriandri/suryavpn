@@ -52,9 +52,13 @@ object StatusBus {
 
     /** Tambah satu baris log mentah, diberi timestamp "[HH:mm:ss]" sama seperti DarkTunnel. */
     fun log(line: String) {
-        val stamped = "[${timeFormat.format(java.util.Date())}] $line"
-        val next = liveLog.value + stamped
-        liveLog.value = if (next.size > MAX_LOG_LINES) next.takeLast(MAX_LOG_LINES) else next
+        // synchronized: dua thread pump bisa memanggil log() hampir bersamaan,
+        // tanpa ini salah satu baris bisa hilang (baca-tulis liveLog tidak atomik).
+        synchronized(this) {
+            val stamped = "[${timeFormat.format(java.util.Date())}] $line"
+            val next = liveLog.value + stamped
+            liveLog.value = if (next.size > MAX_LOG_LINES) next.takeLast(MAX_LOG_LINES) else next
+        }
     }
 
     fun clearLog() {
