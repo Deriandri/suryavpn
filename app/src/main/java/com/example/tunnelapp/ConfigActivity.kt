@@ -823,16 +823,12 @@ class ConfigActivity : AppCompatActivity() {
                 }
             }
         } else {
-            // REFACTOR (opsi 1+2, toggle independen): badge ringkas dirakit
-            // dari 3 toggle (kombinasi bebas), bukan 1 nama preset lagi --
-            // lihat SavedConfig.resolvedXxxEnabled().
-            val parts = buildList {
-                if (config.resolvedTlsEnabled()) add("TLS")
-                if (config.resolvedProxyEnabled()) add("PROXY")
-                if (config.resolvedPayloadEnabled()) add("PAYLOAD")
-                if (config.resolvedEnhancedEnabled()) add("ENHANCED")
+            val modeName = when (config.modeIndex) {
+                1 -> "SSH SSL"
+                2 -> "SSH TLS PAYLOAD"
+                3 -> "REMOTE PROXY"
+                else -> "SSH"
             }
-            val modeName = if (parts.isEmpty()) "SSH" else "SSH ${parts.joinToString(" ")}"
             row.ivRowAvatarBg.setBackgroundResource(R.drawable.bg_avatar_ssh)
             row.ivRowIcon.setImageResource(R.drawable.ic_account_ssh)
             row.tvRowTypeBadge.text = modeName

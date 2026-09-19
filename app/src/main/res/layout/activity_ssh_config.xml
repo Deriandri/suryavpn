@@ -43,6 +43,174 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- Card: Konfigurasi Server (DIPINDAH ke paling atas, permintaan
+             user, supaya diisi duluan sebelum memilih Metode Koneksi). -->
+        <com.google.android.material.card.MaterialCardView
+            style="@style/Card.Section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/SectionTitleText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Konfigurasi Server" />
+
+                <!-- FITUR BARU (permintaan user): nama akun custom, murni buat
+                     tampilan (daftar "Akun Tersimpan" & pemilih akun di
+                     Dashboard) — tidak memengaruhi koneksi sama sekali.
+                     Kosong = tetap tampil sebagai host:port seperti sebelumnya. -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilAccountName"
+                    style="@style/Field.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="0dp"
+                    android:hint="Nama Akun (opsional)">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etAccountName"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textCapWords"
+                        android:maxLines="1"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:autofillHints="" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <!-- FITUR BARU (permintaan user): kolom Host / Port / Username /
+                     Password yang sebelumnya 4 field terpisah SEKARANG digabung
+                     jadi SATU kolom saja dengan format host:port@username:password
+                     (mis. 1.2.3.4:22@user:pass; port opsional, default 22 kalau
+                     dikosongkan). Diparsing otomatis secara real-time (tanpa perlu
+                     tombol "Terapkan" lagi) ke field asli etHost/etPort/etUsername/
+                     etPassword yang sekarang disembunyikan di bawah - lihat
+                     SshConfigActivity.applyServerComboText() & TextWatcher yang
+                     dipasang di onCreate(). -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilQuickPaste"
+                    style="@style/Field.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:hint="Host:Port@Username:Password">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etQuickPaste"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textUri"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:autofillHints="" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Contoh: 1.2.3.4:22@user:pass (port opsional, default 22)"
+                    android:textColor="@color/text_hint"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="4dp" />
+
+                <!-- Field Host/Port/Username/Password ASLI TIDAK DIHAPUS, cuma
+                     disembunyikan (visibility=gone) - pola yang sama seperti
+                     Card DNS di bawah - supaya SshConfigActivity.kt
+                     (restoreSavedConfig/onSaveClicked, yang masih membaca &
+                     menulis binding.etHost/etPort/etUsername/etPassword ke
+                     SavedConfig) tidak perlu diubah strukturnya & tetap
+                     kompilasi. Nilainya sekarang SELALU diisi otomatis dari
+                     kolom gabungan di atas. -->
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilHost"
+                    style="@style/Field.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="Host / IP Server SSH"
+                    android:visibility="gone">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etHost"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textUri"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:autofillHints="" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <LinearLayout
+                    android:id="@+id/rowPortUsername"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="8dp"
+                        android:hint="Port">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etPort"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="22"
+                            android:inputType="number"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        style="@style/Field.Outlined"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="2"
+                        android:hint="Username">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etUsername"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text"
+                            android:textColor="@color/text_primary"
+                            android:textColorHint="@color/text_hint"
+                            android:autofillHints="username" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilPassword"
+                    style="@style/Field.Outlined"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:endIconMode="password_toggle"
+                    android:hint="Password"
+                    android:visibility="gone">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etPassword"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="textPassword"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_hint"
+                        android:autofillHints="password" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Card: Metode Koneksi -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"
@@ -62,52 +230,43 @@
                     android:layout_height="wrap_content"
                     android:text="Metode Koneksi" />
 
-                <!-- REFACTOR (permintaan user, "opsi 1+2, toggle independen"):
-                     dulu 4 chip preset (SSH/SSH SSL/SSH TLS Payload Proxy/
-                     Payload+Remote Proxy, single-select) - sekarang 3 toggle
-                     BERDIRI SENDIRI yang bisa dikombinasikan bebas (multi-
-                     select), mirip HTTP Custom/DarkTunnel. Lihat
-                     SshConfigActivity.updateFieldVisibilityForMode(). -->
                 <com.google.android.material.chip.ChipGroup
                     android:id="@+id/chipGroupMode"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:singleSelection="false"
-                    app:selectionRequired="false"
+                    app:singleSelection="true"
+                    app:selectionRequired="true"
                     app:chipSpacingHorizontal="8dp">
 
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/chipToggleTls"
+                        android:id="@+id/chipSsh"
                         style="@style/Widget.TunnelApp.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Gunakan TLS" />
+                        android:checked="true"
+                        android:text="SSH" />
 
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/chipTogglePayload"
+                        android:id="@+id/chipSshSsl"
                         style="@style/Widget.TunnelApp.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Gunakan Payload" />
+                        android:text="SSH SSL" />
 
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/chipToggleProxy"
+                        android:id="@+id/chipSshEnhanced"
                         style="@style/Widget.TunnelApp.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Gunakan Remote Proxy" />
+                        android:text="SSH TLS Payload Proxy" />
 
-                    <!-- FITUR BARU (permintaan user, "tambahkan fungsi enhanced" -
-                         meniru toggle Enhanced di DarkTunnel/HTTP Custom): pintasan
-                         yang memaksa chipToggleTls & chipToggleProxy nyala bareng &
-                         terkunci (tidak bisa di-uncheck manual) selama chip ini aktif
-                         - lihat SshConfigActivity.applyEnhancedLockIfNeeded(). -->
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/chipToggleEnhanced"
+                        android:id="@+id/chipPayloadRemoteProxy"
                         style="@style/Widget.TunnelApp.Chip.Filter"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Enhanced" />
+                        android:text="Payload + Remote Proxy" />
+
                 </com.google.android.material.chip.ChipGroup>
 
                 <com.google.android.material.textfield.TextInputLayout
@@ -245,6 +404,42 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Raw Passthrough (CDN, skip CONNECT)" />
+
+                        <!-- FITUR BARU (permintaan user, "samain kayak checkbox Enhanced
+                             & SSL yang kepisah sendiri-sendiri di HTTP Custom"): checkbox
+                             SSL independen dari Raw Passthrough di atas, cuma dipakai
+                             kalau modeIndex efektif = 4 (Enhanced), makanya default GONE
+                             di sini & visibility-nya dikontrol murni dari
+                             SshConfigActivity.updateFieldVisibilityForMode() (bukan lewat
+                             XML), sama seperti chipEnhancedToggle di bawah. Lihat
+                             SshConfigActivity.usesTlsForMode() & ServerConfig.enhancedSsl
+                             untuk 4 kombinasi raw x SSL yang sekarang didukung. -->
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipEnhancedSsl"
+                            style="@style/Widget.TunnelApp.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:visibility="gone"
+                            android:text="SSL" />
+
+                        <!-- FITUR BARU (permintaan user): "Enhanced" DIPINDAH dari chip
+                             mode terpisah (dulu chipEnhanced di chipGroupMode, modeIndex 4
+                             berdiri sendiri) jadi toggle di sini, satu kelompok dengan Raw
+                             Passthrough - bisa dihidup/dimatikan sendiri, tidak lagi jadi
+                             pilihan mode eksklusif. Toggle ini menumpuk di atas mode dasar
+                             yang sedang dipilih (SSH TLS Payload Proxy / Payload + Remote
+                             Proxy, satu-satunya dua mode yang menampilkan blok Remote Proxy
+                             ini) - begitu dinyalakan, TLS dipaksa selalu aktif & proxy/CDN
+                             wajib diisi kalau Raw Passthrough juga aktif, persis perilaku
+                             ConnectionMode.ENHANCED lama; begitu dimatikan, kembali ke
+                             perilaku mode dasarnya apa adanya. Lihat
+                             SshConfigActivity.currentModeIndex(). -->
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipEnhancedToggle"
+                            style="@style/Widget.TunnelApp.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Enhanced" />
                     </com.google.android.material.chip.ChipGroup>
 
                     <LinearLayout
@@ -417,172 +612,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Card: Konfigurasi Server -->
-        <com.google.android.material.card.MaterialCardView
-            style="@style/Card.Section"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <TextView
-                    style="@style/SectionTitleText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Konfigurasi Server" />
-
-                <!-- FITUR BARU (permintaan user): nama akun custom, murni buat
-                     tampilan (daftar "Akun Tersimpan" & pemilih akun di
-                     Dashboard) — tidak memengaruhi koneksi sama sekali.
-                     Kosong = tetap tampil sebagai host:port seperti sebelumnya. -->
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/tilAccountName"
-                    style="@style/Field.Outlined"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="0dp"
-                    android:hint="Nama Akun (opsional)">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/etAccountName"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="textCapWords"
-                        android:maxLines="1"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_hint"
-                        android:autofillHints="" />
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:id="@+id/tilQuickPaste"
-                        style="@style/Field.Outlined"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:hint="Tempel cepat info server">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etQuickPaste"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="textUri"
-                            android:textColor="@color/text_primary"
-                            android:textColorHint="@color/text_hint"
-                            android:autofillHints="" />
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnQuickPasteApply"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Terapkan"
-                        android:textAllCaps="false"
-                        app:icon="@drawable/ic_paste"
-                        app:iconGravity="end"
-                        app:iconPadding="6dp"
-                        app:iconTint="@color/brand_primary"
-                        style="@style/Widget.Material3.Button.TonalButton" />
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Tempel cepat: host:port@username:password, lalu tekan Terapkan"
-                    android:textColor="@color/text_hint"
-                    android:textSize="12sp"
-                    android:layout_marginBottom="12dp" />
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/tilHost"
-                    style="@style/Field.Outlined"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="Host / IP Server SSH">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/etHost"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="textUri"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_hint"
-                        android:autofillHints="" />
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <LinearLayout
-                    android:id="@+id/rowPortUsername"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        style="@style/Field.Outlined"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:hint="Port">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etPort"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="22"
-                            android:inputType="number"
-                            android:textColor="@color/text_primary"
-                            android:textColorHint="@color/text_hint"
-                            android:autofillHints="" />
-                    </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        style="@style/Field.Outlined"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="2"
-                        android:hint="Username">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/etUsername"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="text"
-                            android:textColor="@color/text_primary"
-                            android:textColorHint="@color/text_hint"
-                            android:autofillHints="username" />
-                    </com.google.android.material.textfield.TextInputLayout>
-                </LinearLayout>
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/tilPassword"
-                    style="@style/Field.Outlined"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    app:endIconMode="password_toggle"
-                    android:hint="Password">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/etPassword"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="textPassword"
-                        android:textColor="@color/text_primary"
-                        android:textColorHint="@color/text_hint"
-                        android:autofillHints="password" />
-                </com.google.android.material.textfield.TextInputLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
 
         <!-- Card: DNS; DISEMBUNYIKAN dari layar ini (permintaan user).
              Field etDns1/etDns2 SENGAJA TIDAK DIHAPUS (cuma visibility=gone)
@@ -592,8 +622,9 @@
              DNS per-profil ini sekarang cuma efektif diisi dari data lama
              (kalau ada). Kartu "Pengaturan > VPN Setting" SUDAH TIDAK PUNYA
              field DNS manual lagi, cuma switch "DNS Default Otomatis"
-             (dnsFallbackEnabled) yang menentukan apakah DNS default
-             (1.1.1.1) dipasang saat DNS1/DNS2 di sini kosong dua-duanya
+             (dnsFallbackEnabled, MATI secara default, tidak ada hardcode
+             bawaan) yang menentukan apakah DNS default dari field "Default
+             DNS" dipasang saat DNS1/DNS2 di sini kosong dua-duanya
              (lihat VpnSettingsStore & MyVpnService.applyDnsServers). -->
         <com.google.android.material.card.MaterialCardView
             style="@style/Card.Section"
@@ -616,7 +647,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Berlaku untuk profil SSH maupun Xray. Kosongkan untuk pakai default (1.1.1.1)."
+                    android:text="Berlaku untuk profil SSH maupun Xray. Kosongkan untuk tidak memasang DNS default."
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp"
                     android:layout_marginBottom="8dp" />

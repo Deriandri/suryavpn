@@ -64,10 +64,10 @@
     <!-- Kartu: VPN Setting -->
     <string name="section_vpn">VPN Setting</string>
     <string name="dns_label">DNS</string>
-    <string name="dns_desc">DNS default (1.1.1.1, bisa diganti di field di bawah) otomatis dipasang kalau DNS 1/DNS 2 profil SSH/Xray (diisi di layar Konfigurasi) kosong dua-duanya, supaya resolusi domain tidak gagal total.</string>
+    <string name="dns_desc">Kalau dinyalakan, DNS default di bawah dipasang saat DNS 1/DNS 2 profil SSH/Xray (diisi di layar Konfigurasi) kosong dua-duanya. Tidak ada DNS bawaan -- isi sendiri alamatnya di field di bawah.</string>
     <string name="dns_fallback_title">DNS Default Otomatis</string>
-    <string name="dns_fallback_desc">Aktif secara default. Matikan kalau tidak mau ada DNS default sama sekali saat DNS profil kosong.</string>
-    <string name="default_dns_hint">Default DNS (opsional, default 1.1.1.1)</string>
+    <string name="dns_fallback_desc">Mati secara default. Nyalakan kalau mau ada DNS default terpasang saat DNS profil kosong.</string>
+    <string name="default_dns_hint">Default DNS (opsional, mis. 1.1.1.1)</string>
     <string name="error_default_dns">Harus alamat IP (mis. 1.1.1.1), bukan domain</string>
     <string name="mtu_hint">MTU (default 1500)</string>
     <string name="ports_desc">Kosongkan port di bawah untuk pakai default masing-masing profil. SOCKS5 Port menimpa port semua profil. HTTP Port menyalakan proxy HTTP lokal tambahan (chaining ke SOCKS5) untuk app yang cuma dukung proxy HTTP. UDPGW Port, kalau diisi, meneruskan UDP non-DNS (game, QUIC/HTTP3, VoIP) lewat proses badvpn-udpgw di server (server WAJIB sudah menjalankan badvpn-udpgw di port ini).</string>

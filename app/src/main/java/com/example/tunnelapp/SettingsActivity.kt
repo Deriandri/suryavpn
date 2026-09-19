@@ -496,11 +496,8 @@ class SettingsActivity : AppCompatActivity() {
     private fun loadVpnSettingsIntoForm() {
         val settings = VpnSettingsStore.load(this)
         binding.switchDnsFallback.isChecked = settings.dnsFallbackEnabled
-        // TIDAK ADA fallback hardcode lagi -- kalau user belum pernah simpan
-        // field ini, VpnSettingsStore.load() mengembalikan string kosong,
-        // jadi field ini TAMPIL KOSONG di layar (beda dari socksPort/
-        // httpPort/udpgwPort yang default-nya memang "aktif dengan port
-        // standar").
+        // Kosong == belum diisi, tidak ada hardcode bawaan lagi -- tampilkan
+        // apa adanya dari penyimpanan (kosong kalau user belum pernah isi).
         binding.etVpnDefaultDns.setText(settings.defaultDns)
         binding.etVpnMtu.setText(settings.mtu.toString())
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
@@ -547,7 +544,7 @@ class SettingsActivity : AppCompatActivity() {
         // Validasi format sama seperti DNS1/DNS2 per-profil di
         // SshConfigActivity (literal IPv4 lewat Patterns.IP_ADDRESS) --
         // kosong DIPERBOLEHKAN (berarti "tidak ada DNS default sama sekali",
-        // TIDAK ADA fallback hardcode lagi -- lihat titik pemakaiannya di
+        // tidak ada hardcode bawaan lagi -- lihat titik pemakaiannya di
         // MyVpnService/XrayTunnelManager), cuma yang diisi tapi bukan IP
         // valid yang ditolak.
         val defaultDnsText = binding.etVpnDefaultDns.text.toString().trim()

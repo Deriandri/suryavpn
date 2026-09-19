@@ -73,17 +73,15 @@ class DashboardMainFragment : Fragment() {
         val useWebSocket: Boolean,
         val wsPath: String,
         val proxyRawMode: Boolean,
+        // FITUR BARU (permintaan user, "samain kayak checkbox Enhanced & SSL
+        // yang kepisah di HTTP Custom"): dibawa terpisah dari proxyRawMode di
+        // atas sekarang -- lihat ServerConfig.enhancedSsl.
+        val enhancedSsl: Boolean,
         val xrayLink: String,
         val customHeaders: String,
         val ignoreCertErrors: Boolean,
         val dns1: String,
         val dns2: String,
-        // REFACTOR (opsi 1+2, toggle independen): diteruskan ke Service
-        // lewat EXTRA_TLS_ENABLED/EXTRA_PROXY_ENABLED/EXTRA_PAYLOAD_ENABLED
-        // -- default false (tidak relevan untuk PendingConnection Xray).
-        val tlsEnabled: Boolean = false,
-        val proxyEnabled: Boolean = false,
-        val payloadEnabled: Boolean = false,
         // FITUR BARU (permintaan user, "sembunyikan payload di Log untuk akun
         // terkunci total"): diteruskan ke Service lewat
         // EXTRA_HIDE_SENSITIVE_LOGS -- lihat KDoc [ServerConfig.hideSensitiveLogs].
@@ -419,19 +417,12 @@ class DashboardMainFragment : Fragment() {
             val parsed = runCatching { XrayLinkParser.parse(config.xrayLink) }.getOrNull()
             return if (parsed != null) "Xray — ${parsed.address}:${parsed.port}" else "Xray — link belum valid"
         }
-        // REFACTOR (opsi 1+2, toggle independen): label ringkas sekarang
-        // dirakit dari 3 toggle (bisa kombinasi apa pun), bukan lagi 1
-        // nama preset per modeIndex -- lihat SavedConfig.resolvedXxxEnabled().
-        val parts = buildList {
-            // REVISI (permintaan user, "cabut logika TLS+Proxy-paksa"):
-            // Enhanced sekarang cuma tag TAMBAHAN, bukan pengganti TLS/Proxy
-            // lagi -- ketiganya independen, ditampilkan apa adanya.
-            if (config.resolvedTlsEnabled()) add("TLS")
-            if (config.resolvedProxyEnabled()) add("Proxy")
-            if (config.resolvedPayloadEnabled()) add("Payload")
-            if (config.resolvedEnhancedEnabled()) add("Enhanced")
+        val modeName = when (config.modeIndex) {
+            1 -> "SSH SSL"
+            2 -> "SSH TLS Payload Proxy"
+            3 -> "Payload + Remote Proxy"
+            else -> "SSH"
         }
-        val modeName = if (parts.isEmpty()) "SSH" else "SSH (${parts.joinToString(" + ")})"
         return "$modeName — ${config.host}:${config.port}"
     }
 
@@ -515,7 +506,8 @@ class DashboardMainFragment : Fragment() {
                 PendingConnection(
                     host = "", port = 0, username = "", password = "", mode = ConnectionMode.XRAY,
                     sni = "", payload = "", proxyHost = "", proxyPort = null, tlsVersion = null,
-                    useWebSocket = false, wsPath = "", proxyRawMode = false, xrayLink = saved.xrayLink,
+                    useWebSocket = false, wsPath = "", proxyRawMode = false, enhancedSsl = false,
+                    xrayLink = saved.xrayLink,
                     customHeaders = "", ignoreCertErrors = false,
                     dns1 = saved.dns1, dns2 = saved.dns2,
                     hideSensitiveLogs = saved.lockMode == ConfigLockMode.LOCK_ALL ||
@@ -531,21 +523,35 @@ class DashboardMainFragment : Fragment() {
             return
         }
 
-        // REFACTOR (opsi 1+2, toggle independen): disalin dari
-        // ServerConfig.toServerConfigOrNull supaya konsisten -- baca
-        // langsung dari toggle tersimpan (dengan fallback modeIndex lama),
-        // bukan pemetaan modeIndex->preset lagi.
-        val usesTls = saved.resolvedTlsEnabled()
-        val usesPayload = saved.resolvedPayloadEnabled()
-        val usesProxy = saved.resolvedProxyEnabled()
+        val modeIndex = saved.modeIndex
+        val mode = when (modeIndex) {
+            1 -> ConnectionMode.SSH_SSL
+            2 -> ConnectionMode.SSH_SSL_PAYLOAD
+            3 -> ConnectionMode.REMOTE_PROXY
+            4 -> ConnectionMode.ENHANCED
+            else -> ConnectionMode.SSH
+        }
+        val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
+        // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
+        // disalin dari SshConfigActivity/ServerConfig.toServerConfigOrNull supaya
+        // konsisten, lihat catatan lengkap di ServerConfig.kt.
+        // modeIndex 4 (ENHANCED) ditambahkan di sini juga supaya konsisten
+        // dengan mapping kembarannya di ServerConfig.toServerConfigOrNull.
+        val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         val proxyRawMode = usesProxy && saved.proxyRawMode
+        // modeIndex 4 (ENHANCED): TLS SEKARANG murni dari saved.enhancedSsl
+        // (checkbox SSL independen), TIDAK LAGI diturunkan dari proxyRawMode --
+        // samain dengan ServerConfig.usesTls()/toServerConfigOrNull() yang
+        // sudah diperbarui. Lihat dokumentasi ConnectionMode.ENHANCED.
+        val enhancedSsl = modeIndex == 4 && saved.enhancedSsl
+        val usesTls = modeIndex == 1 || modeIndex == 2 || enhancedSsl
 
         if (usesProxy && proxyRawMode && saved.proxyHost.isBlank()) {
             StatusBus.state.value = "Raw Passthrough butuh host/IP proxy atau CDN diisi"
             return
         }
-        if (usesProxy && saved.proxyHost.isBlank()) {
-            StatusBus.state.value = "Toggle Remote Proxy aktif, host/IP proxy diisi dulu, buka menu SSH dulu"
+        if (modeIndex == 3 && saved.proxyHost.isBlank()) {
+            StatusBus.state.value = "Payload + Remote Proxy butuh host/IP proxy diisi, buka menu SSH dulu"
             return
         }
 
@@ -555,7 +561,7 @@ class DashboardMainFragment : Fragment() {
                 port = saved.port,
                 username = saved.username,
                 password = saved.password,
-                mode = ConnectionMode.SSH,
+                mode = mode,
                 sni = saved.sni,
                 payload = if (usesPayload) saved.payload else "",
                 proxyHost = if (usesProxy) saved.proxyHost else "",
@@ -564,14 +570,12 @@ class DashboardMainFragment : Fragment() {
                 useWebSocket = true,
                 wsPath = saved.wsPath,
                 proxyRawMode = proxyRawMode,
+                enhancedSsl = enhancedSsl,
                 xrayLink = "",
                 customHeaders = saved.customHeaders,
                 ignoreCertErrors = saved.ignoreCertErrors,
                 dns1 = saved.dns1,
                 dns2 = saved.dns2,
-                tlsEnabled = usesTls,
-                proxyEnabled = usesProxy,
-                payloadEnabled = usesPayload,
                 hideSensitiveLogs = saved.lockMode == ConfigLockMode.LOCK_ALL ||
                     saved.lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY,
                 profileId = activeProfile.id
@@ -617,18 +621,13 @@ class DashboardMainFragment : Fragment() {
             putExtra(MyVpnService.EXTRA_WEBSOCKET_ENABLED, c.useWebSocket)
             if (c.wsPath.isNotEmpty()) putExtra(MyVpnService.EXTRA_WS_PATH, c.wsPath)
             putExtra(MyVpnService.EXTRA_PROXY_RAW_MODE, c.proxyRawMode)
+            putExtra(MyVpnService.EXTRA_ENHANCED_SSL, c.enhancedSsl)
             if (c.xrayLink.isNotEmpty()) putExtra(MyVpnService.EXTRA_XRAY_LINK, c.xrayLink)
             if (c.customHeaders.isNotEmpty()) putExtra(MyVpnService.EXTRA_CUSTOM_HEADERS, c.customHeaders)
             putExtra(MyVpnService.EXTRA_IGNORE_CERT_ERRORS, c.ignoreCertErrors)
             if (c.dns1.isNotEmpty()) putExtra(MyVpnService.EXTRA_DNS1, c.dns1)
             if (c.dns2.isNotEmpty()) putExtra(MyVpnService.EXTRA_DNS2, c.dns2)
             putExtra(MyVpnService.EXTRA_HIDE_SENSITIVE_LOGS, c.hideSensitiveLogs)
-            // REFACTOR (opsi 1+2, toggle independen): diteruskan apa adanya --
-            // MyVpnService.ACTION_CONNECT sekarang baca toggle ini langsung
-            // dari Intent, bukan menebak dari EXTRA_MODE lagi.
-            putExtra(MyVpnService.EXTRA_TLS_ENABLED, c.tlsEnabled)
-            putExtra(MyVpnService.EXTRA_PROXY_ENABLED, c.proxyEnabled)
-            putExtra(MyVpnService.EXTRA_PAYLOAD_ENABLED, c.payloadEnabled)
             if (!c.profileId.isNullOrEmpty()) putExtra(MyVpnService.EXTRA_PROFILE_ID, c.profileId)
         }
         ctx.startForegroundService(intent)

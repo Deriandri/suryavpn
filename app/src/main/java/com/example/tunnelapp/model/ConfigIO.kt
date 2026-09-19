@@ -89,6 +89,7 @@ fun SavedConfig.toConfigJson(exportLockMode: ConfigLockMode = lockMode, noteOver
         put("useWebSocket", useWebSocket)
         put("wsPath", wsPath)
         put("proxyRawMode", proxyRawMode)
+        put("enhancedSsl", enhancedSsl)
         put("xrayLink", xrayLink)
         put("customHeaders", customHeaders)
         put("ignoreCertErrors", ignoreCertErrors)
@@ -96,14 +97,6 @@ fun SavedConfig.toConfigJson(exportLockMode: ConfigLockMode = lockMode, noteOver
         put("dns2", dns2)
         put("accountName", accountName)
         put("note", noteOverride ?: note)
-        // REFACTOR (opsi 1+2, toggle independen): ditulis lewat
-        // resolvedXxxEnabled() supaya hasil ekspor SELALU eksplisit (bukan
-        // null) -- termasuk untuk akun lama yang tlsEnabled/proxyEnabled/
-        // payloadEnabled aslinya belum pernah diisi, lihat SavedConfig.
-        put("tlsEnabled", resolvedTlsEnabled())
-        put("proxyEnabled", resolvedProxyEnabled())
-        put("payloadEnabled", resolvedPayloadEnabled())
-        put("enhancedEnabled", resolvedEnhancedEnabled())
     }
     return applyLockMode(json, exportLockMode)
 }
@@ -149,6 +142,10 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
         useWebSocket = o.optBoolean("useWebSocket", false),
         wsPath = o.optString("wsPath", ""),
         proxyRawMode = o.optBoolean("proxyRawMode", false),
+        // Kompatibilitas mundur: kode/file ekspor LAMA (sebelum checkbox SSL
+        // Enhanced kepisah) belum punya field ini -- default ke kebalikan
+        // proxyRawMode, sama seperti ConfigStore.load(). Lihat SavedConfig.enhancedSsl.
+        enhancedSsl = o.optBoolean("enhancedSsl", !o.optBoolean("proxyRawMode", false)),
         xrayLink = xrayLink,
         customHeaders = o.optString("customHeaders", ""),
         ignoreCertErrors = o.optBoolean("ignoreCertErrors", false),
@@ -173,14 +170,7 @@ private fun configFromJson(o: JSONObject): SavedConfig? {
         // sini -- akun dengan mode ini harus langsung bisa diedit begitu
         // diimpor, tanpa perlu buka gembok manual dulu.
         isLocked = lockMode == ConfigLockMode.LOCK_ALL,
-        lockMode = lockMode,
-        // REFACTOR (opsi 1+2): field baru -- null (fallback ke modeIndex
-        // lama lewat resolvedXxxEnabled()) kalau tidak ada di JSON sama
-        // sekali, yaitu hasil ekspor dari versi app SEBELUM refactor ini.
-        tlsEnabled = if (o.has("tlsEnabled")) o.optBoolean("tlsEnabled") else null,
-        proxyEnabled = if (o.has("proxyEnabled")) o.optBoolean("proxyEnabled") else null,
-        payloadEnabled = if (o.has("payloadEnabled")) o.optBoolean("payloadEnabled") else null,
-        enhancedEnabled = if (o.has("enhancedEnabled")) o.optBoolean("enhancedEnabled") else null
+        lockMode = lockMode
     )
 }
 
