@@ -310,11 +310,12 @@ data class ServerConfig(
     val tlsEnabled: Boolean = false,
     val proxyEnabled: Boolean = false,
     val payloadEnabled: Boolean = false,
-    // REVISI (permintaan user, "perbaiki fungsi enhanced"): mode pembacaan
-    // respons HTTP setelah payload dikirim (lihat ConnectRelay). true =
-    // Enhanced: buang semua baris non-SSH sampai banner. false = standar:
-    // buang satu respons HTTP saja. Default true = perilaku lama, supaya
-    // pemanggil yang tidak mengisinya tidak berubah perilaku.
+    // REVISI (permintaan user, "perbaiki fungsi enhanced"): mode payload
+    // (lihat ConnectRelay). true = Enhanced: byte SSH klien dikirim segera
+    // setelah payload (TCP_NODELAY, tanpa menunggu respons HTTP) dan semua baris
+    // non-SSH dibuang sampai banner. false = standar: tunggu respons, buang satu
+    // respons HTTP saja. Default true = supaya pemanggil yang tidak mengisinya
+    // memakai mode yang paling toleran.
     val enhanced: Boolean = true,
     // FITUR BARU (permintaan user, "sembunyikan payload di Log untuk akun
     // terkunci total"): true kalau [SavedConfig.lockMode] akun ini adalah

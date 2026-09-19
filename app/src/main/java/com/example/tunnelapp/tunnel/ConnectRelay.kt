@@ -132,6 +132,14 @@ class ConnectRelay(
     @Volatile
     private var running = false
 
+    // Mode Enhanced (pipelined): socket sshj (loopback) yang menunggu, dan waktu
+    // (epoch ms) saat pump sshj -> server dimulai lebih awal. 0 = belum dimulai.
+    @Volatile
+    private var pendingClient: Socket? = null
+
+    @Volatile
+    private var pipelinedT0: Long = 0L
+
     /** @return port lokal (127.0.0.1) tempat relay ini listen. */
     fun start(): Int {
         val ss = ServerSocket()
@@ -152,6 +160,8 @@ class ConnectRelay(
     }
 
     private fun handleClient(clientSocket: Socket) {
+        pendingClient = clientSocket
+        pipelinedT0 = 0L
         val realSocket = try {
             openRealConnection(attemptWebSocket = true)
         } catch (e: Exception) {
@@ -167,7 +177,14 @@ class ConnectRelay(
         }
         // Diagnosis: laporkan ke log arah mana yang berhenti duluan & kenapa
         // (lihat KDoc StreamPump.pumpBothWays).
-        StreamPump.pumpBothWays(clientSocket, realSocket) { StatusBus.log(it) }
+        val earlyT0 = pipelinedT0
+        if (earlyT0 > 0L) {
+            // Enhanced: arah sshj -> server sudah berjalan sejak payload terkirim,
+            // tinggal arah server -> sshj (dimulai setelah banner ditemukan).
+            StreamPump.pumpOneWay(realSocket, clientSocket, "server -> sshj", earlyT0) { StatusBus.log(it) }
+        } else {
+            StreamPump.pumpBothWays(clientSocket, realSocket) { StatusBus.log(it) }
+        }
     }
 
     /**
@@ -374,6 +391,15 @@ class ConnectRelay(
         val payload = config.payload
         if (config.payloadEnabled && !payload.isNullOrEmpty()) {
             StatusBus.start(StepId.PAYLOAD)
+            // Enhanced: byte ident SSH harus keluar SEGERA setelah payload, bukan
+            // ditahan Nagle sampai ACK/respons datang (lihat blok Enhanced di bawah).
+            if (config.enhanced) {
+                try {
+                    rawSocket.tcpNoDelay = true
+                } catch (e: Exception) {
+                    Log.w(TAG, "Gagal set TCP_NODELAY (lanjut pakai default)", e)
+                }
+            }
             try {
                 // Semua placeholder didukung sekarang (lihat KDoc buildAndSendPayload
                 // & KDoc ServerConfig.payload): [host_port] & alias, [host]/[ip] &
@@ -388,6 +414,26 @@ class ConnectRelay(
             } catch (e: Exception) {
                 StatusBus.fail(StepId.PAYLOAD, e.message ?: e.javaClass.simpleName)
                 throw e
+            }
+
+            // DIAGNOSIS 23:24 (data operator paket Zoom vs WiFi): di WiFi handshake
+            // normal, di data operator server tidak pernah membalas KEXINIT sshj
+            // (diam 17-30 detik lalu di-reset), padahal banner sampai. Log gagal HTTP
+            // Custom tanpa Enhanced juga berpola sama (banner lalu macet), jadi Enhanced
+            // di sana kemungkinan mengubah KAPAN byte SSH klien dikirim: dugaan saya,
+            // langsung setelah payload tanpa menunggu respons -- perantara operator yang
+            // memeriksa HTTP menganggap byte itu bagian dari request yang sama, bukan
+            // "request baru" yang tidak valid setelah respons. INI DUGAAN, bukan
+            // spesifikasi HTTP Custom. Pump sshj -> server dimulai di sini; pump
+            // server -> sshj menyusul di handleClient setelah banner ditemukan.
+            if (config.enhanced) {
+                val client = pendingClient
+                if (client != null) {
+                    val t0 = System.currentTimeMillis()
+                    pipelinedT0 = t0
+                    StatusBus.log("Enhanced: byte SSH klien dikirim tanpa menunggu respons HTTP")
+                    StreamPump.pumpOneWay(client, socket, "sshj -> server", t0) { StatusBus.log(it) }
+                }
             }
 
             // PENTING (bukan kosmetik -- ini bug-fix sekaligus sumber log "Response: ...").

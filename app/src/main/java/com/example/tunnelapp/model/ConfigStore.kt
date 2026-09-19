@@ -77,8 +77,11 @@ data class SavedConfig(
     //     kosong, diisi template payload contoh.
     //  2. Runtime (ConnectRelay, lewat ServerConfig.enhanced): mengatur cara
     //     membaca respons HTTP setelah payload dikirim, sebelum SSH dimulai.
-    //     ON  = buang SEMUA baris/respons non-SSH sampai banner "SSH-".
-    //     OFF = mode standar, hanya SATU respons HTTP yang dibuang.
+    //     ON  = byte SSH klien dikirim segera setelah payload (TCP_NODELAY,
+    //           tanpa menunggu respons HTTP), lalu SEMUA baris non-SSH dibuang
+    //           sampai banner "SSH-". (Dugaan dari perbandingan log, lihat
+    //           ConnectRelay -- bukan spesifikasi resmi HTTP Custom.)
+    //     OFF = mode standar: tunggu respons, hanya SATU respons HTTP dibuang.
     // Mekanisme persis toggle "Enhanced" di HTTP Custom/DarkTunnel tidak
     // didokumentasikan (closed-source); dua mode di atas adalah tafsiran
     // dari perbandingan log koneksi, bukan spesifikasi resmi.

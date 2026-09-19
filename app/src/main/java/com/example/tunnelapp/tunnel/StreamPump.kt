@@ -44,6 +44,16 @@ object StreamPump {
         Thread({ copy(b, a, "server -> sshj", t0, report) }, "pump-b-to-a").apply { isDaemon = true; start() }
     }
 
+    /**
+     * Satu arah saja. Dipakai mode Enhanced: arah sshj -> server dijalankan
+     * SEBELUM respons HTTP payload dibaca (lihat ConnectRelay), arah
+     * server -> sshj menyusul setelah banner SSH ditemukan. [t0] dibagi kedua
+     * arah supaya waktu di log bisa dibandingkan langsung.
+     */
+    fun pumpOneWay(from: Socket, to: Socket, label: String, t0: Long, report: ((String) -> Unit)? = null) {
+        Thread({ copy(from, to, label, t0, report) }, "pump-one-way").apply { isDaemon = true; start() }
+    }
+
     private fun copy(from: Socket, to: Socket, label: String, t0: Long, report: ((String) -> Unit)?) {
         var total = 0L
         var chunkNo = 0
