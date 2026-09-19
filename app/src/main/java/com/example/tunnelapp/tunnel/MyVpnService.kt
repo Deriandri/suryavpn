@@ -132,20 +132,23 @@ class MyVpnService : VpnService() {
         const val EXTRA_WEBSOCKET_ENABLED = "extra_websocket_enabled"
         const val EXTRA_WS_PATH = "extra_ws_path"
         const val EXTRA_PROXY_RAW_MODE = "extra_proxy_raw_mode"
-        // FITUR BARU (permintaan user, "samain kayak checkbox Enhanced & SSL
-        // yang kepisah di HTTP Custom"): dibawa terpisah dari EXTRA_PROXY_RAW_MODE
-        // sekarang -- lihat ServerConfig.enhancedSsl & DashboardMainFragment
-        // (PendingConnection.enhancedSsl/startVpnService) untuk pengirimnya.
-        const val EXTRA_ENHANCED_SSL = "extra_enhanced_ssl"
         const val EXTRA_XRAY_LINK = "extra_xray_link"
         const val EXTRA_CUSTOM_HEADERS = "extra_custom_headers"
         const val EXTRA_IGNORE_CERT_ERRORS = "extra_ignore_cert_errors"
-        const val EXTRA_DNS1 = "extra_dns1"
-        const val EXTRA_DNS2 = "extra_dns2"
+        // REVISI (permintaan user, "hapus total fallback dns bawaan, dns
+        // sekarang hanya tinggal di pengaturan"): EXTRA_DNS1/EXTRA_DNS2
+        // DIHAPUS TOTAL -- DNS sekarang cuma dibaca dari VpnSettingsStore
+        // (kartu VPN Setting di Pengaturan), lihat applyDnsServers().
         // FITUR BARU (permintaan user, "sembunyikan payload di Log untuk akun
         // terkunci total"): true kalau akun aktif lockMode-nya LOCK_ALL --
         // lihat KDoc [ServerConfig.hideSensitiveLogs] & DashboardMainFragment.
         const val EXTRA_HIDE_SENSITIVE_LOGS = "extra_hide_sensitive_logs"
+        // REFACTOR (opsi 1+2, toggle independen): pengganti pemetaan
+        // EXTRA_MODE -> preset lama -- dikirim langsung dari
+        // DashboardMainFragment (SavedConfig.resolvedXxxEnabled()).
+        const val EXTRA_TLS_ENABLED = "extra_tls_enabled"
+        const val EXTRA_PROXY_ENABLED = "extra_proxy_enabled"
+        const val EXTRA_PAYLOAD_ENABLED = "extra_payload_enabled"
         // FIX/FITUR BARU (fallback akun cadangan): id profil ProfileStore yang
         // lagi dipakai -- dikirim dari DashboardMainFragment supaya
         // MyVpnService tahu profil mana yang HARUS DIKECUALIKAN saat menyusun
@@ -157,9 +160,9 @@ class MyVpnService : VpnService() {
         private const val NOTIFICATION_CHANNEL_ID = "vpn_service_channel"
         private const val NOTIFICATION_ID = 1
         private const val TUN_ADDRESS = "10.10.0.2"
-        // Tidak ada lagi DNS bawaan/hardcode -- nilai aktif satu-satunya ada
-        // di VpnSettings.defaultDns (diisi user lewat field "Default DNS"
-        // di kartu VPN Setting), lihat applyDnsServers() di bawah.
+        // REVISI (permintaan user, "hapus total fallback dns bawaan"):
+        // DEFAULT_DNS dihapus total -- tidak ada lagi nilai DNS hardcode
+        // apa pun di app ini, lihat applyDnsServers() & VpnSettingsStore.
         private const val WAKE_LOCK_TAG = "TunnelApp:VpnKeepAwake"
 
         // --- Deteksi & reconnect otomatis kalau tunnel mati sendiri ---
@@ -509,13 +512,13 @@ class MyVpnService : VpnService() {
     // FIX (permintaan user: DNS device-side bypass JANGAN otomatis nyala
     // sendiri diam-diam -- terlalu "ajaib"/tidak terduga, dan device-side
     // artinya DNS device jadi keluar dari tunnel (trade-off privasi)).
-    // Sekarang bypass itu HANYA aktif kalau user ISI SENDIRI DNS1/DNS2 di
-    // kartu "VPN Setting" yang SUDAH ADA (VpnSettingsStore) atau di
-    // Konfigurasi SSH per-server (ServerConfig.dns1/dns2) -- persis sinyal
-    // yang sama dipakai applyDnsServers() utk menentukan apakah DEFAULT_DNS
-    // fallback dipakai atau tidak. Diisi ulang tiap kali applyDnsServers()
-    // dipanggil (initial connect & hard-reset reconnect), dibaca di
-    // establishTunnel() saat connect SSH.
+    // REVISI (permintaan user, "hapus total fallback dns bawaan, dns
+    // sekarang hanya tinggal di pengaturan"): sekarang bypass ini HANYA
+    // aktif kalau user MENYALAKAN & MENGISI SENDIRI "Default DNS" di kartu
+    // "VPN Setting" (VpnSettingsStore) -- field DNS1/DNS2 per-server SUDAH
+    // DIHAPUS TOTAL, tidak ada lagi jalur itu. Diisi ulang tiap kali
+    // applyDnsServers() dipanggil (initial connect & hard-reset reconnect),
+    // dibaca di establishTunnel() saat connect SSH.
     @Volatile
     private var customDnsConfigured: Boolean = false
     // Hitungan TOTAL percobaan reconnect (SATU-SATUNYA counter sekarang --
@@ -822,12 +825,21 @@ class MyVpnService : VpnService() {
                     useWebSocket = intent.getBooleanExtra(EXTRA_WEBSOCKET_ENABLED, false),
                     wsPath = intent.getStringExtra(EXTRA_WS_PATH),
                     proxyRawMode = intent.getBooleanExtra(EXTRA_PROXY_RAW_MODE, false),
-                    enhancedSsl = intent.getBooleanExtra(EXTRA_ENHANCED_SSL, false),
                     xrayLink = intent.getStringExtra(EXTRA_XRAY_LINK),
                     customHeaders = intent.getStringExtra(EXTRA_CUSTOM_HEADERS),
                     ignoreCertErrors = intent.getBooleanExtra(EXTRA_IGNORE_CERT_ERRORS, false),
-                    dns1 = intent.getStringExtra(EXTRA_DNS1),
-                    dns2 = intent.getStringExtra(EXTRA_DNS2),
+                    // REVISI (permintaan user, "hapus total fallback dns
+                    // bawaan, dns sekarang hanya tinggal di pengaturan"):
+                    // dns1/dns2 SENGAJA tidak diisi lagi di sini (default
+                    // null) -- applyDnsServers()/resolveDnsAddr() sudah baca
+                    // DNS langsung dari VpnSettingsStore, bukan dari config
+                    // per-koneksi ini lagi.
+                    // REFACTOR (opsi 1+2, toggle independen): dibaca langsung
+                    // dari Intent, bukan diturunkan dari [mode] lagi -- lihat
+                    // EXTRA_TLS_ENABLED/EXTRA_PROXY_ENABLED/EXTRA_PAYLOAD_ENABLED.
+                    tlsEnabled = intent.getBooleanExtra(EXTRA_TLS_ENABLED, false),
+                    proxyEnabled = intent.getBooleanExtra(EXTRA_PROXY_ENABLED, false),
+                    payloadEnabled = intent.getBooleanExtra(EXTRA_PAYLOAD_ENABLED, false),
                     hideSensitiveLogs = intent.getBooleanExtra(EXTRA_HIDE_SENSITIVE_LOGS, false)
                 )
                 startVpn(config, intent.getStringExtra(EXTRA_PROFILE_ID))
@@ -1060,105 +1072,56 @@ class MyVpnService : VpnService() {
     }
 
     /**
-     * Pasang DNS ke [builder] kalau diisi & valid (harus literal IP,
-     * [VpnService.Builder.addDnsServer] melempar [IllegalArgumentException]
-     * untuk hostname/string sembarangan -- ditangkap di sini supaya salah
-     * ketik DNS tidak menggagalkan seluruh pembuatan TUN interface, cukup
-     * diabaikan + dicatat ke log).
+     * Pasang DNS default ([VpnSettings.defaultDns], field "Default DNS" di
+     * kartu VPN Setting) ke [builder] -- KALAU switch "DNS Default Otomatis"
+     * ([VpnSettings.dnsFallbackEnabled]) nyala DAN field-nya diisi.
      *
-     * Sumber DNS: DNS1/DNS2 per-server ([ServerConfig.dns1]/[ServerConfig.dns2],
-     * diisi di layar Konfigurasi SSH/Xray masing-masing profil).
+     * REVISI TOTAL (permintaan user, "hapus total fallback dns bawaan, dns
+     * sekarang hanya tinggal di pengaturan, default mati serta kolom
+     * bawaan kosong"): field DNS1/DNS2 PER-SERVER (dulu di layar Konfigurasi
+     * SSH) SUDAH DIHAPUS TOTAL dari app ini -- DNS sekarang HANYA bisa
+     * diatur dari kartu VPN Setting di layar Pengaturan, titik. TIDAK ADA
+     * LAGI nilai DNS hardcode/fallback tersembunyi di mana pun (dulu diam-
+     * diam jatuh ke "1.1.1.1" kalau field kosong) -- kalau switch ini mati
+     * (SEKARANG default mati) ATAU field "Default DNS" kosong (SEKARANG
+     * default kosong), TIDAK ADA addDnsServer() dipanggil sama sekali.
+     * Perlu diingat addRoute("0.0.0.0", 0) tetap menangkap SEMUA trafik ke
+     * TUN termasuk DNS bawaan operator/wifi (yang sering berupa IP privat,
+     * tidak bisa dicapai server SSH) -- jadi resolusi domain kemungkinan
+     * besar gagal total kalau user tidak mengisi & menyalakan sendiri fitur
+     * ini secara sadar lewat Pengaturan.
      *
-     * Kalau DNS1/DNS2 per-server kosong dua-duanya, DNS default
-     * ([VpnSettings.defaultDns], field "Default DNS" di kartu VPN Setting --
-     * TIDAK ADA hardcode bawaan lagi, murni nilai yang diisi user di situ)
-     * dipasang sebagai gantinya -- KALAU DAN HANYA KALAU switch "DNS Default
-     * Otomatis" ([VpnSettings.dnsFallbackEnabled], kartu VPN Setting)
-     * dinyalakan user sendiri DAN field "Default DNS"-nya terisi, dan
-     * profilnya BUKAN mode Xray (lihat catatan [ConnectionMode.XRAY] di
-     * bawah). Default switch ini MATI. Kalau switch mati, atau field
-     * "Default DNS" kosong, atau DNS1/DNS2 kosong tapi tidak masuk kondisi
-     * di atas, TIDAK ADA addDnsServer() dipanggil sama sekali -- perlu
-     * diingat addRoute("0.0.0.0", 0) tetap menangkap
-     * SEMUA trafik ke TUN termasuk DNS bawaan operator/wifi (yang sering
-     * berupa IP privat, tidak bisa dicapai server SSH), jadi resolusi
-     * domain kemungkinan besar gagal total buat profil yang tidak diisi
-     * DNS1/DNS2 manual selama switch ini mati.
-     *
-     * FIX (laporan user: "DNS default diaktifkan -> internet mode Xray
-     * hilang total, dimatikan -> jalan lagi"): untuk profil [ConnectionMode.XRAY]
-     * ([ServerConfig.usesXray]), fallback DNS default DI SINI (level TUN
-     * Android) SENGAJA DILEWATI -- Xray-core sudah punya jalur DNS default-
-     * nya SENDIRI yang SEPENUHNYA TERPISAH (lihat XrayTunnelManager.resolveDnsAddr/
-     * LibXray.setDNS, dipanggil lewat registerProtect() SEBELUM runXray). Dugaan
-     * kuat akar masalahnya: hev-socks5-tunnel (TUN->SOCKS5, dipakai KEDUA
-     * engine) meneruskan paket UDP:53 device ke alamat DNS yang TUN
-     * iklankan lewat SOCKS5 UDP ASSOCIATE ke inbound SOCKS5 Xray-core --
-     * beda dari Socks5Server (SSH) yang PUNYA workaround DNS-over-TCP khusus,
-     * inbound SOCKS5 Xray-core TIDAK PUNYA workaround itu, jadi UDP ASSOCIATE
-     * ke alamat DNS "asing" (1.1.1.1 dari sini) yang TIDAK dikenal resolver
-     * internal Xray sendiri kemungkinan besar gagal diteruskan lewat outbound
-     * VLESS/VMess-nya (UDP relay lewat proxy tidak seandal TCP), sedangkan
-     * kalau TUN kosong, hev-socks5-tunnel meneruskan alamat DNS ASLI device
-     * (WWAN/WiFi) yang KEBETULAN sama dengan yang dipakai resolver internal
-     * Xray sendiri lewat physicalNetworkDns() -- match, makanya jalan. INI
-     * MASIH DUGAAN berbasis pembacaan kode/arsitektur (hev-socks5-tunnel &
-     * Xray-core adalah library pihak ketiga, tidak bisa dites langsung dari
-     * sini) -- WAJIB dites ulang di device asli, lihat catatan di percakapan.
+     * Untuk profil [ConnectionMode.XRAY] ([ServerConfig.usesXray]), fungsi
+     * ini SENGAJA DILEWATI sama sekali -- Xray-core sudah punya jalur DNS
+     * default-nya SENDIRI yang SEPENUHNYA TERPISAH (lihat
+     * XrayTunnelManager.resolveDnsAddr/LibXray.setDNS, dipanggil lewat
+     * registerProtect() SEBELUM runXray) -- lihat catatan lama di riwayat
+     * fungsi ini soal kenapa memasang DNS di level TUN Android untuk mode
+     * Xray justru bikin internetnya hilang total.
      */
     private fun applyDnsServers(builder: Builder, config: ServerConfig, vpnSettings: com.example.tunnelapp.model.VpnSettings) {
-        val dnsCandidates = listOf("DNS1" to config.dns1, "DNS2" to config.dns2)
-
-        var addedAny = false
-        for ((label, dns) in dnsCandidates) {
-            val value = dns?.trim()?.takeIf { it.isNotEmpty() } ?: continue
-            try {
-                builder.addDnsServer(value)
-                addedAny = true
-            } catch (e: IllegalArgumentException) {
-                DebugLog.w(TAG, "$label \"$value\" bukan alamat IP valid, diabaikan", e)
-                StatusBus.log("$label \"$value\" bukan alamat IP valid -- diabaikan")
-            }
-        }
-        if (!addedAny) {
-            if (config.usesXray()) {
-                // Lihat FIX di kdoc applyDnsServers() -- mode Xray SENGAJA
-                // tidak dikasih fallback DNS default di level TUN Android;
-                // Xray-core sudah resolve DNS default-nya sendiri secara
-                // internal (XrayTunnelManager.resolveDnsAddr), independen
-                // dari builder ini.
-                StatusBus.log("[DNS] DNS1/DNS2 kosong -- mode Xray pakai resolver DNS internal Xray sendiri (bukan TUN)")
-            } else if (vpnSettings.dnsFallbackEnabled) {
-                // DNS1/DNS2 per-server kosong DAN switch "DNS Default
-                // Otomatis" dinyalakan user -- pasang DNS default dari field
-                // "Default DNS" (VpnSettings.defaultDns) kalau field itu
-                // sendiri terisi. TIDAK ADA hardcode bawaan lagi -- kalau
-                // field kosong, tidak ada apa pun yang dipasang.
-                val effectiveDefaultDns = vpnSettings.defaultDns.trim()
-                if (effectiveDefaultDns.isEmpty()) {
-                    StatusBus.log("[DNS] DNS1/DNS2 kosong DAN field \"Default DNS\" di Pengaturan belum diisi -- TIDAK ada DNS dipasang ke TUN")
-                } else {
-                    try {
-                        builder.addDnsServer(effectiveDefaultDns)
-                        StatusBus.log("[DNS] DNS1/DNS2 kosong -- pakai DNS default $effectiveDefaultDns")
-                    } catch (e: IllegalArgumentException) {
-                        DebugLog.w(TAG, "DNS default \"$effectiveDefaultDns\" gagal dipasang ke TUN", e)
-                        StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS default $effectiveDefaultDns gagal dipasang -- TIDAK ada DNS di TUN")
-                    }
-                }
-            } else {
-                // Switch "DNS Default Otomatis" mati (default sekarang) --
-                // TIDAK ADA addDnsServer() dipanggil sama sekali. Lihat
-                // catatan risiko di kdoc applyDnsServers().
-                StatusBus.log("[DNS] DNS1/DNS2 kosong DAN DNS Default Otomatis mati -- TIDAK ada DNS dipasang ke TUN")
-            }
+        if (config.usesXray()) {
+            StatusBus.log("[DNS] Mode Xray pakai resolver DNS internal Xray sendiri (bukan TUN)")
+            customDnsConfigured = false
+            return
         }
 
-        // addedAny == true berarti user MEMANG mengisi DNS1/DNS2 per-server
-        // sendiri (bukan fallback DEFAULT_DNS diam-diam) -- inilah sinyal
-        // "DNS diisi manual" yang dipakai establishTunnel() utk
-        // menyalakan/mematikan device-side DNS bypass di Socks5Server.
-        customDnsConfigured = addedAny
+        val defaultDns = vpnSettings.defaultDns.trim()
+        if (!vpnSettings.dnsFallbackEnabled || defaultDns.isEmpty()) {
+            StatusBus.log("[DNS] DNS Default di Pengaturan mati/kosong -- TIDAK ada DNS dipasang ke TUN")
+            customDnsConfigured = false
+            return
+        }
+
+        try {
+            builder.addDnsServer(defaultDns)
+            StatusBus.log("[DNS] Pakai DNS default $defaultDns dari Pengaturan")
+            customDnsConfigured = true
+        } catch (e: IllegalArgumentException) {
+            DebugLog.w(TAG, "DNS default \"$defaultDns\" bukan alamat IP valid, diabaikan", e)
+            StatusBus.log("[DNS] DNS default \"$defaultDns\" bukan alamat IP valid -- TIDAK ada DNS dipasang ke TUN")
+            customDnsConfigured = false
+        }
     }
 
     /**
@@ -1285,14 +1248,6 @@ class MyVpnService : VpnService() {
                         } else {
                             null
                         },
-                        // FITUR BARU (permintaan user, samain kekuatan resolusi DNS
-                        // raw connect dengan HTTP Custom/DarkTunnel): SELALU
-                        // disediakan, TIDAK digerbang oleh customDnsConfigured
-                        // seperti protectDatagram di atas -- ini buat DNS query
-                        // manual di ConnectRelay (jalan duluan sebelum raw TCP
-                        // connect ke server SSH/proxy), bukan buat device-side DNS
-                        // bypass Socks5Server yang memang sengaja opt-in.
-                        dnsProtect = { datagramSocket -> protect(datagramSocket) },
                         performanceMode = performanceMode,
                         compressionEnabled = compressionEnabled,
                         onUnexpectedDisconnect = { reason -> handleTunnelDeath("SSH: $reason") }

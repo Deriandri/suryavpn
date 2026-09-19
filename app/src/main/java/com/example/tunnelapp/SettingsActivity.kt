@@ -496,8 +496,11 @@ class SettingsActivity : AppCompatActivity() {
     private fun loadVpnSettingsIntoForm() {
         val settings = VpnSettingsStore.load(this)
         binding.switchDnsFallback.isChecked = settings.dnsFallbackEnabled
-        // Kosong == belum diisi, tidak ada hardcode bawaan lagi -- tampilkan
-        // apa adanya dari penyimpanan (kosong kalau user belum pernah isi).
+        // REVISI (permintaan user, "hapus total fallback dns bawaan, kolom
+        // bawaan kosong"): TIDAK ADA LAGI fallback ke "1.1.1.1" -- field ini
+        // ditampilkan APA ADANYA dari penyimpanan, kosong tetap tampil kosong
+        // (VpnSettingsStore.load() sekarang mengembalikan "" kalau belum
+        // pernah diisi user, bukan "1.1.1.1" lagi).
         binding.etVpnDefaultDns.setText(settings.defaultDns)
         binding.etVpnMtu.setText(settings.mtu.toString())
         binding.switchKeepAwake.isChecked = settings.keepCpuAwake
@@ -543,15 +546,20 @@ class SettingsActivity : AppCompatActivity() {
 
         // Validasi format sama seperti DNS1/DNS2 per-profil di
         // SshConfigActivity (literal IPv4 lewat Patterns.IP_ADDRESS) --
-        // kosong DIPERBOLEHKAN (berarti "tidak ada DNS default sama sekali",
-        // tidak ada hardcode bawaan lagi -- lihat titik pemakaiannya di
-        // MyVpnService/XrayTunnelManager), cuma yang diisi tapi bukan IP
-        // valid yang ditolak.
+        // kosong DIPERBOLEHKAN (dianggap "reset ke default", ditangani
+        // sebagai VpnSettings.DEFAULT_DNS_FALLBACK di VpnSettingsStore.load()
+        // & di titik pemakaiannya di MyVpnService/XrayTunnelManager), cuma
+        // yang diisi tapi bukan IP valid yang ditolak.
         val defaultDnsText = binding.etVpnDefaultDns.text.toString().trim()
         if (defaultDnsText.isNotEmpty() && !android.util.Patterns.IP_ADDRESS.matcher(defaultDnsText).matches()) {
             binding.etVpnDefaultDns.error = getString(R.string.error_default_dns)
             return
         }
+        // REVISI (permintaan user, "hapus total fallback dns bawaan..., kolom
+        // bawaan kosong"): TIDAK ADA LAGI fallback ke "1.1.1.1" kalau field
+        // ini dikosongkan -- kosong berarti benar-benar kosong (tidak ada DNS
+        // default dipasang sama sekali, lihat VpnSettingsStore/MyVpnService/
+        // XrayTunnelManager).
         val defaultDns = defaultDnsText
 
         val mtuText = binding.etVpnMtu.text.toString().trim()

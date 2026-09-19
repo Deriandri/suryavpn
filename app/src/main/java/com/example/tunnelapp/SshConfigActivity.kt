@@ -8,8 +8,11 @@ import com.example.tunnelapp.model.ProfileStore
 import com.example.tunnelapp.model.SavedConfig
 
 /**
- * Layar konfigurasi khusus jalur SSH (SSH biasa, SSH SSL, SSH TLS Payload Proxy,
- * Payload + Remote Proxy).
+ * Layar konfigurasi khusus jalur SSH -- REFACTOR (permintaan user, "opsi 1+2,
+ * toggle independen"): TLS/Payload/Remote Proxy sekarang 3 toggle berdiri
+ * sendiri yang bisa dikombinasikan bebas (lihat activity_ssh_config.xml
+ * chipGroupMode & ServerConfig.kt), menggantikan 4 preset mode lama
+ * (SSH/SSH SSL/SSH TLS Payload Proxy/Payload+Remote Proxy).
  * Terpisah dari Xray ([XrayConfigActivity]) & dari Dashboard ([DashboardActivity])
  * yang sekarang jadi satu-satunya tempat tombol Connect/Disconnect berada.
  *
@@ -30,6 +33,29 @@ class SshConfigActivity : AppCompatActivity() {
         /** Extra Intent opsional: id [com.example.tunnelapp.model.SavedProfile]
          *  yang sedang di-edit. Kosong/tidak ada = mode tambah akun baru. */
         const val EXTRA_PROFILE_ID = "profile_id"
+
+        // REVISI (permintaan user, "cabut logika TLS+Proxy-paksa, jadikan
+        // Enhanced cuma nyisipkan payload contoh"): changelog resmi
+        // DarkTunnel v1.0.20 bilang "Enhanced" itu fitur PAYLOAD ("payload
+        // enhanced" + "payload enhanced template"), BUKAN gabungan TLS+Proxy
+        // seperti tebakan pertama saya. Mekanisme PERSIS di baliknya tidak
+        // bisa dipastikan (DarkTunnel/HTTP Custom closed-source) -- jadi
+        // REVISI KE-2 (bukti baru dari log koneksi HTTP Custom yang user
+        // kirim -- BUKAN tebakan lagi): pola request-nya beda dari template
+        // pertama saya (HEAD+PATCH+[split]) -- yang kelihatan di log adalah
+        // method ACL + DUA header Host berbeda + X-Forward-Host, teknik
+        // "header confusion" (CDN di depan baca Host pertama/X-Forward-Host
+        // buat routing ke target ASLI, ISP/DPI di depan cuma lihat header
+        // Host KEDUA yang didekoi ke domain gratisan). [host] otomatis diisi
+        // host server SSH asli (dipakai 2x: Host pertama & X-Forward-Host,
+        // sama seperti "ayrp.online" muncul 2x di log). Domain dekoi
+        // SENGAJA dikosongkan (bukan "line.me" dari log user -- itu spesifik
+        // ke kuota gratis ISP tertentu) -- user isi sendiri sesuai domain
+        // gratisan yang dipakai.
+        private const val ENHANCED_PAYLOAD_TEMPLATE =
+            "ACL / HTTP/1.1[crlf]Host: [host][crlf]Upgrade: websocket[crlf]Connection: keep-alive[crlf]" +
+                "Proxy-Connection: keep-alive[crlf]Host: [ISI_DOMAIN_GRATIS_ISP_DISINI][crlf]" +
+                "X-Forward-Host: [host][crlf]User-Agent: [ua][crlf][crlf]"
     }
 
     private lateinit var binding: ActivitySshConfigBinding
@@ -87,21 +113,7 @@ class SshConfigActivity : AppCompatActivity() {
         setupAdvancedFieldsToggle()
 
         binding.btnSaveSsh.setOnClickListener { onSaveClicked() }
-
-        // FITUR BARU (permintaan user): field Host/Port/Username/Password
-        // digabung jadi satu kolom "host:port@username:password" (etQuickPaste,
-        // sekarang jadi field utama, bukan cuma "tempel cepat" lagi). Tombol
-        // "Terapkan" DIHAPUS -- parsing sekarang berjalan otomatis tiap kali
-        // isinya berubah lewat TextWatcher ini, langsung mengisi field asli
-        // etHost/etPort/etUsername/etPassword yang sekarang disembunyikan
-        // (lihat applyServerComboText & activity_ssh_config.xml).
-        binding.etQuickPaste.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: android.text.Editable?) {
-                applyServerComboText(s?.toString().orEmpty(), showErrors = false)
-            }
-        })
+        binding.btnQuickPasteApply.setOnClickListener { onQuickPasteApplied() }
     }
 
     /**
@@ -134,38 +146,30 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     /**
-     * Mem-parsing kolom gabungan "host:port@username:password" dan mengisi
-     * field asli Host, Port, Username, Password (sekarang disembunyikan di
-     * layout, lihat activity_ssh_config.xml). Port bersifat opsional
-     * (default 22). Contoh valid:
+     * Mem-parsing format tempel cepat "host:port@username:password" dan mengisi
+     * field Host, Port, Username, Password. Port bersifat opsional (default 22).
+     * Contoh valid:
      *   1.2.3.4:22@user:pass
      *   1.2.3.4@user:pass
      *   example.com:2222@user:p@ss:word   (password boleh mengandung ':' atau '@')
-     *
-     * showErrors=false dipakai oleh TextWatcher (silent, dipanggil tiap
-     * ketikan berubah -- tidak menampilkan error selagi user masih mengetik).
-     * showErrors=true dipakai saat tombol Simpan ditekan, supaya error format
-     * baru ditampilkan kalau memang mau disimpan.
      */
-    private fun applyServerComboText(raw: String, showErrors: Boolean): Boolean {
-        val trimmed = raw.trim()
-        if (!showErrors) {
-            binding.tilQuickPaste.error = null
+    private fun onQuickPasteApplied() {
+        val raw = binding.etQuickPaste.text.toString().trim()
+        binding.tilQuickPaste.error = null
+
+        if (raw.isEmpty()) {
+            binding.tilQuickPaste.error = "Tempel dulu string konfigurasinya"
+            return
         }
 
-        if (trimmed.isEmpty()) {
-            if (showErrors) binding.tilQuickPaste.error = "Wajib diisi: host:port@username:password"
-            return false
+        val atIndex = raw.indexOf('@')
+        if (atIndex <= 0 || atIndex == raw.length - 1) {
+            binding.tilQuickPaste.error = "Format harus host:port@username:password"
+            return
         }
 
-        val atIndex = trimmed.indexOf('@')
-        if (atIndex <= 0 || atIndex == trimmed.length - 1) {
-            if (showErrors) binding.tilQuickPaste.error = "Format harus host:port@username:password"
-            return false
-        }
-
-        val hostPortPart = trimmed.substring(0, atIndex)
-        val userPassPart = trimmed.substring(atIndex + 1)
+        val hostPortPart = raw.substring(0, atIndex)
+        val userPassPart = raw.substring(atIndex + 1)
 
         val hostPortSplit = hostPortPart.split(":", limit = 2)
         val host = hostPortSplit[0].trim()
@@ -177,26 +181,14 @@ class SshConfigActivity : AppCompatActivity() {
         val password = userPassSplit.getOrNull(1).orEmpty()
 
         if (host.isEmpty() || port == null || username.isEmpty()) {
-            if (showErrors) binding.tilQuickPaste.error = "Format harus host:port@username:password"
-            return false
+            binding.tilQuickPaste.error = "Format harus host:port@username:password"
+            return
         }
 
-        if (showErrors) binding.tilQuickPaste.error = null
         binding.etHost.setText(host)
         binding.etPort.setText(port.toString())
         binding.etUsername.setText(username)
         binding.etPassword.setText(password)
-        return true
-    }
-
-    /**
-     * Menyusun kembali kolom gabungan "host:port@username:password" dari
-     * nilai host/port/username/password tersimpan, buat ditampilkan lagi
-     * saat EDIT profil lama (lihat restoreSavedConfig).
-     */
-    private fun buildServerComboText(host: String, port: Int, username: String, password: String): String {
-        if (host.isEmpty() && username.isEmpty() && password.isEmpty()) return ""
-        return "$host:${if (port > 0) port else 22}@$username:$password"
     }
 
     private fun restoreSavedConfig() {
@@ -211,14 +203,17 @@ class SshConfigActivity : AppCompatActivity() {
         binding.etPort.setText(if (saved.port > 0) saved.port.toString() else "22")
         binding.etUsername.setText(saved.username)
         binding.etPassword.setText(saved.password)
-        binding.etQuickPaste.setText(buildServerComboText(saved.host, saved.port, saved.username, saved.password))
         binding.etSni.setText(saved.sni)
         binding.etPayload.setText(saved.payload)
         binding.etWsPath.setText(saved.wsPath)
         binding.etCustomHeaders.setText(saved.customHeaders)
         binding.chipIgnoreCertErrors.isChecked = saved.ignoreCertErrors
-        binding.etDns1.setText(saved.dns1)
-        binding.etDns2.setText(saved.dns2)
+        // REVISI (permintaan user, "hapus total fallback dns bawaan, dns
+        // sekarang hanya tinggal di pengaturan"): field DNS1/DNS2 per-akun
+        // di layar ini SUDAH DIHAPUS -- DNS sekarang cuma diatur dari kartu
+        // "VPN Setting" di layar Pengaturan. saved.dns1/dns2 (data lama,
+        // kalau ada) TIDAK dibaca lagi di sini, dan TIDAK dipakai lagi untuk
+        // resolusi DNS mana pun (lihat MyVpnService.applyDnsServers).
         binding.etProxyHost.setText(saved.proxyHost)
         binding.etProxyPort.setText(saved.proxyPort)
         val tlsChip = when (saved.tlsVersion) {
@@ -230,30 +225,20 @@ class SshConfigActivity : AppCompatActivity() {
         }
         tlsChip.isChecked = true
         // modeIndex 5 (Xray) tidak relevan di sini -- kalau profil tersimpan
-        // terakhir adalah Xray, layar ini tetap tampil dengan chip SSH biasa
+        // terakhir adalah Xray, layar ini tetap tampil dengan toggle kosong
         // sebagai default (belum pernah dikonfigurasi SSH-nya).
-        // FITUR BARU (permintaan user): modeIndex 4 (ENHANCED) tidak lagi punya
-        // chip mode sendiri -- dipetakan balik ke chip dasar "Payload + Remote
-        // Proxy" (3, paling dekat semantiknya: proxy/CDN & TLS sama-sama
-        // relevan) DITAMBAH chipEnhancedToggle dinyalakan, supaya
-        // currentModeIndex() menghasilkan 4 lagi persis seperti sebelum
-        // disimpan -- lihat dokumentasi currentModeIndex().
-        val chip = when (saved.modeIndex) {
-            1 -> binding.chipSshSsl
-            2 -> binding.chipSshEnhanced
-            3, 4 -> binding.chipPayloadRemoteProxy
-            else -> binding.chipSsh
-        }
-        chip.isChecked = true
-        binding.chipEnhancedToggle.isChecked = saved.modeIndex == 4
+        // REFACTOR (opsi 1+2): 3 toggle independen, bukan 1 chip mode lagi --
+        // dibaca lewat resolvedXxxEnabled() supaya akun LAMA (modeIndex based,
+        // belum punya field tlsEnabled/proxyEnabled/payloadEnabled eksplisit)
+        // tetap dipulihkan dengan kombinasi toggle yang setara, lihat SavedConfig.
+        binding.chipToggleTls.isChecked = saved.resolvedTlsEnabled()
+        binding.chipTogglePayload.isChecked = saved.resolvedPayloadEnabled()
+        binding.chipToggleProxy.isChecked = saved.resolvedProxyEnabled()
+        binding.chipToggleEnhanced.isChecked = saved.resolvedEnhancedEnabled()
         binding.chipRawMode.isChecked = saved.proxyRawMode
-        // FITUR BARU (permintaan user, "samain kayak checkbox Enhanced & SSL yang
-        // kepisah di HTTP Custom"): dipulihkan independen dari chipRawMode --
-        // lihat SavedConfig.enhancedSsl & dokumentasi ConnectionMode.ENHANCED.
-        binding.chipEnhancedSsl.isChecked = saved.enhancedSsl
         // Profil ini SUDAH punya pilihan Raw Passthrough eksplisit tersimpan
-        // -- jangan sampai ditimpa auto-default kalau user gonta-ganti chip
-        // mode selama sesi edit ini (lihat applyDefaultRawModeForEnhancedIfNeeded).
+        // -- jangan sampai ditimpa auto-default kalau user gonta-ganti toggle
+        // selama sesi edit ini (lihat applyDefaultRawModeForEnhancedIfNeeded).
         rawModeHasExplicitValue = true
 
         // PERBAIKAN (permintaan user, "kunci payload & remote proxy malah
@@ -306,18 +291,19 @@ class SshConfigActivity : AppCompatActivity() {
 
         binding.chipRawMode.isChecked = false
         binding.chipRawMode.isEnabled = false
-
-        // Checkbox SSL Enhanced ikut satu kelompok kunci ini juga (lihat
-        // ConfigLock.lockedFieldsFor: "enhancedSsl" sekarang ikut disamarkan
-        // sama seperti "proxyRawMode" untuk LOCK_PAYLOAD_PROXY).
-        binding.chipEnhancedSsl.isChecked = false
-        binding.chipEnhancedSsl.isEnabled = false
     }
 
     private fun setupModeChips() {
         binding.chipGroupMode.setOnCheckedStateChangeListener { _, _ ->
             applyDefaultRawModeForEnhancedIfNeeded()
             updateFieldVisibilityForMode()
+        }
+        // Listener KHUSUS di chip-nya sendiri (bukan lewat listener grup di
+        // atas) supaya applyEnhancedPayloadTemplateIfNeeded() cuma jalan
+        // TEPAT saat Enhanced baru dicentang, bukan tiap kali chip lain
+        // (TLS/Payload/Proxy) di grup yang sama berubah.
+        binding.chipToggleEnhanced.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) applyEnhancedPayloadTemplateIfNeeded()
         }
         binding.chipGroupEnhancedToggle.setOnCheckedStateChangeListener { _, _ -> updateFieldVisibilityForMode() }
         // Raw Passthrough dulu tidak punya listener sama sekali -- toggle-nya
@@ -333,9 +319,6 @@ class SshConfigActivity : AppCompatActivity() {
             if (!settingRawModeProgrammatically) rawModeHasExplicitValue = true
             updateFieldVisibilityForMode()
         }
-        // Checkbox SSL Enhanced -- independen dari chipRawMode (lihat dokumentasi
-        // usesTlsForMode), cuma perlu refresh visibility field TLS/SNI kalau ada.
-        binding.chipEnhancedSsl.setOnCheckedChangeListener { _, _ -> updateFieldVisibilityForMode() }
         // Payload custom diketik manual (bukan dipilih dari chip) -- field ini
         // yang menentukan apakah Path WebSocket & Header HTTP tambahan kepakai
         // atau tidak (lihat updateWsAndHeaderFieldState), jadi harus dipantau
@@ -349,135 +332,77 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     /**
-     * FITUR BARU (permintaan user): begitu mode "SSH SSL" (modeIndex 1),
-     * "SSH TLS Payload Proxy" (modeIndex 2), ATAU "Payload + Remote Proxy"
-     * (modeIndex 3) dipilih, chip "Raw Passthrough" otomatis DINYALAKAN
-     * sebagai default -- tapi tetap bisa dimatikan manual lewat chip-nya
-     * sendiri kapan saja. Auto-default ini HANYA berlaku selama
-     * rawModeHasExplicitValue masih false, yaitu: profil baru yang belum
-     * pernah disentuh chip Raw Passthrough-nya sama sekali di sesi ini.
-     * Begitu user tap chip itu sendiri (atau ini profil lama hasil EDIT,
-     * lihat restoreSavedConfig), pilihannya dihormati & tidak ditimpa lagi
-     * walau mode dipindah-pindah.
+     * FITUR BARU (permintaan user): begitu toggle "Gunakan Proxy" dinyalakan,
+     * chip "Raw Passthrough" otomatis DINYALAKAN sebagai default -- tapi
+     * tetap bisa dimatikan manual lewat chip-nya sendiri kapan saja.
+     * Auto-default ini HANYA berlaku selama rawModeHasExplicitValue masih
+     * false, yaitu: profil baru yang belum pernah disentuh chip Raw
+     * Passthrough-nya sama sekali di sesi ini. Begitu user tap chip itu
+     * sendiri (atau ini profil lama hasil EDIT, lihat restoreSavedConfig),
+     * pilihannya dihormati & tidak ditimpa lagi walau toggle proxy
+     * dimatikan-nyalakan lagi.
      */
     private fun applyDefaultRawModeForEnhancedIfNeeded() {
-        val modeIndex = currentModeIndex()
-        // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
-        // mode ini tidak lagi punya Remote Proxy sama sekali, lihat updateFieldVisibilityForMode().
-        // modeIndex 4 ikut disertakan di sini -- sesuai dokumentasi ConnectionMode.ENHANCED,
-        // varian Raw Passthrough (CDN) memang default aktif begitu modeIndex efektifnya 4,
-        // baik lewat mode dasar 2 maupun 3 + toggle chipEnhancedToggle (lihat currentModeIndex()).
-        if ((modeIndex == 2 || modeIndex == 3 || modeIndex == 4) &&
-            !rawModeHasExplicitValue && !binding.chipRawMode.isChecked
-        ) {
+        if (proxyToggleOn() && !rawModeHasExplicitValue && !binding.chipRawMode.isChecked) {
             settingRawModeProgrammatically = true
             binding.chipRawMode.isChecked = true
             settingRawModeProgrammatically = false
         }
     }
 
+    // REFACTOR (opsi 1+2, toggle independen): pengganti currentModeIndex()
+    // lama -- TLS/Proxy/Payload sekarang 3 chip berdiri sendiri
+    // (chipGroupMode multi-select), bisa dikombinasikan bebas, bukan lagi
+    // 1 dari 4 preset mode.
+    private fun tlsToggleOn(): Boolean = binding.chipToggleTls.isChecked
+    private fun payloadToggleOn(): Boolean = binding.chipTogglePayload.isChecked
+    private fun proxyToggleOn(): Boolean = binding.chipToggleProxy.isChecked
+    private fun enhancedToggleOn(): Boolean = binding.chipToggleEnhanced.isChecked
+
     /**
-     * 0 = SSH, 1 = SSH SSL, 2 = SSH TLS Payload Proxy, 3 = Payload + Remote Proxy.
-     *
-     * Mode 3 (Payload + Remote Proxy) memakai [com.example.tunnelapp.model.ConnectionMode.REMOTE_PROXY]:
-     * proxy WAJIB diisi (beda dari mode 1 & 2 yang proxy-nya opsional), payload custom
-     * bisa diisi. TLS/SNI hanya relevan untuk mode payload+proxy biasa; begitu
-     * toggle Raw Passthrough dinyalakan, koneksi jalan apa adanya tanpa
-     * TLS/SNI sama sekali, jadi field itu disembunyikan.
-     *
-     * FITUR BARU (permintaan user): mode 1 (SSH SSL) sekarang juga ikut punya
-     * proxy/CDN opsional + toggle Raw Passthrough, persis seperti mode 2 --
-     * bedanya, begitu chip "SSH SSL" dipilih, Raw Passthrough-nya AKTIF secara
-     * default (lihat applyDefaultRawModeForEnhancedIfNeeded).
+     * REVISI (permintaan user, "cabut logika TLS+Proxy-paksa, jadikan
+     * Enhanced cuma nyisipkan payload contoh"): dipanggil HANYA saat chip
+     * Enhanced baru saja DICENTANG (bukan tiap kali grup chip berubah) --
+     * lihat listener khusus chipToggleEnhanced di setupModeChips(). Field
+     * Payload diisi [ENHANCED_PAYLOAD_TEMPLATE] KALAU masih kosong saja
+     * (tidak menimpa payload yang sudah ditulis user), lalu toggle
+     * "Gunakan Payload" ikut dinyalakan otomatis supaya field-nya langsung
+     * kelihatan. TLS & Proxy TIDAK disentuh sama sekali di sini lagi.
      */
-    /**
-     * FITUR BARU (permintaan user): "Enhanced" bukan lagi chip mode berdiri
-     * sendiri -- sekarang toggle ([chipEnhancedToggle]) di blok Remote Proxy,
-     * satu kelompok dengan Raw Passthrough (lihat activity_ssh_config.xml).
-     * Toggle ini menumpuk di atas mode dasar yang sedang dipilih: kalau mode
-     * dasarnya "SSH TLS Payload Proxy" (2) atau "Payload + Remote Proxy" (3)
-     * DAN toggle-nya menyala, modeIndex efektif tetap 4 (ConnectionMode.ENHANCED)
-     * persis seperti dulu chip Enhanced berdiri sendiri -- begitu toggle
-     * dimatikan, modeIndex balik ke mode dasarnya (2 atau 3) apa adanya. Mode
-     * SSH (0) & SSH SSL (1) tidak punya blok Remote Proxy sama sekali, jadi
-     * toggle ini tidak berpengaruh di sana walau kebetulan masih menyala dari
-     * sesi sebelumnya.
-     */
-    private fun currentModeIndex(): Int = when {
-        binding.chipPayloadRemoteProxy.isChecked ->
-            if (binding.chipEnhancedToggle.isChecked) 4 else 3
-        binding.chipSshEnhanced.isChecked ->
-            if (binding.chipEnhancedToggle.isChecked) 4 else 2
-        binding.chipSshSsl.isChecked -> 1
-        else -> 0
+    private fun applyEnhancedPayloadTemplateIfNeeded() {
+        if (binding.etPayload.text.isNullOrEmpty()) {
+            binding.etPayload.setText(ENHANCED_PAYLOAD_TEMPLATE)
+        }
+        binding.chipTogglePayload.isChecked = true
     }
 
-    private fun proxyRawModeEnabled(): Boolean =
-        (currentModeIndex() == 2 || currentModeIndex() == 3 || currentModeIndex() == 4) &&
-            binding.chipRawMode.isChecked
-
-    /** UPDATE KE-2 (permintaan user, "samain kayak checkbox Enhanced & SSL yang
-     *  kepisah sendiri-sendiri di HTTP Custom"): mode 3 (Payload + Remote Proxy)
-     *  TETAP pakai aturan lama (TLS = kebalikan Raw Passthrough, tidak ada
-     *  checkbox SSL sendiri di mode ini). Mode 4 (Enhanced) SEKARANG beda --
-     *  TLS-nya dikontrol [chipEnhancedSsl] SENDIRI, independen dari Raw
-     *  Passthrough, persis dua checkbox terpisah "Enhanced" & "SSL" di HTTP
-     *  Custom -- lihat dokumentasi lengkap 4 kombinasinya di
-     *  ConnectionMode.ENHANCED & ServerConfig.enhancedSsl. */
-    private fun usesTlsForMode(modeIndex: Int): Boolean = when (modeIndex) {
-        1, 2 -> true
-        3 -> !proxyRawModeEnabled()
-        4 -> binding.chipEnhancedSsl.isChecked
-        else -> false
-    }
-
-    /**
-     * FITUR BARU (permintaan user, "Enhanced di HTTP Custom/Darktunnel cuma
-     * on/off, bukan buka kolom SNI/TLS"): blok field SNI/TLS version/Ignore
-     * cert errors tetap SENGAJA disembunyikan untuk mode 4 apa pun status
-     * TLS-nya (lihat [usesTlsForMode]) -- toggle Enhanced & checkbox SSL-nya
-     * tetap terasa seperti switch murni, tanpa form tambahan yang muncul.
-     *
-     * SNI otomatis jatuh ke host asli server begitu field-nya kosong (lihat
-     * ConnectRelay.kt baris ~299 & ~410: `config.sslSni?.takeIf { it.isNotBlank() }
-     * ?: config.host`), jadi menyembunyikan field ini TIDAK mematikan TLS
-     * ataupun butuh nilai default baru -- perilaku koneksinya persis sama,
-     * cuma kolom isiannya yang tidak lagi dipaksa muncul ke user.
-     */
-    private fun showsTlsConfigFieldsForMode(modeIndex: Int): Boolean =
-        usesTlsForMode(modeIndex) && modeIndex != 4
+    private fun proxyRawModeEnabled(): Boolean = proxyToggleOn() && binding.chipRawMode.isChecked
 
     private fun updateFieldVisibilityForMode() {
-        val modeIndex = currentModeIndex()
-        val showTlsConfigFields = showsTlsConfigFieldsForMode(modeIndex)
-        val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
-        // DIKEMBALIKAN (permintaan user): mode 1 (SSH SSL) tidak lagi menampilkan
-        // blok Remote Proxy/Raw Passthrough -- kembali ke perilaku SSH SSL polos
-        // (TLS wrap langsung ke host, tanpa proxy/CDN sama sekali).
-        // modeIndex 4 (Enhanced) ikut disertakan -- proxy/CDN opsional kecuali
-        // Raw Passthrough aktif (lihat validasi di onSaveClicked).
-        val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
-        val proxyMandatory = modeIndex == 3
+        val usesTls = tlsToggleOn()
+        val usesPayload = payloadToggleOn()
+        val usesProxy = proxyToggleOn()
         val usesRawMode = proxyRawModeEnabled()
 
-        binding.tilSni.visibility = if (showTlsConfigFields) android.view.View.VISIBLE else android.view.View.GONE
-        binding.containerTlsVersion.visibility = if (showTlsConfigFields) android.view.View.VISIBLE else android.view.View.GONE
-        binding.chipIgnoreCertErrors.visibility = if (showTlsConfigFields) android.view.View.VISIBLE else android.view.View.GONE
+        binding.tilSni.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
+        binding.containerTlsVersion.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
+        binding.chipIgnoreCertErrors.visibility = if (usesTls) android.view.View.VISIBLE else android.view.View.GONE
         binding.tilPayload.visibility = if (usesPayload) android.view.View.VISIBLE else android.view.View.GONE
         // FITUR BARU (permintaan user): "Remote Proxy" (label + chip Raw Passthrough
         // + host/port proxy) sekarang satu blok (containerRemoteProxy) dengan SATU
         // visibility -- lihat activity_ssh_config.xml, chipGroupEnhancedToggle &
         // containerProxy sudah dipindah jadi anak dari blok ini.
         binding.containerRemoteProxy.visibility = if (usesProxy) android.view.View.VISIBLE else android.view.View.GONE
-        // Checkbox SSL Enhanced -- cuma relevan/tampil di mode 4, satu baris
-        // dengan chipRawMode (lihat catatan XML di dokumentasi kelas ini).
-        binding.chipEnhancedSsl.visibility = if (modeIndex == 4) android.view.View.VISIBLE else android.view.View.GONE
 
         binding.tilSni.hint = "SNI / Host WebSocket (kosongkan jika tidak perlu)"
-        binding.tilProxyHost.hint = when {
-            usesRawMode -> "Host / IP Proxy atau CDN (wajib)"
-            proxyMandatory -> "Host / IP Proxy (wajib)"
-            else -> "Host / IP Proxy (opsional)"
+        // REFACTOR (opsi 1+2): proxy TIDAK lagi wajib di kombinasi apa pun --
+        // begitu toggle "Gunakan Remote Proxy" dinyalakan, host wajib diisi
+        // (baru divalidasi saat Simpan, lihat onSaveClicked), makanya hint-nya
+        // selalu bilang "wajib" begitu blok ini kelihatan sama sekali.
+        binding.tilProxyHost.hint = if (usesRawMode) {
+            "Host / IP Proxy atau CDN (wajib)"
+        } else {
+            "Host / IP Proxy (wajib)"
         }
 
         updateWsAndHeaderFieldState(usesPayload, usesProxy, usesRawMode)
@@ -544,18 +469,12 @@ class SshConfigActivity : AppCompatActivity() {
     }
 
     private fun onSaveClicked() {
-        val modeIndex = currentModeIndex()
+        val usesTls = tlsToggleOn()
+        val usesPayload = payloadToggleOn()
+        val usesProxy = proxyToggleOn()
+        val usesEnhanced = enhancedToggleOn()
 
         val accountName = binding.etAccountName.text.toString().trim()
-
-        // FITUR BARU (permintaan user): validasi & parsing dilakukan lewat kolom
-        // gabungan "host:port@username:password" (etQuickPaste), bukan lagi
-        // lewat field Host/Username terpisah -- keduanya sudah disembunyikan
-        // di layout & cuma dipakai sebagai penyimpanan hasil parsing di bawah ini.
-        if (!applyServerComboText(binding.etQuickPaste.text.toString(), showErrors = true)) {
-            return
-        }
-
         val host = binding.etHost.text.toString().trim()
         val port = binding.etPort.text.toString().trim().toIntOrNull() ?: 22
         val username = binding.etUsername.text.toString().trim()
@@ -563,31 +482,27 @@ class SshConfigActivity : AppCompatActivity() {
         val sni = binding.etSni.text.toString().trim()
         val wsPath = binding.etWsPath.text.toString().trim()
         val customHeaders = binding.etCustomHeaders.text.toString().trim()
-        val dns1 = binding.etDns1.text.toString().trim()
-        val dns2 = binding.etDns2.text.toString().trim()
 
-        // Validasi ringan format IP di sini (bukan hostname/domain -- DNS di
-        // VpnService.Builder WAJIB literal IP, lihat MyVpnService.applyDnsServers)
-        // supaya salah ketik ketahuan langsung saat Simpan, bukan baru gagal diam-diam
-        // (fallback ke default) saat Connect nanti.
-        if (dns1.isNotEmpty() && !android.util.Patterns.IP_ADDRESS.matcher(dns1).matches()) {
-            binding.etDns1.error = "Harus alamat IP (mis. 1.1.1.1), bukan domain"
+        if (host.isEmpty() || username.isEmpty()) {
+            binding.etHost.error = if (host.isEmpty()) "Wajib diisi" else null
+            binding.etUsername.error = if (username.isEmpty()) "Wajib diisi" else null
             return
         }
-        if (dns2.isNotEmpty() && !android.util.Patterns.IP_ADDRESS.matcher(dns2).matches()) {
-            binding.etDns2.error = "Harus alamat IP (mis. 1.0.0.1), bukan domain"
-            return
-        }
+
+        // REVISI (permintaan user, "hapus total fallback dns bawaan, dns
+        // sekarang hanya tinggal di pengaturan"): field & validasi DNS1/DNS2
+        // per-akun di sini SUDAH DIHAPUS -- DNS sekarang cuma diatur dari
+        // kartu "VPN Setting" di layar Pengaturan (lihat SettingsActivity &
+        // VpnSettingsStore).
 
         val payloadProxyLocked = originalConfig?.lockMode == ConfigLockMode.LOCK_PAYLOAD_PROXY
 
-        val usesPayload = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         // PERBAIKAN (permintaan user, "kunci payload & remote proxy malah
         // kebuka semua"): kalau field ini sedang dikunci (lihat
         // [applyPayloadProxyLockIfNeeded]), form-nya SENGAJA dikosongkan &
         // dinonaktifkan di layar -- nilai yang benar-benar disimpan HARUS
         // diambil dari [originalConfig], bukan dari form, supaya nilai
-        // ASLI-nya tidak ikut terhapus cuma karena user menyimpan
+        // ASLI-nya tidak ikut hilang cuma karena user menyimpan
         // perubahan lain (mis. ganti nama akun) selagi field ini terkunci.
         val payload = when {
             payloadProxyLocked -> originalConfig?.payload.orEmpty()
@@ -595,10 +510,6 @@ class SshConfigActivity : AppCompatActivity() {
             else -> ""
         }
 
-        // DIKEMBALIKAN (permintaan user): modeIndex 1 (SSH SSL) dicopot lagi --
-        // lihat updateFieldVisibilityForMode(). modeIndex 4 (Enhanced) disertakan
-        // juga di sini supaya proxy/CDN-nya ikut tersimpan.
-        val usesProxy = modeIndex == 2 || modeIndex == 3 || modeIndex == 4
         val proxyHost = when {
             payloadProxyLocked -> originalConfig?.proxyHost.orEmpty()
             usesProxy -> binding.etProxyHost.text.toString().trim()
@@ -615,36 +526,27 @@ class SshConfigActivity : AppCompatActivity() {
             else -> false
         }
 
-        // Validasi Raw Passthrough/Payload+Remote Proxy di bawah ini cuma
-        // relevan kalau field-nya memang diisi lewat FORM -- kalau sedang
-        // terkunci ([payloadProxyLocked]), nilai aslinya sudah pasti valid
-        // (tersimpan begitu saat pertama kali diimpor), jadi dilewati saja.
+        // Validasi Raw Passthrough/Remote Proxy di bawah ini cuma relevan
+        // kalau field-nya memang diisi lewat FORM -- kalau sedang terkunci
+        // ([payloadProxyLocked]), nilai aslinya sudah pasti valid (tersimpan
+        // begitu saat pertama kali diimpor), jadi dilewati saja.
         if (!payloadProxyLocked) {
             if (proxyRawMode && proxyHost.isEmpty()) {
                 binding.etProxyHost.error = "Raw Passthrough butuh host/IP proxy atau CDN diisi"
                 return
             }
-            // Mode 3 (Payload + Remote Proxy) mewajibkan proxy diisi walau raw mode
-            // tidak aktif -- beda dari mode 2 yang proxy-nya opsional.
-            if (modeIndex == 3 && proxyHost.isEmpty()) {
-                binding.etProxyHost.error = "Payload + Remote Proxy butuh host/IP proxy diisi"
+            // REFACTOR (opsi 1+2): proxy TIDAK lagi wajib di kombinasi/mode
+            // apa pun secara bawaan -- tapi begitu toggle "Gunakan Remote
+            // Proxy" DINYALAKAN, host proxy tetap wajib diisi (toggle nyala +
+            // host kosong dianggap konfigurasi belum lengkap).
+            if (usesProxy && proxyHost.isEmpty()) {
+                binding.etProxyHost.error = "Toggle Remote Proxy aktif, host/IP proxy wajib diisi"
                 return
             }
         }
 
-        val usesTls = usesTlsForMode(modeIndex)
         val tlsVersion = if (usesTls) selectedTlsVersion() else null
         val ignoreCertErrors = usesTls && binding.chipIgnoreCertErrors.isChecked
-
-        // FITUR BARU (permintaan user, "samain kayak checkbox Enhanced & SSL
-        // yang kepisah di HTTP Custom"): checkbox SSL Enhanced cuma relevan
-        // untuk modeIndex 4 -- sama seperti proxyRawMode di atas, ikut nilai
-        // originalConfig kalau field ini sedang dikunci (LOCK_PAYLOAD_PROXY).
-        val enhancedSsl = when {
-            payloadProxyLocked -> originalConfig?.enhancedSsl ?: false
-            modeIndex == 4 -> binding.chipEnhancedSsl.isChecked
-            else -> false
-        }
 
         // FIX (multi-akun): dulu di sini ada logika "pertahankan xrayLink
         // profil lain sebelum menyimpan" karena SSH & Xray berbagi SATU slot
@@ -668,7 +570,12 @@ class SshConfigActivity : AppCompatActivity() {
                 port = port,
                 username = username,
                 password = password,
-                modeIndex = modeIndex,
+                // REFACTOR (opsi 1+2): modeIndex 0 tetap dipakai (cuma untuk
+                // bedakan akun SSH vs Xray, lihat modeIndex==5 di tempat
+                // lain) -- kombinasi TLS/Proxy/Payload yang sebenarnya
+                // SEKARANG disimpan eksplisit lewat tlsEnabled/proxyEnabled/
+                // payloadEnabled di bawah, bukan lewat modeIndex lagi.
+                modeIndex = 0,
                 sni = sni,
                 payload = payload,
                 proxyHost = proxyHost,
@@ -677,12 +584,16 @@ class SshConfigActivity : AppCompatActivity() {
                 useWebSocket = true,
                 wsPath = wsPath,
                 proxyRawMode = proxyRawMode,
-                enhancedSsl = enhancedSsl,
                 xrayLink = "",
                 customHeaders = customHeaders,
                 ignoreCertErrors = ignoreCertErrors,
-                dns1 = dns1,
-                dns2 = dns2,
+                // REVISI (permintaan user, "hapus total fallback dns bawaan,
+                // dns sekarang hanya tinggal di pengaturan"): dns1/dns2
+                // di sini SENGAJA tidak diisi lagi (fields ini masih ada di
+                // SavedConfig cuma untuk data lama, defaultnya "" -- tidak
+                // dibaca lagi oleh MyVpnService/XrayTunnelManager mana pun,
+                // DNS sekarang cuma diatur dari kartu VPN Setting di
+                // Pengaturan).
                 accountName = accountName,
                 isLocked = originalConfig?.isLocked ?: false,
                 lockMode = originalConfig?.lockMode ?: ConfigLockMode.NONE,
@@ -691,7 +602,11 @@ class SshConfigActivity : AppCompatActivity() {
                 // sama seperti isLocked/lockMode di atas -- tanpa ini,
                 // catatan akun hasil impor ke-reset diam-diam jadi kosong
                 // tiap kali profil ini disimpan ulang lewat layar edit ini.
-                note = originalConfig?.note ?: ""
+                note = originalConfig?.note ?: "",
+                tlsEnabled = usesTls,
+                proxyEnabled = usesProxy,
+                payloadEnabled = usesPayload,
+                enhancedEnabled = usesEnhanced
             )
         )
 
