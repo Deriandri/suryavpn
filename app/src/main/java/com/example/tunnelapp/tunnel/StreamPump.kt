@@ -10,6 +10,25 @@ object StreamPump {
     // dari 8KB -> 32KB, mengurangi jumlah syscall read()/write() per MB data.
     // REVERT (laporan user, sama seperti Socks5Server.kt): dikembalikan ke 8KB.
     private const val BUFFER_SIZE_BYTES = 8192
+    private const val DUMP_CHUNKS = 3
+    private const val DUMP_PREVIEW_BYTES = 48
+
+    /** Tampilkan [n] byte pertama (maks [DUMP_PREVIEW_BYTES]) sebagai teks, byte non-cetak jadi \xNN. */
+    private fun preview(buf: ByteArray, n: Int): String {
+        val sb = StringBuilder()
+        val limit = minOf(n, DUMP_PREVIEW_BYTES)
+        for (i in 0 until limit) {
+            val v = buf[i].toInt() and 0xFF
+            when {
+                v == 13 -> sb.append("\\r")
+                v == 10 -> sb.append("\\n")
+                v in 32..126 -> sb.append(v.toChar())
+                else -> sb.append("\\x").append(String.format("%02x", v))
+            }
+        }
+        if (n > limit) sb.append("...")
+        return sb.toString()
+    }
 
     /**
      * @param report opsional: dipanggil SEKALI per arah saat arah itu berhenti,
@@ -27,6 +46,7 @@ object StreamPump {
 
     private fun copy(from: Socket, to: Socket, label: String, t0: Long, report: ((String) -> Unit)?) {
         var total = 0L
+        var chunkNo = 0
         var reason = "EOF (sumber menutup koneksi)"
         try {
             val buffer = ByteArray(BUFFER_SIZE_BYTES)
@@ -35,6 +55,16 @@ object StreamPump {
             while (true) {
                 val n = input.read(buffer)
                 if (n == -1) break
+                // Diagnosis: 3 potongan pertama tiap arah dicatat (waktu, ukuran,
+                // dan 48 byte pertama). Ini fase awal handshake SSH (ident dan
+                // KEXINIT, belum terenkripsi), jadi tidak memuat kredensial.
+                if (chunkNo < DUMP_CHUNKS) {
+                    chunkNo++
+                    report?.invoke(
+                        "[Relay] $label #$chunkNo +${System.currentTimeMillis() - t0} ms ($n byte): " +
+                            preview(buffer, n)
+                    )
+                }
                 output.write(buffer, 0, n)
                 output.flush()
                 total += n

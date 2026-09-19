@@ -242,7 +242,19 @@ class ConnectRelay(
         val connectPort = if (usesProxy) (config.proxyPort ?: config.port) else config.port
 
         try {
-            rawSocket.connect(InetSocketAddress(connectHost, connectPort), CONNECT_TIMEOUT_MS)
+            // DIAGNOSIS (laporan user): di WiFi normal, di data operator gagal
+            // (server mereset koneksi ~1 RTT setelah SSH mulai), sedangkan HTTP
+            // Custom di jaringan yang sama berhasil. Kandidat: InetSocketAddress(host)
+            // memakai alamat PERTAMA hasil DNS, dan di Android yang punya rute IPv6
+            // (umum di data seluler) itu bisa berupa IPv6 -- jalur operator yang
+            // berbeda dari IPv4. Sekarang IPv4 diutamakan (IPv6 hanya kalau
+            // memang tidak ada IPv4), dan semua alamat hasil DNS dicatat ke log.
+            val resolved = java.net.InetAddress.getAllByName(connectHost)
+            if (!config.hideSensitiveLogs) {
+                StatusBus.log("DNS $connectHost -> " + resolved.joinToString { it.hostAddress ?: "?" })
+            }
+            val target = resolved.firstOrNull { it is java.net.Inet4Address } ?: resolved.first()
+            rawSocket.connect(InetSocketAddress(target, connectPort), CONNECT_TIMEOUT_MS)
         } catch (e: Exception) {
             StatusBus.fail(StepId.CONNECT_SERVER, e.message ?: e.javaClass.simpleName)
             throw e
@@ -254,6 +266,17 @@ class ConnectRelay(
         // terus sepanjang tahap TLS/payload berjalan, alih-alih menyala hijau
         // satu per satu sesuai urutan tahap yang sebenarnya terjadi.
         StatusBus.success(StepId.CONNECT_SERVER)
+        // Diagnosis: ke mana socket ini benar-benar tersambung (HTTP Custom
+        // mencatat "connected to socket host:port"). Disembunyikan untuk akun
+        // terkunci supaya host proxy asli tidak bocor ke layar Log.
+        if (!config.hideSensitiveLogs) {
+            StatusBus.log(
+                "TCP tersambung ke $connectHost:$connectPort " +
+                    "(IP ${rawSocket.inetAddress?.hostAddress}), " +
+                    "proxy=${if (usesProxy) (if (config.proxyRawMode) "raw" else "CONNECT") else "tidak"}, " +
+                    "tls=${config.usesTls()}"
+            )
+        }
 
         // PENTING (bug fix "freeze"): aktifkan timeout baca cuma untuk fase
         // handshake (proxy CONNECT, TLS, WebSocket) yang mengikuti. Tanpa ini,
